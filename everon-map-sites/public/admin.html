@@ -63,7 +63,7 @@
 <body>
   <form id="login" class="panel" autocomplete="off">
     <h1><svg class="brand-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v6M12 16.5v6M1.5 12h6M16.5 12h6"/></svg>Everon Field Map admin</h1>
-    <p>Enter the admin password. It's set when the server starts (<code>--admin-password</code> or <code>EVERON_ADMIN_PASSWORD</code>); if neither was set, the server window shows a random one.</p>
+    <p>Enter the admin password. It's the <code>EVERON_ADMIN_PASSWORD</code> secret set in the site's settings; without it the admin view is switched off.</p>
     <label class="field"><span>Password</span><input id="password" type="password" autocomplete="current-password" required></label>
     <div id="login-error" class="error" role="alert"></div>
     <button type="submit" class="primary">Sign in</button>
@@ -87,8 +87,8 @@
     <h2>Banned addresses</h2>
     <div id="bans"></div>
     <p class="note">Bans block an IP address, so everyone connecting from it is removed and can't join again until the ban
-      ends. People on the same network (a shared house or a school) share an address. Bans are kept in <code>bans.json</code>
-      next to the server and survive a restart.</p>
+      ends. People on the same network (a shared house or a school) share an address. Bans are kept in the site's
+      database, so they last until they end or you lift them.</p>
   </main>
   <div id="toast" class="hidden" role="status"></div>
 

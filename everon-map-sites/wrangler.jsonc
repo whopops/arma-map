@@ -1,0 +1,26 @@
+// Cloudflare Workers settings. ChatGPT Sites runs sites on Workers, with D1 for data and R2 for files;
+// it manages the real database and bucket IDs itself (in .openai/hosting.json), so the IDs below are
+// placeholders for running the site locally with `npm run dev`.
+{
+  "name": "everon-field-map",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-06-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // Every request goes through src/worker.js first, so the admin page can be locked down and every
+    // response gets the security headers.
+    "run_worker_first": true,
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+  // Required: players, markings, briefings, bans and admin sign-ins. Tables are created on first use.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "everon-field-map", "database_id": "00000000-0000-0000-0000-000000000000" }
+  ],
+  // Optional: keeps map tiles that weren't shipped in public/tiles once they've been fetched.
+  "r2_buckets": [
+    { "binding": "TILES", "bucket_name": "everon-field-map-tiles" }
+  ],
+  "observability": { "enabled": true }
+}

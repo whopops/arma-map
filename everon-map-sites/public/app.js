@@ -584,7 +584,7 @@
     players: new Map(),  // name -> {name, color, items: Map(id -> item), layers: Map(id -> layer), group}
     showOthers: true,
     tool: 'pan',
-    es: null,
+    es: null, // the live-worker.js background worker while joined
   };
 
   const TYPE_NAME = { marker: 'Marker', route: 'Route', range: 'Range line', mortar: 'Mortar', fia: 'FIA caches', emplacement: 'MG nest', construct: 'Construct',
@@ -4310,7 +4310,7 @@
   // Session: username prompt every visit, nothing remembered
   // ---------------------------------------------------------------------------
   function showJoin(message) {
-    if (state.es) { state.es.close(); state.es = null; }
+    if (state.es) { state.es.terminate(); state.es = null; }
     state.me = null;
     [...state.players.keys()].forEach(removePlayer);
     refreshLists();
@@ -4341,25 +4341,24 @@
       document.activeElement?.blur(); // so tool hotkeys work straight away
       connect();
     } catch (err) {
-      $('#join-error').textContent = err.message === 'Failed to fetch' ? 'Cannot reach the map server. Is it running?' : err.message;
+      $('#join-error').textContent = err.message === 'Failed to fetch' ? 'Cannot reach the map server. Check your connection and try again.' : err.message;
     } finally {
       btn.disabled = false;
     }
   });
 
+  // Updates arrive through live-worker.js, which checks in with the server about once a second.
   function connect() {
     const { id, token } = state.me;
-    const es = new EventSource(`/api/events?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`);
-    state.es = es;
-    es.onmessage = m => { try { onEvent(JSON.parse(m.data)); } catch (err) { console.error(err); } };
-    es.addEventListener('bye', m => {
-      let reason = '';
-      try { reason = JSON.parse(m.data).reason || ''; } catch { /* older server */ }
-      showJoin(reason || 'Your session ended. Enter a username to rejoin.');
-    });
-    es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED && state.es === es) showJoin('Lost connection to the map server. Enter a username to rejoin.');
+    const live = new Worker('live-worker.js');
+    state.es = live;
+    live.onmessage = ({ data: m }) => {
+      if (state.es !== live) return;
+      if (m.type === 'events') m.events.forEach(ev => { try { onEvent(ev); } catch (err) { console.error(err); } });
+      else if (m.type === 'bye') showJoin(m.reason || 'Your session ended. Enter a username to rejoin.');
+      else if (m.type === 'closed') showJoin('Lost connection to the map server. Enter a username to rejoin.');
     };
+    live.postMessage({ type: 'start', id, token });
   }
 
   // Closing the tab removes your markings right away; if this signal is lost the server drops you after 15 s.
