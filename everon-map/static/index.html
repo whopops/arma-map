@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Everon Field Map</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%23c8d96f' stroke-width='3'/><path d='M16 3v8M16 21v8M3 16h8M21 16h8' stroke='%23c8d96f' stroke-width='3'/></svg>">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Grid rulers along the map edges -->
+  <div id="ruler-x" class="ruler" aria-hidden="true"></div>
+  <div id="ruler-z" class="ruler" aria-hidden="true"></div>
+
+  <!-- Tool bar: Select plus one menu per group (Friendly, Enemy, Plan, Defend, Hazards), built by app.js -->
+  <div id="toolbar" class="panel" role="toolbar" aria-label="Map tools">
+    <button type="button" data-tool="pan" class="tool active" title="Select (Q): click anything for details, drag your own markings to move them">
+      <svg viewBox="0 0 24 24"><path d="M5 3l13 7-5.5 1.6L10 17z"/></svg><span class="name">Select</span><kbd>Q</kbd></button>
+    <div id="tool-menus"></div>
+  </div>
+  <div id="hint" class="hidden"></div>
+  <div id="arc-picker" class="picker hidden" role="radiogroup" aria-label="Field of fire width">
+    <span class="mp-label">MG nest · arc</span>
+    <button type="button" data-arc="30" role="radio">30°<kbd>1</kbd></button>
+    <button type="button" data-arc="60" role="radio" class="sel">60°<kbd>2</kbd></button>
+    <button type="button" data-arc="90" role="radio">90°<kbd>3</kbd></button>
+    <button type="button" data-arc="120" role="radio">120°<kbd>4</kbd></button>
+    <label class="mp-num" title="How high the nest sits above the ground, e.g. on a roof or tower">Raised
+      <input id="empl-height" type="number" min="0" max="100" step="0.5" value="0" aria-label="Height above the ground in metres"> m</label>
+    <span class="mp-hint" id="arc-hint">Click to place the nest</span>
+  </div>
+  <!-- Options for the current tool (timeouts, reach, ambush type, number of sectors); filled in by app.js -->
+  <div id="opt-picker" class="picker hidden" role="radiogroup"></div>
+
+  <!-- Cursor + live readout -->
+  <div id="readout">
+    <div id="live" class="hidden"></div>
+    <div id="cursor" class="panel"><span class="cap">Grid</span><span id="cursor-grid">— —</span></div>
+  </div>
+
+  <!-- Sidebar: who you are, search, then the sections -->
+  <aside id="sidebar" class="panel">
+    <header>
+      <div class="brand">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v6M12 16.5v6M1.5 12h6M16.5 12h6"/></svg>
+        <h1>Everon Field Map</h1>
+      </div>
+      <button type="button" id="palette-open" class="finder-btn" title="Find any tool, layer or action (Ctrl+K)" aria-label="Find a tool (Ctrl+K)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="17.5" cy="16.5" r="3"/><path d="M19.7 18.7L22 21"/></svg><kbd>Ctrl K</kbd></button>
+      <button id="collapse" class="icon-btn" title="Hide panel" aria-label="Toggle panel">⟨</button>
+    </header>
+
+    <div id="identity" class="hidden">
+      <span id="me-avatar" class="avatar"></span>
+      <div class="id-text">
+        <b id="me-name"></b>
+        <span class="id-room">Room <code id="room-code"></code>
+          <button type="button" id="room-copy" class="link-btn" title="Copy a link that fills in this room code">Copy invite link</button></span>
+      </div>
+    </div>
+
+    <div class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+      <input id="search" type="search" placeholder="Search places, bases, markings" autocomplete="off">
+    </div>
+    <ul id="results" class="hidden"></ul>
+
+    <!-- One scrolling column of sections, each opened and closed from its heading -->
+    <div id="panels">
+      <section class="acc" data-sec="players">
+        <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-players"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.4 3-5 6-5s5.4 1.6 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14c2.3.2 4 1.7 4.5 4.5"/></svg><span class="acc-title">Players</span><span id="player-count" class="count"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
+        <div class="acc-body" id="sec-players">
+          <ul id="players"></ul>
+          <label class="switch"><input type="checkbox" id="show-others" checked><span>Show other players' markings</span></label>
+        </div>
+      </section>
+
+      <section class="acc" data-sec="briefing">
+        <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-briefing"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/></svg><span class="acc-title">Briefing</span><span id="briefing-dot" class="acc-dot hidden" title="The briefing was updated"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
+        <div class="acc-body" id="sec-briefing">
+          <div id="briefing-view">
+            <div id="briefing-text" class="briefing-text"></div>
+            <div id="briefing-meta" class="briefing-meta"></div>
+            <div class="row"><button type="button" id="briefing-edit">Edit briefing</button></div>
+          </div>
+          <form id="briefing-form" class="hidden">
+            <textarea id="briefing-input" rows="10" maxlength="6000" placeholder="The plan, radio channels, rally points, who does what…" aria-label="Briefing"></textarea>
+            <div id="briefing-clash" class="fia-msg warn hidden"></div>
+            <div class="row">
+              <button type="button" id="briefing-template" title="Insert a standard briefing layout">Insert template</button>
+              <span class="spacer"></span>
+              <button type="button" id="briefing-cancel">Cancel</button>
+              <button type="submit" class="primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="acc" data-sec="markings">
+        <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-markings"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-10.5a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/></svg><span class="acc-title">My markings</span><span id="mine-count" class="count"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
+        <div class="acc-body" id="sec-markings">
+          <ul id="mine"></ul>
+          <div class="row">
+            <button id="export">Export plan</button>
+            <button id="import">Import plan</button>
+          </div>
+          <input id="import-file" type="file" accept=".json,application/json" hidden>
+        </div>
+      </section>
+
+      <section class="acc" data-sec="mortar">
+        <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-mortar"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4.5M12 17.5V22M2 12h4.5M17.5 12H22"/></svg><span class="acc-title">Mortar</span><span id="fire-count" class="count warn" title="Fire requests waiting"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
+        <div class="acc-body" id="sec-mortar">
+          <div class="pair">
+            <label class="field"><span>Weapon</span><select id="mortar-weapon"></select></label>
+            <label class="field"><span>Shell</span><select id="mortar-shell"></select></label>
+          </div>
+          <div id="mortar-status"></div>
+          <ul id="mortar-targets"></ul>
+          <div class="row" id="mortar-actions">
+            <button id="mortar-move">Move mortar</button>
+            <button id="mortar-clear">Clear targets</button>
+            <button id="mortar-remove" class="danger">Remove</button>
+          </div>
+          <div class="sub-block hidden" id="fire-requests">
+            <h3>Fire requests</h3>
+            <ul id="mortar-requests"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="acc" data-sec="fia">
+        <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-fia"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 9-8 9-8-9z"/></svg><span class="acc-title">FIA caches this game</span><span id="fia-count" class="count"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
+        <div class="acc-body" id="sec-fia">
+          <form id="fia-form" class="fia-form" autocomplete="off">
+            <input id="fia-input" placeholder="Grid, e.g. 089 028" aria-label="FIA cache coordinates">
+            <button type="submit" class="primary">Add</button>
+          </form>
+          <div id="fia-msg" class="fia-msg">Enter a grid or X/Z position. It snaps to the nearest known cache spot.</div>
+          <ul id="fia-list"></ul>
+          <div id="fia-layers" class="fia-layers"></div>
+        </div>
+      </section>
+
+      <section class="acc" data-sec="layers">
+        <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-layers"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/></svg><span class="acc-title">Map layers</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
+        <div class="acc-body" id="sec-layers">
+          <div id="layers"></div>
+          <label class="switch"><input type="checkbox" id="show-grid" checked><span>Grid lines</span></label>
+        </div>
+      </section>
+
+      <footer>
+        Data: POIs from <a href="https://reforger.recoil.org/everon/" target="_blank" rel="noopener">reforger.recoil.org</a>,
+        place names from <a href="https://www.izurvive.com/reforger_everon/" target="_blank" rel="noopener">iZurvive</a>,
+        heightmap from <a href="https://mortards.net/" target="_blank" rel="noopener">mortards.net</a>,
+        firing tables from <a href="https://github.com/147888sf/ArmA-Reforger-mortar-calculator" target="_blank" rel="noopener">147888sf</a>.
+        Positions may lag game updates.
+      </footer>
+    </div>
+  </aside>
+
+  <!-- Username prompt -->
+  <div id="join" class="modal">
+    <form id="join-form" class="panel">
+      <div class="brand big">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v6M12 16.5v6M1.5 12h6M16.5 12h6"/></svg>
+        <h1>Everon Field Map</h1>
+      </div>
+      <p>Pick a username and your squad's room code. Your markings are shared live with everyone in the room and disappear when you close the tab.</p>
+      <label class="field"><span>Username</span><input id="join-name" maxlength="20" placeholder="e.g. Viper 2-1" autocomplete="off" required></label>
+      <div class="field"><span>Room code · everyone in your squad uses the same one</span>
+        <div class="room-row">
+          <input id="join-room" maxlength="32" placeholder="e.g. viper-squad" autocomplete="off" spellcheck="false" required aria-label="Room code">
+          <button type="button" id="join-new-room" title="Make up a new random room code">New code</button>
+        </div>
+      </div>
+      <div id="join-error" class="error" role="alert"></div>
+      <button type="submit" class="primary">Enter map</button>
+    </form>
+  </div>
+
+  <!-- Marking editor -->
+  <div id="editor" class="modal hidden">
+    <form id="editor-form" class="panel">
+      <h2 id="editor-title">Marker</h2>
+      <label class="field"><span>Label</span><input id="ed-label" maxlength="60"></label>
+      <label class="field"><span>Note</span><textarea id="ed-note" maxlength="500" rows="3" placeholder="Optional"></textarea></label>
+      <label class="field" id="ed-icon-row"><span>Type</span>
+        <select id="ed-icon">
+          <option value="dot">● Point</option>
+          <option value="objective">★ Objective</option>
+          <option value="rally">⚑ Rally point</option>
+          <option value="danger">! Danger</option>
+        </select>
+      </label>
+      <div id="ed-contact" class="ed-extra hidden">
+        <div class="pair">
+          <label class="field"><span>How many</span>
+            <select id="ed-size"><option value="">Unknown</option><option>1</option><option>2–3</option><option>4–6</option><option>7–12</option><option>12+</option></select></label>
+          <label class="field"><span>Doing</span>
+            <select id="ed-activity"><option value="">Unknown</option><option>Moving</option><option>Static</option><option>Dug in</option><option>Patrolling</option><option>Attacking</option><option>Withdrawing</option></select></label>
+        </div>
+        <div class="pair">
+          <label class="field"><span>Heading</span>
+            <select id="ed-heading"><option value="">Not moving / unknown</option><option value="0">North</option><option value="45">North-east</option><option value="90">East</option><option value="135">South-east</option><option value="180">South</option><option value="225">South-west</option><option value="270">West</option><option value="315">North-west</option></select></label>
+          <label class="field"><span>Carrying</span><input id="ed-kit" maxlength="60" placeholder="e.g. RPG, MG, BTR"></label>
+        </div>
+      </div>
+      <label class="field hidden" id="ed-ttl-row"><span>Times out</span>
+        <select id="ed-ttl"><option value="0">Never</option><option value="5">5 min from now</option><option value="15">15 min from now</option><option value="30">30 min from now</option><option value="60">1 hour from now</option></select></label>
+      <label class="field hidden" id="ed-height-row"><span>Raised above the ground (m) · e.g. on a roof or tower</span>
+        <input id="ed-height" type="number" min="0" max="100" step="0.5"></label>
+      <div id="ed-air" class="ed-extra hidden"></div>
+      <div id="ed-sectors" class="field ed-extra hidden"><span>Who covers each sector</span><div id="ed-sector-rows"></div></div>
+      <div class="field" id="ed-color-row"><span>Colour</span><div class="colors" id="ed-colors"></div></div>
+      <div class="row end">
+        <button type="button" id="ed-delete" class="danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" id="ed-cancel">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Tool finder (Ctrl+K) -->
+  <div id="palette" class="modal hidden">
+    <div class="panel palette-box" role="dialog" aria-label="Find a tool">
+      <div class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+        <input id="palette-input" placeholder="Find a tool, layer or action…" autocomplete="off" spellcheck="false" aria-label="Find a tool" aria-controls="palette-list">
+      </div>
+      <ul id="palette-list" role="listbox"></ul>
+      <div class="palette-foot"><kbd>↑</kbd><kbd>↓</kbd> choose · <kbd>Enter</kbd> use · <kbd>Esc</kbd> close</div>
+    </div>
+  </div>
+
+  <div id="toast" class="hidden" role="status"></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
