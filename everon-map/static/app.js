@@ -2070,23 +2070,26 @@
     return html;
   }
 
-  // Where rounds land around an aim point: the spread (the range table's average dispersion for the ring used) shaded
-  // as the kill zone, and for HE a dashed danger zone KILL_RADIUS further out. Smoke, illumination and practice rounds
-  // aren't lethal, so they show only the spread, in their own colour.
+  // Where rounds land around an aim point. The target zone is the spread (the range table's average dispersion for the
+  // ring used), shaded red. For HE, a round landing on its edge kills KILL_RADIUS further out (dashed red, the kill
+  // zone) and endangers DANGER_RADIUS further out (dashed yellow, the danger zone). Smoke, illumination and practice
+  // rounds aren't lethal, so they show only the spread, in their own colour.
   const isLethal = shell => /^HE/.test(shell || '');
   const shellColor = shell => (/^Smoke/.test(shell) ? FIRE.smoke.color : /^Illum/.test(shell) ? FIRE.illum.color : '#adb5bd');
   function impactZones(layer, xz, spread, lethal, color) {
     if (lethal) {
+      layer.addLayer(L.circle(toLL(xz), { radius: spread + DANGER_RADIUS, color: '#ffd43b', weight: 1.8, dashArray: '6 5', fillColor: '#ffd43b', fillOpacity: 0.12, interactive: false }));
       layer.addLayer(L.circle(toLL(xz), { radius: spread + KILL_RADIUS, color: '#ff5c5c', weight: 1.8, dashArray: '6 5', fillColor: '#ff5c5c', fillOpacity: 0.1, interactive: false }));
       if (spread) layer.addLayer(L.circle(toLL(xz), { radius: spread, color: '#ff2b2b', weight: 2, fillColor: '#ff2b2b', fillOpacity: 0.35, interactive: false }));
     } else if (spread) {
       layer.addLayer(L.circle(toLL(xz), { radius: spread, color, weight: 1.8, dashArray: '5 4', fillColor: color, fillOpacity: 0.16, interactive: false }));
     }
   }
-  // "Kill zone 24 m · danger zone 44 m" (or the spread for other shells), and any friendlies inside the danger zone.
+  // "Target 14 m · kill 34 m · danger 38 m" (or the spread for other shells), and any friendlies inside the danger zone.
   function impactText(shell, spread, xz) {
     if (!isLethal(shell)) return { zone: `Rounds land within about ${spread} m`, near: [] };
-    return { zone: `Kill zone ${spread} m · danger zone ${spread + KILL_RADIUS} m`, near: friendliesNear({ xz }, spread + KILL_RADIUS) };
+    return { zone: `Target zone ${spread} m · kill zone ${spread + KILL_RADIUS} m · danger zone ${spread + DANGER_RADIUS} m`,
+      near: friendliesNear({ xz }, spread + DANGER_RADIUS) };
   }
   const friendlyWarning = near => (near.length
     ? `<p><b class="rc-no">Friendlies in the danger zone</b>: ${near.slice(0, 6).map(x => `${esc(x.name)} ${x.d < 1 ? '(inside)' : fmtDist(x.d)}`).join(', ')}</p>` : '');
@@ -3747,11 +3750,10 @@
     return { shell, sol: solve(m.weapon, shell, m.xz, fireAim(req)) };
   }
   const fireAim = req => (req.points ? polyCentroid(req.points) : req.xz);
-  // A point request's circles. Rounds land within the mortar's spread (the range table's average dispersion for the
-  // ring it would use), and every HE round kills within KILL_RADIUS of where it lands. So the spread circle is the
-  // kill zone, and KILL_RADIUS further out is the danger zone. Sized for your mortar if it can reach, otherwise the
-  // nearest one that can; with no mortar in range the spread is unknown and only one round's radius is drawn.
-  const KILL_RADIUS = 20;
+  // A point request's circles (see impactZones): target zone = the mortar's spread, kill zone KILL_RADIUS and danger
+  // zone DANGER_RADIUS beyond it. Sized for the mortar you follow or your own if it can reach, otherwise the nearest
+  // one that can; with no mortar in range the spread is unknown and only one round's zones are drawn.
+  const KILL_RADIUS = 20, DANGER_RADIUS = 24;
   function fireSpread(req) {
     if (!TABLES) return null;
     const mine = solutionMortar()?.it;
@@ -3765,10 +3767,10 @@
     return best;
   }
   function fireZones(req) {
-    const s = fireSpread(req), kill = s ? s.sol.best.dispersion : 0;
-    return { s, kill, danger: kill + KILL_RADIUS };
+    const s = fireSpread(req), target = s ? s.sol.best.dispersion : 0;
+    return { s, target, kill: target + KILL_RADIUS, danger: target + DANGER_RADIUS };
   }
-  // Friendly markings a request would put in danger: inside an area or within KILL_RADIUS of it, or inside a point's
+  // Friendly markings a request would put in danger: inside an area or within DANGER_RADIUS of it, or inside a point's
   // danger zone.
   const isFriendly = it => (it.type === 'marker' && ['infantry', 'unit-inf-f', 'unit-arm-f', 'radio', 'rally'].includes(it.icon)) ||
     isOurPost(it) || it.type === 'emplacement' || it.type === 'mortar';
@@ -3785,7 +3787,7 @@
       bindInfo(poly, html);
       layer.addLayer(poly);
     } else {
-      impactZones(layer, c, fireZones(it).kill, f === FIRE.he, f.color);
+      impactZones(layer, c, fireZones(it).target, f === FIRE.he, f.color);
     }
     const m = L.marker(toLL(c), { keyboard: false, riseOnHover: true, zIndexOffset: 400, icon: L.divIcon({ className: 'fire-glyph', iconSize: [0, 0],
       html: `<svg viewBox="0 0 24 24" style="--c:${f.color}"><circle cx="12" cy="12" r="8"/><path d="M12 1v7M12 16v7M1 12h7M16 12h7"/></svg>` }) });
@@ -3857,7 +3859,8 @@
     if (it.points) {
       const xs = it.points.map(q => q[0]), zs = it.points.map(q => q[1]);
       size = ['Across', `${Math.round(Math.max(...xs) - Math.min(...xs))} × ${Math.round(Math.max(...zs) - Math.min(...zs))} m`];
-    } else size = he ? ['Kill / danger', `${z.kill ? `${z.kill} / ` : ''}${z.danger} m`] : ['Spread', z.kill ? `±${z.kill} m` : '—'];
+    } else size = he ? [z.target ? 'Target / kill / danger' : 'Kill / danger', `${z.target ? `${z.target} / ` : ''}${z.kill} / ${z.danger} m`]
+      : ['Spread', z.target ? `±${z.target} m` : '—'];
     let html = `<div class="stats"><div><span class="k">Fire</span><span class="v">${f.name}</span></div>` +
       `<div><span class="k">${size[0]}</span><span class="v">${size[1]}</span></div>` +
       `<div><span class="k">Asked</span><span class="v">${fmtAgo(Date.now() - (it.at || Date.now()))}</span></div></div>` +
@@ -3866,10 +3869,10 @@
       const s = z.s, who = s && `${esc(s.m.label || 'Mortar')}${isMine(s.p.name) ? '' : ` (${esc(s.p.name)})`}`;
       html += s
         ? `<p class="sub">Sized for ${who}, ring ${s.sol.best.ring}</p>`
-        : `<p class="sub">No mortar in range${he ? `: showing one round's ${KILL_RADIUS} m radius` : ''}</p>`;
+        : `<p class="sub">No mortar in range${he ? ': zones for a single round' : ''}</p>`;
     }
     if (he) {
-      const near = friendliesNear(it, it.points ? KILL_RADIUS : z.danger);
+      const near = friendliesNear(it, it.points ? DANGER_RADIUS : z.danger);
       html += friendlyWarning(near);
     }
     const mortars = allVisibleItems(i => i.type === 'mortar');
