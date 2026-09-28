@@ -2721,6 +2721,7 @@
   const HELI_ALTS = [[30, '30 m'], [100, '100 m'], [200, '200 m']];
   state.heliAlt = 100;
   state.routeMode = 'foot';
+  state.swim = false;
   state.casShape = 'point';
   const PICKERS = {
     ambush: { label: 'Ambush', key: 'ambushKind', options: [['linear', 'Linear'], ['l', 'L-shaped']] },
@@ -2736,7 +2737,8 @@
     'air-cas': { label: 'Target', key: 'casShape', options: [['point', 'Point'], ['area', 'Area']] },
     'aa-e': { label: 'Helicopter height', key: 'heliAlt', options: HELI_ALTS },
     'cover-route': () => [{ label: 'Travel', key: 'routeMode', options: [['foot', 'Foot'], ['air', 'Air']] },
-      ...(state.routeMode === 'air' ? [{ label: 'Helicopter height', key: 'heliAlt', options: HELI_ALTS }] : [])],
+      ...(state.routeMode === 'air' ? [{ label: 'Helicopter height', key: 'heliAlt', options: HELI_ALTS }]
+        : [{ label: 'Swimming', key: 'swim', options: [[false, 'Off'], [true, 'On']] }])],
     radio: { label: `Spawn radius (${RADIO_CLEAR} m)`, key: 'radioRing', options: [[true, 'Show'], [false, 'Hide']] },
     'fire-support': [
       { label: 'Request', key: 'fireShape', options: [['area', 'Area'], ['point', 'Point']] },
@@ -3183,8 +3185,10 @@
   // along the direction of travel, so running along a hillside counts as flat. Soldiers in game keep most of their
   // speed on slopes, far more than a real hiker: uphill every 10% of grade costs UPHILL_COST x 10% more time, and
   // downhill is full speed until DOWNHILL_FREE, then slows the same way. Slopes over FOOT_MAX_DEG can't be crossed. m/s.
-  const JOG = 3.33, UPHILL_COST = 1.5, DOWNHILL_FREE = 0.3;
-  const FOOT_MAX_DEG = 60, FOOT_MAX_GRADE = Math.tan(FOOT_MAX_DEG * Math.PI / 180);
+  // SWIM: Camurac's shore to Seagull Point, 508 m of water, takes 6 min 56 s in game.
+  const JOG = 3.33, UPHILL_COST = 1.5, DOWNHILL_FREE = 0.3, SWIM = 508 / 416;
+  const FOOT_MAX_DEG = 80, FOOT_MAX_GRADE = Math.tan(FOOT_MAX_DEG * Math.PI / 180);
+  const isWater = h => h < 0.5;
   const walkSpeed = grade => JOG / (1 + UPHILL_COST * (grade > 0 ? grade : Math.max(0, -grade - DOWNHILL_FREE)));
   const DRIVE_KMH = 40;
   const fmtTime = s => s < 90 ? `${Math.max(1, Math.round(s))} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round(s / 60) % 60} min`;
@@ -3206,10 +3210,15 @@
       const xz = pointAlong(pts, d), [seen, by] = watchedAt(ws, xz);
       return { d, xz, h: heightAt(xz), seen, by };
     });
-    let climb = 0, descent = 0, walk = 0, steep = 0, seenClear = 0, seenTrees = 0;
+    let climb = 0, descent = 0, walk = 0, steep = 0, seenClear = 0, seenTrees = 0, swim = 0;
     for (let i = 1; i < S.length; i++) {
       const a = S[i - 1], b = S[i], len = b.d - a.d;
       if (len <= 0) continue;
+      if (isWater(a.h) || isWater(b.h)) { // swimming
+        swim += len; walk += len / SWIM;
+        if (b.seen === LOS_CLEAR) seenClear += len; else if (b.seen === LOS_TREES) seenTrees += len;
+        continue;
+      }
       const dh = b.h - a.h, g = dh / len;
       if (dh > 0) climb += dh; else descent -= dh;
       steep = Math.max(steep, Math.abs(g));
@@ -3234,7 +3243,7 @@
       return best && { name: it.label || typeLabel(it), ...best };
     }).filter(Boolean).sort((a, b) => a.d - b.d);
     const hs = S.map(s => s.h);
-    const res = { total, climb, descent, steep, walk, drive: total / (DRIVE_KMH / 3.6), seenClear, seenTrees, stretches, crossed, hazards,
+    const res = { total, climb, descent, steep, walk, swim, drive: total / (DRIVE_KMH / 3.6), seenClear, seenTrees, stretches, crossed, hazards,
       watchers: ws.length, profile: S, minH: Math.min(...hs), maxH: Math.max(...hs) };
     if (routeCache.size > 40) routeCache.clear();
     routeCache.set(key, res);
@@ -3256,11 +3265,11 @@
       `<div class="profile-axis"><span>Start</span><span>${fmtDist(rc.total)}</span></div></div>`;
   }
   function routeCheckHtml(rc) {
-    if (!rc) return '<p class="sub">The route check needs the terrain heights, which are still loading.</p>';
+    if (!rc) return '<p class="sub">Terrain heights still loading.</p>';
     let html = `<div class="stats wrap"><div><span class="k">On foot</span><span class="v">${fmtTime(rc.walk)}</span></div>` +
       `<div><span class="k">Vehicle</span><span class="v">${fmtTime(rc.drive)}</span></div>` +
       `<div><span class="k">Up / down</span><span class="v">${Math.round(rc.climb)} / ${Math.round(rc.descent)} m</span></div></div>` +
-      profileSvg(rc) + `<p class="sub">Steepest stretch ${Math.round(rc.steep * 100)}%.</p>`;
+      profileSvg(rc) + `<p class="sub">Steepest stretch ${Math.round(rc.steep * 100)}%${rc.swim ? ` · swims ${fmtDist(rc.swim)}` : ''}.</p>`;
     if (!rc.watchers) {
       html += '<p class="sub">Mark enemies to see where it\'s exposed.</p>';
     } else if (!rc.seenClear && !rc.seenTrees) {
@@ -3295,7 +3304,7 @@
       const ws = watchers();
       me.items.forEach(it => {
         if (it.type !== 'route' || !it.plan || it.plan.mode !== 'foot') return;
-        const pts = findCoveredRoute(it.plan.from, it.plan.to, ws);
+        const pts = findCoveredRoute(it.plan.from, it.plan.to, ws, !!it.plan.swim);
         if (pts && pts.join(';') !== it.points.join(';')) saveItem({ ...it, points: pts, plan: { ...it.plan, at: Date.now() } });
       });
     }, 400);
@@ -3349,7 +3358,8 @@
   // A* over the 10 m grid, costed in travel time at a jog (slopes slow it down, over FOOT_MAX_DEG is impassable) and
   // multiplied where it would be seen: x10 where a marked enemy sees clearly, x2.5 through trees. Keep-out rings around
   // marked enemies (FOOT_BERTH) cost 50 times more, so the route only goes through one when there is no other way.
-  // The sea and minefields are off limits. The search is boxed around the start and end, at any distance.
+  // Minefields are off limits, and so is the sea unless swimming is on (at SWIM, with no slope limit). The search is
+  // boxed around the start and end, at any distance.
   const FOOT_BERTH = { infantry: 300, armour: 500, aa: 500, area: 100 };
   let coverDraft = null; // {start, layer, pts}
   const airRouting = () => state.tool === 'heli-route' || (state.tool === 'cover-route' && state.routeMode === 'air');
@@ -3384,8 +3394,9 @@
     const draft = coverDraft;
     setTimeout(() => { // let the toast paint first
       if (coverDraft !== draft) return;
-      const pts = findCoveredRoute(from, xz, ws);
-      if (!pts) { toast(`No way through on foot: the sea, minefields or slopes over ${FOOT_MAX_DEG}° block it.`); cancelCoverDraft(); return; }
+      const pts = findCoveredRoute(from, xz, ws, state.swim);
+      if (!pts) { toast(`No way through on foot${state.swim ? '' : ' (try Swimming: On)'}.`); cancelCoverDraft(); return; }
+      draft.swim = state.swim;
       draft.pts = pts;
       showCoverResult(draft);
       updateHint();
@@ -3440,7 +3451,7 @@
     for (let k = g; k >= 0; k = came[k]) path.push(k);
     return path.reverse();
   }
-  function findCoveredRoute(from, to, ws) {
+  function findCoveredRoute(from, to, ws, swim = false) {
     const C = LOS_CELL, pad = Math.min(800, Math.max(250, dist(from, to) * 0.4));
     const x0 = Math.max(0, Math.floor((Math.min(from[0], to[0]) - pad) / C) * C), x1 = Math.min(WORLD, Math.ceil((Math.max(from[0], to[0]) + pad) / C) * C);
     const z0 = Math.max(0, Math.floor((Math.min(from[1], to[1]) - pad) / C) * C), z1 = Math.min(WORLD, Math.ceil((Math.max(from[1], to[1]) + pad) / C) * C);
@@ -3451,7 +3462,7 @@
     for (let k = 0; k < N; k++) {
       const c = centre(k), h = heightAt(c), [seen] = watchedAt(ws, c);
       hgt[k] = h;
-      mult[k] = h < 0.5 ? Infinity : 1 + (seen === LOS_CLEAR ? 9 : seen === LOS_TREES ? 1.5 : 0);
+      mult[k] = isWater(h) && !swim ? Infinity : 1 + (seen === LOS_CLEAR ? 9 : seen === LOS_TREES ? 1.5 : 0);
     }
     // Keep-out rings and minefields, only over the cells they can touch
     const each = (bx0, bz0, bx1, bz1, fn) => {
@@ -3471,8 +3482,10 @@
     mult[s] = Math.min(mult[s], 8); mult[g] = Math.min(mult[g], 8); // you're already there / you have to get there
     const gx = centre(g), vmax = walkSpeed(-0.05);
     const path = aStar(W, H, C, s, g, (k, n, len) => {
+      if (mult[n] === Infinity) return Infinity;
+      if (isWater(hgt[k]) || isWater(hgt[n])) return len / SWIM * (mult[k] + mult[n]) / 2; // swimming (only when on)
       const grade = (hgt[n] - hgt[k]) / len;
-      return mult[n] === Infinity || Math.abs(grade) > FOOT_MAX_GRADE ? Infinity : len / walkSpeed(grade) * (mult[k] + mult[n]) / 2;
+      return Math.abs(grade) > FOOT_MAX_GRADE ? Infinity : len / walkSpeed(grade) * (mult[k] + mult[n]) / 2;
     }, k => dist(centre(k), gx) / vmax);
     if (!path) return null;
     const cells = path.map(centre);
@@ -3494,7 +3507,8 @@
       (rc ? `<p>${rc.watchers ? `${rc.seenClear ? `<b class="rc-no">Seen for ${fmtDist(rc.seenClear)}</b>` : '<b class="rc-ok">Never seen clearly</b>'}` +
         `${rc.seenTrees ? `, <span class="rc-trees">through trees for ${fmtDist(rc.seenTrees)}</span>` : ''}. ` : ''}` +
         `Straight across: ${fmtDist(straight.total)}, ${fmtTime(straight.walk)}${rc.watchers ? `, seen for ${fmtDist(straight.seenClear)}` : ''}.</p>` +
-        `<p class="sub">Climbs ${Math.round(rc.climb)} m, descends ${Math.round(rc.descent)} m; steepest stretch ${Math.round(rc.steep * 100)}%.</p>` : '') +
+        `<p class="sub">Climbs ${Math.round(rc.climb)} m, descends ${Math.round(rc.descent)} m; steepest stretch ${Math.round(rc.steep * 100)}%` +
+        `${rc.swim ? `; swims ${fmtDist(rc.swim)} (${fmtTime(rc.swim / SWIM)})` : ''}.</p>` : '') +
       '<div class="row"><button data-cover="save">Save as route</button><button data-cover="discard">Discard</button></div>' +
       '<p class="sub">Quickest way out of sight of marked enemies. Re-plans when they change.</p>');
     line.on('click', e => { L.DomEvent.stop(e); popup().setLatLng(toLL(end)).setContent(html()).openOn(map); });
@@ -3510,7 +3524,7 @@
       const pts = coverDraft.pts;
       const n = issueNumber('foot', [...(state.players.get(state.me.name)?.items.values() || [])].filter(i => i.type === 'route' && i.plan).length + 1);
       saveItem({ id: uid(), type: 'route', points: pts, label: `Foot route ${n}`, note: '', color: state.me.color,
-        plan: { mode: 'foot', from: pts[0], to: pts[pts.length - 1], at: Date.now() } });
+        plan: { mode: 'foot', from: pts[0], to: pts[pts.length - 1], at: Date.now(), ...(coverDraft.swim ? { swim: true } : {}) } });
     }
     map.closePopup();
     cancelCoverDraft();

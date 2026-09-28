@@ -201,11 +201,13 @@ Esc, double-click or right-click finishes.
 - Route planner: pick Foot or Air in the options, then click a start and an end.
   - Foot (any distance; long routes take a few seconds to plan): the quickest way at a jog. Arma Reforger's run is about 3.33 m/s on the flat (100 m in 30 s, timed in game); slopes slow it
     (every 10% of uphill grade costs 15% more time; downhill is full speed up to 30%, then slows the same way;
-    measured along the direction of travel, so going round a hillside counts as flat), and slopes over 60° can't be
+    measured along the direction of travel, so going round a hillside counts as flat), and slopes over 80° can't be
     crossed. The uphill cost is an estimate: time a 100 m climb in game to tune it. It keeps out of sight of marked enemies (seen ground
     costs ten times as much, seen through trees two and a half times), keeps 300 m from marked soldiers, contacts and
     snipers, 500 m from armour and AA guns and 100 m from enemy-in-area shapes (it only goes closer if there's no
-    other way), and stays off the sea and 15-25 m from minefields. The popup compares it with going straight across.
+    other way), and stays 15-25 m from minefields. It stays off the sea unless you set Swimming: On in the options (off by
+    default): then it can swim at about 1.22 m/s (Camurac's shore to Seagull Point, 508 m of water, takes 6 min 56 s in
+    game), and the popup shows how far it swims. A saved route keeps its swimming setting when it re-plans. The popup compares it with going straight across.
     "Save as route" shares it; a saved foot route re-plans itself on its owner's page whenever enemy markings are added,
     moved or time out. The slope curve and jog speed are estimates; the 10 m heightmap smooths out short cliffs and banks.
   - Air: pick the helicopter's height (30, 100 or 200 m) and click a start and an end; both snap to a
