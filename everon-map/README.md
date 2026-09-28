@@ -144,7 +144,7 @@ Esc, double-click or right-click finishes.
   its popup. If a marked enemy (a unit, contact, sniper or enemy-in-area shape) is inside the circle, the backpack, its
   circle and its label turn red ("spawn blocked") and the popup says who and how far away.
 - AA gun: a blue AA marker for a friendly anti-air gun (no line of sight).
-- Mortar (F then 9): click to place your mortar (M252 US or 2B14 Soviet, any shell type); the Mortar section opens. Dashed circles
+- Mortar (F then 9): click to place your mortar (M252 US or 2B14 Soviet, any shell type); the Mortar panel opens. Dashed circles
   show each ring's maximum reach and a red circle the minimum range. Move the mouse for a live firing solution and click
   to add targets (up to 30). Each target shows the recommended ring (the lowest that reaches, with the tightest spread),
   elevation in mils corrected for the height difference (from the game's own 1 m terrain; a target on a building is aimed at its roof, where the rounds land), azimuth in degrees and mils (6400 for M252, 6000 for 2B14) and
@@ -152,7 +152,7 @@ Esc, double-click or right-click finishes.
   Each target also shows where the rounds will land, the same way as a fire support pin: with an HE shell, a shaded
   red kill zone the size of the ring's spread and a dashed danger zone 20 m further out; with smoke, illumination or
   practice rounds, just the spread. The circles show while you aim too. A target's popup and its entry in the Mortar
-  section give the kill and danger zone sizes and warn about any friendlies inside the danger zone.
+  panel give the kill and danger zone sizes and warn about any friendlies inside the danger zone.
 
 **Enemy**
 - Contact report: click where you saw the enemy and fill in the optional report: how many, what they're doing, heading
@@ -238,12 +238,18 @@ Esc, double-click or right-click finishes.
   The popup shows the aim point (a 10 m grid), the size, how long ago it was asked for, any friendly positions, units,
   radios or weapons inside the danger zone (for HE), and a firing solution from every mortar on the map using that
   mortar's shell of the requested type. If you have a mortar, "Add as a target on my mortar" adds the aim point to it.
-  Once your mortar is down, every request is solved for it automatically: the Mortar section lists them (ring, elevation,
+  Once your mortar is down, every request is solved for it automatically: the Mortar panel lists them (ring, elevation,
   azimuth, shell and flight time; + adds one to your targets), each request's label on the map carries your solution,
   and a message pops up with the solution when someone else asks for fire. The rest of a mortar team can see the same
   numbers: click the team's mortar and pick "Show its solutions on my map", and every request's label (and the
   message) carries that mortar's solution instead of their own. It's remembered in their browser until they click
   "Stop showing its solutions".
+  Clicking a request also gives aiming details from that mortar: for a point, how many mils of elevation and azimuth
+  move the rounds 10 m north, south, east or west (on the same ring); for an area, a solution for each end of its
+  longest stretch and its middle. Once a mission is done, anyone crewing a mortar that can reach a request (its owner
+  or someone showing its solutions) can clear it with "Mission complete: clear" in its popup or ✓ in the Mortar
+  panel, one request at a time; whoever asked for it is told who cleared it.
+
 - Gun run (CAS), Medevac, Pickup / insertion and Resupply drop: click where it's needed (a gun run can also be an
   area: pick Area in the options and circle the target, like a fire support request). A gun run is sent at once as
   "CAS 1", "CAS 2"… with no form, since there's rarely time; add the target and attack direction later with Edit.
@@ -305,18 +311,20 @@ railings) don't block. TRP tables say Yes, Trees or No. The mortar calculator do
 ## Sidebar
 
 One scrolling column of sections. Click a section's heading to open or close it; which ones are closed is remembered
-in your browser. Mortar and FIA caches start closed; the Mortar section opens by itself when you pick the mortar tool.
+in your browser. FIA caches starts closed.
 
 - **Players**: who's in the room (click a player with a position to jump to it) and the switch for showing other
   players' markings.
 - **Briefing**: the shared briefing. A dot on its heading means it changed while the section was closed.
 - **My markings**: everything you've put on the map, grouped in toolbar order (each group has its menu's colour),
   plus Export plan and Import plan.
-- **Mortar**: weapon and shell, your mortar's position and a firing solution for every target. An orange number on
-  its heading counts the fire requests waiting.
 - **FIA caches this game**: the caches marked this game, and switches for showing them and every possible spot.
 - **Map layers**: places, conflict bases, terrain, planning overlays (line-of-sight shading and helicopter landing
   ground) and resources.
+
+The **Mortar panel** sits on the right: weapon and shell, your mortar's position and a firing solution for every
+target, and every fire request solved for the mortar you follow (else your own). It folds away to a Mortar tab (with
+an orange count of the fire requests waiting), opens by itself when you pick the mortar tool, and stays as you left it.
 - The search box finds towns, landmarks, bases, caches, caves and everyone's markings (accents ignored).
 
 ## Multiplayer

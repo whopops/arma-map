@@ -231,6 +231,26 @@ class Hub:
             self._broadcast(p.room, {"type": "item", "owner": o.name, "item": it})
         return 200, {"ok": True}
 
+    def clear_fire(self, pid, token, owner, item_id):
+        """Anyone in the room may clear someone's mortar fire request once the mission is done (the page offers it to
+        the crew of a mortar that can reach it)."""
+        if not isinstance(owner, str) or not isinstance(item_id, str):
+            return 400, {"error": "Bad fire request."}
+        with self.lock:
+            p = self._auth(pid, token)
+            if not p:
+                return 401, {"error": "Session expired. Reload the page."}
+            o = next((q for q in self.players.values() if q.room == p.room and q.name == owner), None)
+            it = o.items.get(item_id) if o else None
+            is_fire = it and ((it.get("type") == "marker" and it.get("icon") == "fire-point")
+                              or (it.get("type") == "area" and it.get("kind") == "fire"))
+            if not is_fire:
+                return 404, {"error": "That fire request has gone."}
+            o.item_bytes.pop(item_id, None)
+            o.items.pop(item_id, None)
+            self._broadcast(p.room, {"type": "delete", "owner": o.name, "id": item_id, "by": p.name})
+        return 200, {"ok": True}
+
     def delete(self, pid, token, item_id):
         with self.lock:
             p = self._auth(pid, token)
@@ -842,6 +862,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(*HUB.set_air_status(pid, token, body.get("owner"), body.get("itemId"), body.get("status")))
         if path == "/api/delete":
             return self.send_json(*HUB.delete(pid, token, body.get("itemId")))
+        if path == "/api/clear-fire":
+            return self.send_json(*HUB.clear_fire(pid, token, body.get("owner"), body.get("itemId")))
         if path == "/api/briefing":
             return self.send_json(*HUB.set_briefing(pid, token, body.get("text")))
         if path == "/api/leave":

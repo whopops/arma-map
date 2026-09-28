@@ -768,3 +768,34 @@ table.fire tr.best td:last-child { border-radius: 0 5px 5px 0; }
 /* Forest estimate legend swatch: green diagonal hatch */
 .lg-forest { width: 18px; height: 14px; border-radius: 3px; border: 1px solid rgba(90, 235, 120, .7);
   background: repeating-linear-gradient(135deg, rgba(90, 235, 120, .75) 0 2px, rgba(90, 235, 120, .2) 2px 5px); }
+
+/* ==========================================================================
+   Mortar panel (right side) and its tab
+   ========================================================================== */
+#mortar-panel {
+  position: absolute; top: var(--below-toolbar, 66px); right: 46px; width: 330px; z-index: 1001;
+  max-height: calc(100% - var(--below-toolbar, 66px) - 130px); display: flex; flex-direction: column; padding: 10px 14px 0;
+}
+#mortar-panel header { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+#mortar-panel header h2 { margin: 0; font-size: 11.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+#mortar-panel header .acc-ico, #mortar-tab .acc-ico { width: 16px; height: 16px; color: var(--accent); flex: none; }
+#mortar-panel header .icon-btn { margin-left: auto; }
+#mortar-panel .mp-body {
+  flex: 1; min-height: 0; overflow-y: auto; margin: 0 -14px; padding: 10px 14px 14px;
+  scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+}
+#mortar-tab {
+  position: absolute; top: var(--below-toolbar, 66px); right: 46px; z-index: 1001; display: flex; align-items: center; gap: 7px;
+  padding: 6px 11px; font-weight: 600; color: var(--text);
+}
+#mortar-tab:hover { background: var(--raise); }
+:is(#mortar-tab, #mortar-panel header) .count:empty { display: none; }
+:is(#mortar-tab, #mortar-panel header) .count { font: 600 10.5px var(--mono); color: #1b1206; background: #ff922b; border: 1px solid #ff922b; border-radius: 999px; padding: 0 6px; line-height: 16px; }
+@media (max-width: 720px) {
+  #mortar-panel { top: calc(var(--below-toolbar, 62px) + 4px); left: 8px; right: 8px; width: auto; max-height: 45vh; }
+  #mortar-tab { top: calc(var(--below-toolbar, 62px) + 4px); right: 8px; }
+}
+.pop-h { margin: 10px 0 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+#fire-requests-from:empty { display: none; }
+#fire-requests-from { margin: -4px 0 8px; }
+#mortar-requests .tgt-head button[data-fire-clear]:hover { color: #69db7c; }

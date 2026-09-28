@@ -815,7 +815,7 @@
     if (it.type === 'mortar') extra += mortarInfoHtml(it);
     if (it.type === 'marker' && it.icon === 'infantry' && it.at) extra += `<p class="sub">Updated ${fmtAgo(Date.now() - it.at)}</p>`;
     if (it.type === 'marker' && UNITS[it.icon] && it.at) extra += `<p class="sub">Marked ${fmtAgo(Date.now() - it.at)} · ${timeoutText(it)}</p>`;
-    if (isFireReq(it)) extra += fireHtml(it);
+    if (isFireReq(it)) extra += fireHtml(it, owner);
     else if (it.type === 'area') {
       const ring = [...it.points, it.points[0]];
       extra += `<p><b>${fmtArea(polyArea(it.points))}</b> · perimeter ${fmtDist(pathLength(ring))}</p>`;
@@ -1063,6 +1063,10 @@
       }
       case 'delete': {
         const p = state.players.get(ev.owner);
+        const gone = p && p.items.get(ev.id);
+        if (gone && ev.by && !isMine(ev.by)) {
+          toast(`${gone.label || 'Fire mission'}${isMine(ev.owner) ? '' : ` (${ev.owner})`} cleared by ${ev.by}: mission complete`, 6000);
+        }
         if (p) { p.items.delete(ev.id); unrenderItem(p, ev.id); }
         map.closePopup();
         break;
@@ -1436,7 +1440,7 @@
     isLassoTool(tool) ? map.dragging.disable() : map.dragging.enable();
     cancelLasso();
     if (tool !== 'mortar') state.mortarPlacing = false;
-    else showSection('mortar', false);
+    else setMortarPanel(true);
     updateHint();
     map.closePopup();
     updateLive();
@@ -2223,7 +2227,7 @@
         return `<li data-idx="${i}">${head}${body}</li>`;
       }).join('');
     }
-    refreshFireRequests(m);
+    refreshFireRequests(solutionMortar());
     if (state.tool === 'mortar') { updateHint(); updateMortarGhost(); }
   }
 
@@ -2232,18 +2236,23 @@
     return `<div class="fire-sub">${z.zone}</div>` +
       (z.near.length ? `<div class="fire-sub warn">Friendlies in the danger zone: ${z.near.slice(0, 3).map(x => `${esc(x.name)} ${fmtDist(x.d)}`).join(', ')}</div>` : '');
   }
-  // Every fire request on the map, with a firing solution from your mortar to its middle once you have one down.
-  function refreshFireRequests(m) {
+  // Every fire request on the map, with a firing solution to its middle from the mortar you follow, else your own.
+  // Requests that mortar can reach can be cleared (✓) once the mission is done, one at a time.
+  function refreshFireRequests(sm) {
+    const m = sm && sm.it, own = !!m && m.id === myMortar()?.id;
     const reqs = allVisibleItems(isFireReq).sort((a, b) => (b.it.at || 0) - (a.it.at || 0)); // newest first
     $('#fire-requests').classList.toggle('hidden', !reqs.length);
-    $('#fire-count').textContent = reqs.length || '';
+    $('#fire-count').textContent = $('#fire-count-head').textContent = reqs.length || '';
+    $('#fire-requests-from').textContent = m && !own ? `Solutions from ${m.label || 'Mortar'} (${sm.p.name})` : '';
     $('#mortar-requests').innerHTML = !m
-      ? `<li class="empty">Place your mortar to get a firing solution for ${reqs.length === 1 ? 'this request' : `these ${reqs.length} requests`}.</li>`
+      ? `<li class="empty">Place your mortar, or click a team mortar and pick "Show its solutions on my map", to get a firing solution for ${reqs.length === 1 ? 'this request' : `these ${reqs.length} requests`}.</li>`
       : reqs.map(({ p, it }) => {
         const f = FIRE[it.fire] || FIRE.he, { shell, sol } = fireSolution(m, it), b = sol.best, lim = shellLimits(m.weapon, shell);
         const head = `<div class="tgt-head"><span class="id" style="background:${f.color};color:#111">${f.name}</span>` +
           `<span class="t">${esc(it.label || 'Fire mission')}${isMine(p.name) ? '' : ` · ${esc(p.name)}`}</span><span>${fmtDist(sol.d)}</span>` +
-          `<span class="sp"></span><button data-fire-add="${esc(it.id)}" title="Add its aim point to your targets" aria-label="Add as a target">+</button></div>`;
+          `<span class="sp"></span>` +
+          (b && !isMine(p.name) ? `<button data-fire-clear="${esc(it.id)}" data-owner="${esc(p.name)}" title="Mission complete: clear this request" aria-label="Clear this request">✓</button>` : '') +
+          (own ? `<button data-fire-add="${esc(it.id)}" title="Add its aim point to your targets" aria-label="Add as a target">+</button>` : '') + `</div>`;
         const body = b
           ? `<div class="fire-now"><div><span class="k">Ring</span><span class="v">${b.ring}</span></div>` +
             `<div><span class="k">Elevation</span><span class="v">${Math.round(b.elev)}<small>mil</small></span></div>` +
@@ -3775,7 +3784,47 @@
     bindInfo(m, html, () => c);
     layer.addLayer(m);
   }
-  function fireHtml(it) {
+  // Small moves from a solution: how elevation and azimuth change to shift the rounds 10 m north, south, east or west,
+  // on the same ring. {dir, elev, az} in mils, or null where that ring can't reach.
+  function nudges(m, shell, xz, sol) {
+    const circle = weaponDef(m.weapon)?.milsPerCircle || 6400, ring = sol.best.ring;
+    return [['North', 0, 10], ['South', 0, -10], ['East', 10, 0], ['West', -10, 0]].map(([dir, dx, dz]) => {
+      const s2 = solve(m.weapon, shell, m.xz, [xz[0] + dx, xz[1] + dz]), r = s2.rings.find(q => q.ring === ring);
+      const daz = ((s2.azMil - sol.azMil + circle / 2) % circle + circle) % circle - circle / 2;
+      return { dir, elev: r ? r.elev - sol.best.elev : null, az: daz };
+    });
+  }
+  const signedMil = v => (v == null ? '—' : `${v >= 0.05 ? '+' : v <= -0.05 ? '−' : '±'}${Math.abs(v).toFixed(1)}`);
+  // The two ends of an area's longest stretch (its farthest-apart corners).
+  function areaEnds(pts) {
+    let best = [pts[0], pts[0]], d = -1;
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+      const dd = dist(pts[i], pts[j]);
+      if (dd > d) { d = dd; best = [pts[i], pts[j]]; }
+    }
+    return best;
+  }
+  // Aiming details for one request, from the mortar that sizes it (the one you follow or your own if it can reach):
+  // a point gets the 10 m adjustments, an area a solution for its middle and for each end.
+  function fireAimHtml(it, z) {
+    const s = z.s;
+    if (!s) return '';
+    const who = `${esc(s.m.label || 'Mortar')}${isMine(s.p.name) ? '' : ` (${esc(s.p.name)})`}`;
+    if (!it.points) {
+      const rows = nudges(s.m, s.shell, it.xz, s.sol);
+      return `<h4 class="pop-h">Adjust 10 m · ${who}, ring ${s.sol.best.ring}</h4><table class="fire trp-table"><tr><th>Move</th><th>Elevation</th><th>Azimuth</th></tr>` +
+        rows.map(r => `<tr><td>10 m ${r.dir}</td><td>${signedMil(r.elev)} mil</td><td>${signedMil(r.az)} mil</td></tr>`).join('') + '</table>';
+    }
+    const c = fireAim(it), [a, b] = areaEnds(it.points);
+    const row = (name, xz) => {
+      const sol = solve(s.m.weapon, s.shell, s.m.xz, xz);
+      return `<tr><td>${name}<div class="sub">${grid(xz, 4)} · ${fmtDist(sol.d)}</div></td><td>${fmtSolution(sol, true)}</td></tr>`;
+    };
+    return `<h4 class="pop-h">Across the area · ${who}, ${esc(s.shell)}</h4><table class="fire trp-table"><tr><th>Aim</th><th>Solution</th></tr>` +
+      row(`${compass(bearing(c, a))} end`, a) + row('Middle', c) + row(`${compass(bearing(c, b))} end`, b) + '</table>' +
+      `<p class="sub">The ends are the area's farthest-apart corners (${fmtDist(dist(a, b))} apart); walk the rounds from one to the other.</p>`;
+  }
+  function fireHtml(it, owner) {
     const f = FIRE[it.fire] || FIRE.he, c = fireAim(it), he = f === FIRE.he, z = it.points ? null : fireZones(it);
     let size;
     if (it.points) {
@@ -3808,11 +3857,23 @@
         return `<tr><td>${esc(isMine(p.name) ? m.label || 'Mortar' : `${m.label || 'Mortar'} (${p.name})`)}</td><td>${esc(shell)}</td>` +
           `<td>${fmtSolution(sol, true)}</td></tr>`;
       }).join('') + '</table>';
-      const mine = myMortar();
-      if (mine) html += `<div class="row"><button data-fire-add="${esc(it.id)}">Add as a target on my mortar</button></div>`;
+      html += fireAimHtml(it, z || fireZones(it));
+      const mine = myMortar(), sm = solutionMortar();
+      const canClear = owner && !isMine(owner) && sm && fireSolution(sm.it, it).sol.best;
+      if (mine || canClear) {
+        html += `<div class="row">${mine ? `<button data-fire-add="${esc(it.id)}">Add as a target on my mortar</button>` : ''}` +
+          (canClear ? `<button data-fire-clear="${esc(it.id)}" data-owner="${esc(owner)}">Mission complete: clear</button>` : '') + '</div>';
+      }
     }
     return html + (it.points ? `<p class="sub">Solutions aim at the middle of the area; walk the rounds across it for anything bigger than the shell's spread.</p>` : '');
   }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-fire-clear]');
+    if (!b || !state.me) return;
+    map.closePopup();
+    api('/api/clear-fire', { id: state.me.id, token: state.me.token, owner: b.dataset.owner, itemId: b.dataset.fireClear })
+      .then(() => toast('Fire request cleared.')).catch(err => toast(err.message));
+  });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-follow-mortar]');
     if (!b) return;
@@ -4416,14 +4477,26 @@
   });
   if (window.innerWidth < 720) { $('#sidebar').classList.add('collapsed'); $('#collapse').textContent = '⟩'; }
 
+  // The mortar panel on the right: closed to a tab until you open it or pick the mortar tool; remembered in this browser.
+  const MORTAR_PANEL_KEY = 'everon-map-mortar-panel';
+  function setMortarPanel(open) {
+    $('#mortar-panel').classList.toggle('hidden', !open);
+    $('#mortar-tab').classList.toggle('hidden', open);
+    $('#mortar-tab').setAttribute('aria-expanded', open);
+    try { localStorage.setItem(MORTAR_PANEL_KEY, open ? 'open' : 'closed'); } catch { /* storage unavailable */ }
+  }
+  $('#mortar-tab').addEventListener('click', () => setMortarPanel(true));
+  $('#mortar-close').addEventListener('click', () => setMortarPanel(false));
+  setMortarPanel((() => { try { return localStorage.getItem(MORTAR_PANEL_KEY) === 'open'; } catch { return false; } })());
+
   // Sidebar sections: one column, each opened and closed from its heading. Which are closed is remembered in this
-  // browser (safe to lose); the mortar and FIA sections start closed.
+  // browser (safe to lose); the FIA section starts closed.
   const SEC_KEY = 'everon-map-closed-sections';
   const SECTIONS = {
-    players: 'Players', briefing: 'Briefing', markings: 'My markings', mortar: 'Mortar', fia: 'FIA caches this game', layers: 'Map layers',
+    players: 'Players', briefing: 'Briefing', markings: 'My markings', fia: 'FIA caches this game', layers: 'Map layers',
   };
   let closedSections;
-  try { closedSections = new Set(JSON.parse(localStorage.getItem(SEC_KEY) || '["mortar","fia"]')); } catch { closedSections = new Set(['mortar', 'fia']); }
+  try { closedSections = new Set(JSON.parse(localStorage.getItem(SEC_KEY) || '["fia"]')); } catch { closedSections = new Set(['fia']); }
   const sectionEl = name => document.querySelector(`.acc[data-sec="${name}"]`);
   const sectionOpen = name => !closedSections.has(name);
   function setSection(name, open) {

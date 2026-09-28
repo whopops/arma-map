@@ -41,6 +41,32 @@
     <div id="cursor" class="panel"><span class="cap">Grid</span><span id="cursor-grid">— —</span></div>
   </div>
 
+  <!-- Mortar: its own panel on the right, opened and closed from its tab (remembered in this browser) -->
+  <button type="button" id="mortar-tab" class="panel" aria-controls="mortar-panel" aria-expanded="false" title="Show the mortar panel">
+    <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4.5M12 17.5V22M2 12h4.5M17.5 12H22"/></svg><span>Mortar</span><span id="fire-count" class="count warn" title="Fire requests waiting"></span></button>
+  <aside id="mortar-panel" class="panel hidden" aria-label="Mortar">
+    <header><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4.5M12 17.5V22M2 12h4.5M17.5 12H22"/></svg><h2>Mortar</h2><span id="fire-count-head" class="count warn" title="Fire requests waiting"></span>
+      <button type="button" id="mortar-close" class="icon-btn" title="Hide the mortar panel" aria-label="Hide the mortar panel">⟩</button></header>
+    <div class="mp-body">
+          <div class="pair">
+            <label class="field"><span>Weapon</span><select id="mortar-weapon"></select></label>
+            <label class="field"><span>Shell</span><select id="mortar-shell"></select></label>
+          </div>
+          <div id="mortar-status"></div>
+          <ul id="mortar-targets"></ul>
+          <div class="row" id="mortar-actions">
+            <button id="mortar-move">Move mortar</button>
+            <button id="mortar-clear">Clear targets</button>
+            <button id="mortar-remove" class="danger">Remove</button>
+          </div>
+          <div class="sub-block hidden" id="fire-requests">
+            <h3>Fire requests</h3>
+            <div id="fire-requests-from" class="fire-sub"></div>
+            <ul id="mortar-requests"></ul>
+          </div>
+    </div>
+  </aside>
+
   <!-- Sidebar: who you are, search, then the sections -->
   <aside id="sidebar" class="panel">
     <header>
@@ -108,27 +134,6 @@
             <button id="import">Import plan</button>
           </div>
           <input id="import-file" type="file" accept=".json,application/json" hidden>
-        </div>
-      </section>
-
-      <section class="acc" data-sec="mortar">
-        <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-mortar"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4.5M12 17.5V22M2 12h4.5M17.5 12H22"/></svg><span class="acc-title">Mortar</span><span id="fire-count" class="count warn" title="Fire requests waiting"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
-        <div class="acc-body" id="sec-mortar">
-          <div class="pair">
-            <label class="field"><span>Weapon</span><select id="mortar-weapon"></select></label>
-            <label class="field"><span>Shell</span><select id="mortar-shell"></select></label>
-          </div>
-          <div id="mortar-status"></div>
-          <ul id="mortar-targets"></ul>
-          <div class="row" id="mortar-actions">
-            <button id="mortar-move">Move mortar</button>
-            <button id="mortar-clear">Clear targets</button>
-            <button id="mortar-remove" class="danger">Remove</button>
-          </div>
-          <div class="sub-block hidden" id="fire-requests">
-            <h3>Fire requests</h3>
-            <ul id="mortar-requests"></ul>
-          </div>
         </div>
       </section>
 
