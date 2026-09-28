@@ -76,6 +76,7 @@ ADMIN_GLOBAL_MAX_FAILURES = 30
 ADMIN_GLOBAL_WINDOW = 15 * 60
 ADMIN_MIN_PASSWORD = 12
 MAX_BRIEFING_CHARS = 6000
+CLOCK_RATES = {0, 1, 2, 3, 4, 6, 8, 12, 24, 48}  # game seconds per real second the room can pick
 ITEM_TYPES = {"marker", "route", "range", "mortar", "fia", "emplacement", "construct", "area",
               "arrow", "ambush", "post", "sectors", "overwatch", "aa"}
 AIR_STATUSES = {"requested", "ack", "enroute", "done"}
@@ -185,7 +186,8 @@ class Hub:
             p.gone_since = None
             snapshot = {"type": "snapshot", "you": p.name, "room": p.room,
                         "players": [o.public() for o in self._in_room(p.room)],
-                        "briefing": self.rooms.get(p.room, {}).get("briefing")}
+                        "briefing": self.rooms.get(p.room, {}).get("briefing"),
+                        "clock": self.rooms.get(p.room, {}).get("clock"), "now": int(time.time() * 1000)}
             q.put(json.dumps(snapshot, separators=(",", ":")))
             return p, q
 
@@ -293,6 +295,27 @@ class Hub:
             briefing = {"text": text, "by": p.name, "at": int(time.time() * 1000)}
             self.rooms.setdefault(p.room, {})["briefing"] = briefing
             self._broadcast(p.room, {"type": "briefing", "briefing": briefing})
+        return 200, {"ok": True}
+
+    def set_clock(self, pid, token, clock):
+        """The room's game clock: the game time (seconds into the day) it showed at the moment it was set, how fast it
+        runs, and the date and latitude the sun and moon are worked out for. The server stamps the moment, so players'
+        own clocks don't matter."""
+        if not isinstance(clock, dict):
+            return 400, {"error": "Bad clock."}
+        num = lambda k, lo, hi: isinstance(clock.get(k), (int, float)) and not isinstance(clock.get(k), bool) and lo <= clock[k] <= hi
+        if not (num("game", 0, 86399) and clock.get("rate") in CLOCK_RATES and num("year", 1900, 2200)
+                and isinstance(clock.get("month"), int) and 1 <= clock["month"] <= 12
+                and isinstance(clock.get("day"), int) and 1 <= clock["day"] <= 31 and num("lat", -66, 66)):
+            return 400, {"error": "Bad clock."}
+        with self.lock:
+            p = self._auth(pid, token)
+            if not p:
+                return 401, {"error": "Session expired. Reload the page."}
+            c = {"game": clock["game"], "rate": clock["rate"], "year": clock["year"], "month": clock["month"], "day": clock["day"],
+                 "lat": clock["lat"], "at": int(time.time() * 1000), "by": p.name}
+            self.rooms.setdefault(p.room, {})["clock"] = c
+            self._broadcast(p.room, {"type": "clock", "clock": c, "now": c["at"]})
         return 200, {"ok": True}
 
     def leave(self, pid, token):
@@ -888,6 +911,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(*HUB.clear_fire(pid, token, body.get("owner"), body.get("itemId")))
         if path == "/api/briefing":
             return self.send_json(*HUB.set_briefing(pid, token, body.get("text")))
+        if path == "/api/clock":
+            return self.send_json(*HUB.set_clock(pid, token, body.get("clock")))
         if path == "/api/leave":
             return self.send_json(*HUB.leave(pid, token))
         self.send_json(404, {"error": "Not found."})

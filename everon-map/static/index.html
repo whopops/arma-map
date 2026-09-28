@@ -44,6 +44,27 @@
   <!-- Right-hand column: the mortar panel at the top and the squad pop-out at the bottom; they share its height, so
        they never overlap -->
   <div id="right-dock">
+    <!-- Game clock: the room's game time, with the sun and moon for it; set from the watch in game -->
+    <button type="button" id="clock-tab" class="panel" aria-controls="clock-panel" aria-expanded="false" title="Game time, sun and moon">
+      <span id="clock-glyph" class="clock-glyph" aria-hidden="true"></span><span id="clock-time">Set time</span><span id="clock-sky" class="clock-sky"></span></button>
+    <div id="clock-panel" class="panel hidden" role="dialog" aria-label="Game time, sun and moon">
+      <header><h2>Game time</h2><button type="button" id="clock-close" class="icon-btn" title="Close" aria-label="Close the clock">✕</button></header>
+      <div id="clock-read"></div>
+      <form id="clock-form" autocomplete="off">
+        <label class="field"><span>Watch time</span><input id="clock-in" inputmode="numeric" maxlength="5" placeholder="06:42" aria-label="Game time, hours and minutes"></label>
+        <label class="field"><span>Speed</span><select id="clock-rate" aria-label="Game time speed"></select></label>
+        <button type="submit" class="primary">Set</button>
+      </form>
+      <details id="clock-more">
+        <summary>Date and latitude</summary>
+        <div class="clock-date">
+          <label class="field"><span>Year</span><input id="clock-year" type="number" min="1900" max="2200" step="1"></label>
+          <label class="field"><span>Month</span><input id="clock-month" type="number" min="1" max="12" step="1"></label>
+          <label class="field"><span>Day</span><input id="clock-day" type="number" min="1" max="31" step="1"></label>
+          <label class="field"><span>Latitude °N</span><input id="clock-lat" type="number" min="-66" max="66" step="0.5"></label>
+        </div>
+      </details>
+    </div>
     <!-- Mortar: its own panel on the right, opened and closed from its tab (remembered in this browser) -->
     <button type="button" id="mortar-tab" class="panel" aria-controls="mortar-panel" aria-expanded="false" title="Show the mortar panel">
       <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4.5M12 17.5V22M2 12h4.5M17.5 12H22"/></svg><span>Mortar</span><span id="fire-count" class="count warn" title="Fire requests waiting"></span></button>
@@ -261,6 +282,7 @@
   <div id="toast" class="hidden" role="status"></div>
 
   <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="sky.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

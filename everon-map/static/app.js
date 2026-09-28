@@ -1041,7 +1041,12 @@
           pl.items.forEach(it => { p.items.set(it.id, it); renderItem(p, it); });
         });
         setBriefing(ev.briefing || null, false);
+        setClock(ev.clock, ev.now);
         break;
+      case 'clock':
+        setClock(ev.clock, ev.now);
+        if (!isMine(ev.clock.by)) toast(`${ev.clock.by} set the game time to ${fmtGame(ev.clock.game)}`);
+        return;
       case 'briefing':
         setBriefing(ev.briefing, true);
         return;
@@ -4724,6 +4729,97 @@
   renderBriefing();
 
   // ---------------------------------------------------------------------------
+  // Game clock: one per room. Whoever reads the watch in game sets the time; everyone's page then keeps it running
+  // (at the speed picked) and works out the sun and moon for it (static/sky.js). The server stamps the moment it was
+  // set, so players' own clocks don't matter.
+  // ---------------------------------------------------------------------------
+  const CLOCK_RATES = [[0, 'Paused'], [1, '1×'], [2, '2×'], [3, '3×'], [4, '4×'], [6, '6×'], [8, '8×'], [12, '12×'], [24, '24×'], [48, '48×']];
+  const CLOCK_DEFAULT = { year: 2035, month: 6, day: 21, lat: 49, rate: 1 };
+  let clock = null, clockSkew = 0; // the room's clock {game, rate, year, month, day, lat, at, by}; server time minus ours
+  $('#clock-rate').innerHTML = CLOCK_RATES.map(([v, n]) => `<option value="${v}">${n}</option>`).join('');
+  // Game seconds since midnight of the clock's date at real time ms (default: now); null until a time is set.
+  const gameAt = (ms = Date.now()) => clock ? clock.game + (ms + clockSkew - clock.at) / 1000 * clock.rate : null;
+  const fmtGame = (S, secs = false) => {
+    const t = Math.floor(((S % 86400) + 86400) % 86400), h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60);
+    return `${pad(h, 2)}:${pad(m, 2)}${secs ? ':' + pad(t % 60, 2) : ''}`;
+  };
+  const fmtSpan = s => { // a stretch of real time
+    s = Math.max(0, Math.round(s));
+    return s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`;
+  };
+  function setClock(c, serverNow) {
+    clock = c || null;
+    if (c && serverNow) clockSkew = serverNow - Date.now();
+    renderClock();
+  }
+  function clockFill() { // the form starts from what the clock shows
+    const c = clock || { ...CLOCK_DEFAULT, game: 0 };
+    $('#clock-rate').value = String(c.rate);
+    $('#clock-year').value = c.year; $('#clock-month').value = c.month; $('#clock-day').value = c.day; $('#clock-lat').value = c.lat;
+    $('#clock-in').value = clock ? fmtGame(gameAt()) : '';
+  }
+  function renderClock() {
+    const tab = $('#clock-tab'), glyph = $('#clock-glyph');
+    if (!clock) {
+      $('#clock-time').textContent = 'Set time';
+      $('#clock-sky').textContent = '';
+      glyph.className = 'clock-glyph none';
+      $('#clock-read').innerHTML = '<p class="sub">Enter the time on your in-game watch to track it here, with the sun and moon.</p>';
+      return;
+    }
+    const S = gameAt(), b = Sky.bodies(S, clock), lt = Sky.light(b);
+    $('#clock-time').textContent = fmtGame(S);
+    $('#clock-sky').textContent = clock.rate === 0 ? 'paused' : clock.rate > 1 ? `${clock.rate}×` : '';
+    glyph.className = `clock-glyph l${lt.level}`;
+    tab.title = `${lt.name}. Game time, sun and moon`;
+    if ($('#clock-panel').classList.contains('hidden')) return;
+    const ev = Sky.events(S, clock, 26), rate = clock.rate;
+    const next = name => ev.find(e => e.name === name);
+    const when = e => e ? `${fmtGame(e.t)}${rate ? ` <span class="sub">in ${fmtSpan((e.t - S) / rate)}</span>` : ''}` : '—';
+    const sun = next(b.sun.el > -0.833 ? 'Sunset' : 'Sunrise'), edge = next(b.sun.el > -6 ? 'Last light' : 'First light');
+    // A 24 h bar from the last midnight to the next, shaded by how light the sun makes it, with the moon's time above
+    // the horizon along the bottom and a white line for now.
+    const day0 = Math.floor(S / 86400) * 86400, cols = [];
+    for (let i = 0; i < 96; i++) {
+      const l = Sky.light(Sky.bodies(day0 + (i + 0.5) * 900, clock)).level;
+      cols.push(`<i style="left:${i / 96 * 100}%;width:${100 / 96 + 0.2}%;background:${['#0b1020', '#1a2140', '#2b3a75', '#c2588a', '#f0a04b', '#ffe066'][l]}"></i>`);
+      if (Sky.bodies(day0 + (i + 0.5) * 900, clock).moon.el > 0) cols.push(`<i class="moonbar" style="left:${i / 96 * 100}%;width:${100 / 96 + 0.2}%"></i>`);
+    }
+    $('#clock-read').innerHTML = `<div class="clock-big"><b>${fmtGame(S, true)}</b><span>${clock.year}-${pad(clock.month, 2)}-${pad(clock.day, 2)}${Math.floor(S / 86400) ? ` +${Math.floor(S / 86400)} d` : ''}</span></div>` +
+      `<div class="clock-light">${lt.name}</div>` +
+      `<div class="clock-bar">${cols.join('')}<i class="now" style="left:${(S - day0) / 864}%"></i></div>` +
+      '<div class="clock-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>' +
+      '<dl class="clock-rows">' +
+      `<dt>Sun</dt><dd>${b.sun.el >= 0 ? `${Math.round(b.sun.el)}° up, ${pad(Math.round(b.sun.az) % 360, 3)}° ${compass(b.sun.az)}` : 'below the horizon'}</dd>` +
+      `<dt>${b.sun.el > -0.833 ? 'Sunset' : 'Sunrise'}</dt><dd>${when(sun)}</dd>` +
+      `<dt>${b.sun.el > -6 ? 'Last light' : 'First light'}</dt><dd>${when(edge)}</dd>` +
+      `<dt>Moon</dt><dd>${b.moon.phase}, ${Math.round(b.moon.illum * 100)}%</dd>` +
+      `<dt>Moon ${b.moon.el > -0.5 ? 'up' : 'down'}</dt><dd>${b.moon.el > -0.5 ? `${Math.round(b.moon.el)}° ${compass(b.moon.az)}, sets ${when(next('Moonset'))}` : `rises ${when(next('Moonrise'))}`}</dd>` +
+      '</dl>';
+  }
+  function setClockPanel(open) {
+    $('#clock-panel').classList.toggle('hidden', !open);
+    $('#clock-tab').setAttribute('aria-expanded', open);
+    if (open) { clockFill(); renderClock(); if (!clock) $('#clock-in').focus(); }
+  }
+  $('#clock-tab').addEventListener('click', e => { e.stopPropagation(); setClockPanel($('#clock-panel').classList.contains('hidden')); });
+  $('#clock-close').addEventListener('click', () => setClockPanel(false));
+  $('#clock-panel').addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', () => { if (!$('#clock-panel').classList.contains('hidden')) setClockPanel(false); });
+  $('#clock-panel').addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); setClockPanel(false); } });
+  $('#clock-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const m = /^(\d{1,2})[:.]?(\d{2})$/.exec($('#clock-in').value.trim());
+    if (!m || +m[1] > 23 || +m[2] > 59) return toast('Type the time as hours and minutes, like 06:42.');
+    const c = { game: +m[1] * 3600 + +m[2] * 60, rate: +$('#clock-rate').value, year: +$('#clock-year').value, month: +$('#clock-month').value,
+      day: +$('#clock-day').value, lat: +$('#clock-lat').value };
+    if (!(c.year >= 1900 && c.year <= 2200 && c.month >= 1 && c.month <= 12 && c.day >= 1 && c.day <= 31 && c.lat >= -66 && c.lat <= 66)) return toast('Check the date and latitude.');
+    try { await api('/api/clock', { id: state.me.id, token: state.me.token, clock: c }); } catch (err) { toast(err.message); }
+  });
+  setInterval(renderClock, 1000);
+  renderClock();
+
+  // ---------------------------------------------------------------------------
   // Room codes
   // ---------------------------------------------------------------------------
   const ROOM_WORDS = ['viper', 'hawk', 'wolf', 'fox', 'raven', 'cobra', 'bravo', 'delta', 'ghost', 'iron', 'stone', 'storm'];
@@ -4758,6 +4854,7 @@
     toggle($('#show-grid'), 'grid lines', 'Map layer');
     toggle($('#show-others'), "other players' markings", 'Players');
     out.push(
+      { name: 'Set the game time', sub: 'Clock, sun and moon', run: () => setClockPanel(true) },
       { name: briefing && briefing.text.trim() ? 'Edit the briefing' : 'Write a briefing', sub: 'Briefing', run: editBriefing },
       { name: 'Copy invite link', sub: `Room ${state.me.room}`, run: () => $('#room-copy').click() },
       { name: 'Search places, bases and markings', sub: 'Sidebar', run: () => { $('#sidebar').classList.remove('collapsed'); $('#search').focus(); } },
