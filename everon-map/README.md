@@ -105,11 +105,13 @@ its window. Only a hash of the password is kept in memory.
 - **Helicopter landing** layer: shades the map green (good), amber (marginal) and red (no-go) for landing at every
   10 m, with the same rules as the Landing zone check (worked out ahead from the game's own terrain and objects). It
   also shows whenever the Landing zone check tool is active.
-- **Roads** layer: the island's road network, traced from a printed topographic map of Everon by `tools/extract_roads.py`
-  (put the picture at `tools/roads/Everon-1989.jpg`; it is not kept in the repo): main roads in yellow, streets in cream
-  and dirt roads in tan, about 200 km in all, joined at their junctions in `static/data/roads.json`. It lines up with the
-  satellite roads to within a few metres. Dashed foot paths aren't traced yet. This is the network the vehicle route
-  planner will run on.
+- **Roads** layer: the island's road network, traced from a printed topographic map of Everon (`tools/extract_roads.py`,
+  then `tools/link_roads.py`; put the picture at `tools/roads/Everon-1989.jpg`, it is not kept in the repo). Main roads in
+  yellow, streets in cream, dirt roads in tan and foot paths as white dashes: about 290 km in all, in `static/data/roads.json`.
+  Lines are smoothed and joined at their junctions; a road that stopped short because a label or icon was drawn over it is
+  joined to the road it was heading for (58 gaps closed), and foot paths are tied to the roads and paths they meet. About
+  245 km is one connected network. Foot paths are found from their dashes, so some faint ones are missing. Vehicles can use
+  foot paths but they're the least preferred. This is the network the vehicle route planner will run on.
 - **Hill shading** layer: lights the terrain from the north-west so ridges, valleys and dead ground stand out.
 - **Contour lines** layer: elevation lines drawn from the terrain heightmap (every 50 m zoomed out, 20 m mid-zoom, 10 m
   zoomed in, with every fifth line brighter). While it's on, the grid readout also shows the ground height under the cursor.
