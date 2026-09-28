@@ -505,6 +505,8 @@ def validate_item(item):
             return "Bad number of sectors."
         if not isinstance(names, list) or len(names) > 12 or not all(isinstance(s, str) and len(s) <= 40 for s in names):
             return "Bad sector names."
+        if "height" in item and not num("height", 0, 100):
+            return "Bad sectors height."
     if t == "route":
         pts = item.get("points")
         if not isinstance(pts, list) or not 2 <= len(pts) <= 200 or not all(_is_point(p) for p in pts):

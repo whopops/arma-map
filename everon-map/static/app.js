@@ -1133,6 +1133,15 @@
     refreshCoverage();
     refreshThreats();
     refreshFireLabels();
+    refreshSectorFoes();
+  }
+  // Sectors of fire show how many enemy are in each sector, so redraw them when enemy positions or TRPs move.
+  let sectorSigLast = null;
+  function refreshSectorFoes() {
+    const sig = allVisibleItems(i => (i.type === 'marker' && !!ENEMY_WATCH[i.icon] && timeoutState(i) !== 'expired') || isMarker(i, 'trp')).map(({ it }) => `${it.id}:${it.xz}`).join('|');
+    if (sig === sectorSigLast) return;
+    sectorSigLast = sig;
+    state.players.forEach(p => p.items.forEach(it => { if (it.type === 'sectors') renderItem(p, it); }));
   }
   // Contact log: every live contact report, newest first, with how far it is from your position marker.
   function renderContactLog() {
@@ -1280,8 +1289,9 @@
       sel.value = ttl;
       editing.ttl = ttl;
     }
-    $('#ed-height-row').classList.toggle('hidden', item.type !== 'emplacement');
-    if (item.type === 'emplacement') $('#ed-height').value = item.height || 0;
+    const raisable = item.type === 'emplacement' || item.type === 'sectors';
+    $('#ed-height-row').classList.toggle('hidden', !raisable);
+    if (raisable) $('#ed-height').value = item.height || 0;
     // Who covers each sector of fire
     const air = airKey(item) && AIR[airKey(item)];
     $('#ed-air').classList.toggle('hidden', !air);
@@ -1342,7 +1352,7 @@
     if (airKey(it)) it.air = Object.fromEntries([...$('#ed-air').querySelectorAll('[data-air]')].map(el => [el.dataset.air, el.value.trim()]));
     // A changed timeout counts from now
     if (!$('#ed-ttl-row').classList.contains('hidden') && $('#ed-ttl').value !== editing.ttl) { it.ttl = +$('#ed-ttl').value; it.at = Date.now(); }
-    if (it.type === 'emplacement') it.height = Math.min(100, Math.max(0, Math.round((+$('#ed-height').value || 0) * 10) / 10));
+    if (it.type === 'emplacement' || it.type === 'sectors') it.height = Math.min(100, Math.max(0, Math.round((+$('#ed-height').value || 0) * 10) / 10));
     saveItem(it);
     closeEditor();
   });
@@ -3010,9 +3020,23 @@
   const SECTOR_COLORS = ['#ffd43b', '#74c0fc', '#8ce99a', '#f783ac', '#ffa94d', '#b197fc', '#66d9e8', '#ff8787'];
   const SECTOR_LETTERS = 'ABCDEFGHIJKL';
   const sectorSpans = it => Array.from({ length: it.n }, (_, i) => [it.start + i * 360 / it.n, it.start + (i + 1) * 360 / it.n]);
+  // What a sector holds: the ground its gun position can see (line of sight from GUN_EYE, or higher if the position
+  // is raised), marked enemy positions and contacts inside it, and the TRPs in it.
+  const inSector = (it, xz, a, span) => {
+    const d = dist(it.xz, xz);
+    return d > 0 && d <= it.radius && ((bearing(it.xz, xz) - a) % 360 + 360) % 360 <= span;
+  };
+  const sectorEye = it => gunEye(it.height || 0);
+  const sectorLos = (it, a, span) => losGrid(it.xz, a + span / 2, span, it.radius, true, sectorEye(it), TARGET_H, false);
+  const sectorFoes = (it, a, span) => allVisibleItems(i => i.type === 'marker' && !!ENEMY_WATCH[i.icon] && timeoutState(i) !== 'expired' && inSector(it, i.xz, a, span))
+    .map(({ it: e }) => e).sort((x, y) => dist(it.xz, x.xz) - dist(it.xz, y.xz));
+  const sectorTrps = (it, a, span) => allVisibleItems(i => isMarker(i, 'trp') && inSector(it, i.xz, a, span)).map(({ it: t }) => t);
   function renderSectorShapes(it, layer, html) {
     sectorSpans(it).forEach(([a, b], i) => {
       const col = SECTOR_COLORS[i % SECTOR_COLORS.length], span = b - a;
+      const los = html && state.showLos ? sectorLos(it, a, span) : null; // dead ground inside each sector is darkened
+      if (los) layer.addLayer(losOverlay(los, col, true, 38));
+      const foes = html ? sectorFoes(it, a, span).length : 0;
       const poly = L.polygon(sectorLatLngs(it.xz, a + span / 2, span, it.radius), {
         color: col, weight: 1.6, opacity: 0.9, fillColor: col, fillOpacity: 0.1, interactive: !!html, bubblingMouseEvents: false });
       if (html) bindInfo(poly, html);
@@ -3020,7 +3044,7 @@
       const mid = (a + span / 2) * Math.PI / 180, lp = [it.xz[0] + it.radius * 0.62 * Math.sin(mid), it.xz[1] + it.radius * 0.62 * Math.cos(mid)];
       const name = (it.names || [])[i];
       layer.addLayer(L.marker(toLL(lp), { interactive: false, keyboard: false, icon: L.divIcon({ className: 'sector-label', iconSize: [0, 0],
-        html: `<span style="--c:${col}"><b>${SECTOR_LETTERS[i]}</b>${name ? ` ${esc(name)}` : ''}</span>` }) }));
+        html: `<span style="--c:${col}"><b>${SECTOR_LETTERS[i]}</b>${name ? ` ${esc(name)}` : ''}${foes ? ` <i class="foe" title="Enemy in this sector">${foes}</i>` : ''}</span>` }) }));
     });
   }
   function renderSectors(p, it, layer, html) {
@@ -4493,10 +4517,21 @@
         : '<p class="sub">No range card to measure from.</p>';
     }
     if (it.type === 'sectors') {
-      return `<table class="fire trp-table"><tr><th>Sector</th><th>Bearings</th><th>Covered by</th></tr>` + sectorSpans(it).map(([a, b], i) =>
-        `<tr><td><span class="sec-id" style="--c:${SECTOR_COLORS[i % SECTOR_COLORS.length]}">${SECTOR_LETTERS[i]}</span></td>` +
-        `<td>${pad(Math.round(a) % 360, 3)}°–${pad(Math.round(b) % 360, 3)}°</td><td>${esc((it.names || [])[i] || '—')}</td></tr>`).join('') + '</table>' +
-        (isMine(owner) ? '<p class="sub">Edit to assign who covers each sector.</p>' : '');
+      const mil = (deg, end) => pad(Math.round(deg * 6400 / 360) % 6400 || (end ? 6400 : 0), 4), degs = (deg, end) => pad(Math.round(deg) % 360 || (end ? 360 : 0), 3);
+      const rows = sectorSpans(it).map(([a, b], i) => ({ a, b, i, span: b - a, los: sectorLos(it, a, b - a), foes: sectorFoes(it, a, b - a), trps: sectorTrps(it, a, b - a) }));
+      const seen = r => !r.los ? '—' : `${r.los.pct}%${r.los.treePct ? ` <span class="trees">+${r.los.treePct}% trees</span>` : ''}`;
+      const notes = rows.filter(r => r.foes.length || r.trps.length).map(r => `<div><span class="sec-id" style="--c:${SECTOR_COLORS[r.i % SECTOR_COLORS.length]}">${SECTOR_LETTERS[r.i]}</span> ` +
+        [...r.foes.slice(0, 3).map(e => `<span class="no">${esc([e.what, e.size].filter(Boolean).join(' ') || e.label || typeLabel(e))}</span> ${fmtDist(dist(it.xz, e.xz))}`),
+          ...(r.foes.length > 3 ? [`+${r.foes.length - 3} more enemy`] : []), ...r.trps.map(t => esc(t.label || 'TRP'))].join(' · ') + '</div>').join('');
+      return `<div class="stats"><div><span class="k">Reach</span><span class="v">${fmtDist(it.radius)}</span></div>` +
+        `<div><span class="k">Sectors</span><span class="v">${it.n}</span></div>` +
+        `<div><span class="k">Gun height</span><span class="v">${sectorEye(it)} m</span></div></div>` +
+        `<table class="fire trp-table"><tr><th>Sector</th><th>Bearings</th><th>Sees</th><th>Covered by</th></tr>` + rows.map(r =>
+        `<tr><td><span class="sec-id" style="--c:${SECTOR_COLORS[r.i % SECTOR_COLORS.length]}">${SECTOR_LETTERS[r.i]}</span></td>` +
+        `<td>${degs(r.a)}°–${degs(r.b, true)}°<br><span class="sub">${mil(r.a)}–${mil(r.b, true)} mil</span></td><td>${seen(r)}</td><td>${esc((it.names || [])[r.i] || '—')}</td></tr>`).join('') + '</table>' +
+        (notes ? `<div class="sec-notes">${notes}</div>` : '') +
+        '<p class="sub">Sees: the share of the sector\'s ground a gunner can see. Enemy and TRPs listed under it.</p>' +
+        (isMine(owner) ? '<p class="sub">Edit to assign who covers each sector, or to raise the position.</p>' : '');
     }
     if (it.type === 'ambush') {
       return `<p><b>Kill zone ${fmtDist(dist(it.from, it.to))}</b> · road runs ${pad(Math.round(bearing(it.from, it.to)) % 360, 3)}°</p>` +

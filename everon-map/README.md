@@ -80,6 +80,13 @@ its window. Only a hash of the password is kept in memory.
 - Everon satellite map with a 1 km / 100 m grid and grid labels
 - Live cursor readout: 6- and 8-digit grid plus exact X/Z metres
 - Right-click anywhere for that spot's grid reference
+- **Game clock** (top right): type the time from your in-game watch and pick the speed; everyone in the room then sees
+  the same time running. The panel shows how light it is (day, low sun, twilight, night, moonlit), a 24 h bar, the sun's
+  height and bearing, sunrise, sunset, first and last light (with the real minutes until each at the speed set), and the
+  moon's phase, height and rise and set. It takes the game's time as local solar time (12:00 is when the sun is highest)
+  and the date and latitude under "Date and latitude" (year 2035, 21 June, 49°N until you change them: match your
+  server's, which the map can't read). The moon follows the real calendar for that date. Contact reports are stamped with
+  this time.
 
 **Reference layers** (Map layers section; toggle each one)
 - Towns: all 34 named settlements
@@ -114,7 +121,7 @@ Dragging with the **middle mouse button** pans the map whatever tool is active.
 |---|---|---|
 | **Friendly** (blue) | F | 1 My position · 2 Infantry · 3 Armour · 4 Advance arrow · 5 Rally point · 6 Objective · 7 Radio backpack · 8 AA gun · 9 Mortar |
 | **Enemy** (red) | E | 1 Contact report · 2 Infantry · 3 Armour · 4 Sniper · 5 Enemy roadblock / ambush · 6 Enemy in area · 7 Approach arrow · 8 Patrol route · 9 Enemy line of sight · 0 AA gun |
-| **Plan** (green) | P | 1 Marker · 2 Route · 3 Ambush · 4 Range line · 5 Overwatch finder · 6 Route planner · 7 Landing zone check |
+| **Plan** (green) | P | 1 Marker · 2 Route · 3 Ambush · 4 Range line · 5 Elevation profile · 6 Hull-down finder · 7 Overwatch finder · 8 Route planner · 9 Landing zone check |
 | **Support** (orange) | S | 1 Fire support request · 2 Gun run (CAS) · 3 Medevac · 4 Pickup / insertion · 5 Resupply drop |
 | **Defend** (khaki) | D | 1 Target reference point (TRP) · 2 Sectors of fire · 3 MG nest · 4 Bunker · 5 Sandbags · 6 Barbed wire · 7 Checkpoint · 8 Roadblock |
 | **Hazards** (amber) | H | 1 AT minefield · 2 AP minefield · 3 Blocked or mined road · 4 Bridge out |
@@ -159,9 +166,13 @@ Esc, double-click or right-click finishes.
   sizes and warn about any friendlies inside the danger zone.
 
 **Enemy**
-- Contact report: click where you saw the enemy and fill in the optional report: how many, what they're doing, heading
-  (drawn as an arrow) and what they're carrying. It pulses for the first minute and times out like unit markers
-  (15 minutes unless you pick another time), with its age shown next to it.
+- Contact report: click where you saw the enemy and fill in the optional report: what it is (infantry, vehicle, armour,
+  helicopter, sniper, artillery), how many, what they're doing, heading (drawn as an arrow) and what they're carrying.
+  It pulses for the first minute and times out like unit markers (15 minutes unless you pick another time), with its
+  age shown next to it. The popup shows the game time it was seen (once the clock is set) and how far it is from your
+  position marker. **It moved** (in the popup, for your own reports) lets you click its new position: the old spot stays
+  as a dotted track (the last six), the heading points along the move and the age starts again. The **Contacts** tab of
+  the Squad panel lists every live contact newest first, with the distance and bearing from you; click one to go to it.
 - Infantry, Armour and Sniper: one click drops the symbol. Infantry and Armour time out like friendly units.
 - Enemy roadblock / ambush: a red diamond where the enemy has set up a roadblock or ambush. It counts as an enemy
   position everywhere: route exposure (watching 800 m round like enemy soldiers), the route planner's keep-out
@@ -193,7 +204,18 @@ Esc, double-click or right-click finishes.
 - Ambush: pick Linear or L-shaped, click both ends of the kill zone along the road, then the side your squad waits on.
   It draws the kill zone, the support (MG) group, the assault group, fire arrows and a lookout on each flank. Drag the
   middle handle to move your ambush or the end handles to stretch or turn it; "Flip side" in its popup swaps the side.
-- Range line: click a start point, then a target; the line is labelled with distance and bearing for everyone.
+- Range line: click a start point, then a target; the line is labelled with distance and bearing for everyone. Its
+  popup shows an elevation profile: a side-on slice of the ground, trees (green) and buildings (grey) between the two
+  points, the sight line across it, whether the ground blocks it (and where) and what the line-of-sight model says about
+  trees and buildings.
+- Elevation profile: the same line, with the profile opened as soon as you finish it. Pick From and To (prone,
+  crouched, standing or vehicle eye height) in the options.
+- Hull-down finder: pick the enemy (soldier or vehicle), your vehicle (APC: hull 1.9 m, sights 2.4 m; car or truck:
+  hull 1.4 m, sights 1.8 m) and how far out to look, then click where the enemy is. Green ground is where the enemy can
+  see the turret clearly and not the hull; yellow where it's seen only through trees; blue is hidden from the enemy,
+  within 30 m of a hull-down spot, where a vehicle can wait and then move up. Water, woods and ground steeper than
+  50% are left out. The popup gives the share of ground and the closest spots at least 150 m out, with grid and height.
+  The heights are estimates: change `HULL` in `static/app.js` to match your vehicles.
 - Overwatch finder: pick how far out to look (400 m, 800 m or 1.5 km) and click an objective. Ground from which a
   crouched observer can see a standing soldier on the objective is tinted in your colour (yellow if only through
   trees); ground that can't see it is left unshaded. The popup gives the share of ground with a clear view, the
@@ -272,7 +294,10 @@ Esc, double-click or right-click finishes.
   TRP the same way. Several range cards combine: cyan ground is seen by at least one, and **dark ground inside their
   reach is hidden from all of them**, which is where an enemy can creep up.
 - Sectors of fire: pick 3, 4, 6 or 8 sectors, click the centre of your position, then move to set the size and
-  rotation and click. The editor opens so you can name who covers each lettered sector.
+  rotation and click. The editor opens so you can name who covers each lettered sector and raise the position (a roof
+  or tower). With line of sight on, each sector shows its dead ground darkened, and a red number on its label counts
+  the marked enemy and contacts inside it. The popup lists each sector's limits in degrees and mils, the share of its
+  ground a gunner can see (and through trees), who covers it, and the enemy and TRPs in it.
 - MG nest: click to place, move the mouse to aim, click again. The width of the field of fire (30°, 60°, 90° or 120°)
   and how high the nest is raised (e.g. on a roof or tower) are in the options. The wedge shows line of sight live while
   you aim: ground the gun can see is tinted in your colour and dead ground is darkened, with the share it can see.
