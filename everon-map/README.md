@@ -154,7 +154,7 @@ Esc, double-click or right-click finishes.
   everyone. The mortar's owner and anyone showing its solutions can drag its targets.
   Each target also shows where the rounds will land, the same way as a fire support pin: with an HE shell, a shaded
   red target zone the size of the ring's spread, a dashed red kill zone 20 m beyond it and a dashed yellow danger
-  zone 24 m beyond it (a round landing on the target zone's edge); with smoke, illumination or practice rounds, just
+  zone 35 m beyond it (a round landing on the target zone's edge); with smoke, illumination or practice rounds, just
   the spread. The circles show while you aim too. A target's popup and its entry in the Mortar panel give the zone
   sizes and warn about any friendlies inside the danger zone.
 
@@ -236,10 +236,10 @@ Esc, double-click or right-click finishes.
   - Area: hold the mouse button and circle where you want the fire; let go and it closes itself, like Enemy in area.
   - Point: click to drop a pin where you want the rounds to land. An HE pin gets a shaded red target zone the size of the
     mortar's spread (rounds land within it: the range table's average dispersion for the ring it would use, e.g. about
-    24 m on ring 2 with the M252's M821), a dashed red kill zone 20 m beyond it and a dashed yellow danger zone 24 m
+    24 m on ring 2 with the M252's M821), a dashed red kill zone 20 m beyond it and a dashed yellow danger zone 35 m
     beyond it, for a round landing on the target zone's edge. Smoke and illumination pins show only the spread. The
     circles are sized for your mortar if it can reach, otherwise the nearest mortar that can; with no mortar in range
-    they're drawn for a single round (20 m and 24 m).
+    they're drawn for a single round (20 m and 35 m).
   The popup shows the aim point (a 10 m grid), the size, how long ago it was asked for, any friendly positions, units,
   radios or weapons inside the danger zone (for HE), and a firing solution from every mortar on the map using that
   mortar's shell of the requested type. If you have a mortar, "Add as a target on my mortar" adds the aim point to it.

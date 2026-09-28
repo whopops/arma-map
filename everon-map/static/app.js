@@ -3753,7 +3753,7 @@
   // A point request's circles (see impactZones): target zone = the mortar's spread, kill zone KILL_RADIUS and danger
   // zone DANGER_RADIUS beyond it. Sized for the mortar you follow or your own if it can reach, otherwise the nearest
   // one that can; with no mortar in range the spread is unknown and only one round's zones are drawn.
-  const KILL_RADIUS = 20, DANGER_RADIUS = 24;
+  const KILL_RADIUS = 20, DANGER_RADIUS = 35;
   function fireSpread(req) {
     if (!TABLES) return null;
     const mine = solutionMortar()?.it;
