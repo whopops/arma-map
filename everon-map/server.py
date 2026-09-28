@@ -1,6 +1,6 @@
 """Everon Field Map - local server.
 
-Serves the web app, caches map tiles on disk, and relays shared markings
+Serves the web app and relays shared markings
 between connected players in the same room. Nothing about players is stored:
 a player's markings exist only while their browser tab is connected, and a
 room (with its briefing) disappears when its last player leaves.
@@ -35,18 +35,14 @@ import socket
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
-TILE_CACHE = os.path.join(ROOT, "tile_cache")
 BANS_FILE = os.path.join(ROOT, "bans.json")
 TRUST_PROXY = False  # set by --behind-proxy
 ADMIN_ALLOW = None   # set by --admin-allow: networks the admin view answers to (None = everywhere)
-TILE_UPSTREAM = "https://reforger.recoil.org/map-tiles/everon/{z}/{x}/{y}/tile.jpg"
 
 GRACE_SECONDS = 15          # how long a dropped connection may reconnect before its markings vanish
 KEEPALIVE_SECONDS = 5
@@ -60,9 +56,8 @@ MAX_PLAYERS_PER_IP = 12        # a LAN party or a household behind one address s
 MAX_CONNECTIONS = 600          # open sockets (each event stream holds one)
 MAX_QUEUED_EVENTS = 5000       # an event stream this far behind is dropped; the browser reconnects and resyncs
 SOCKET_TIMEOUT = 60            # seconds a connection may sit silent mid-request
-MAX_TILE_FETCHES = 6           # upstream tile downloads at once
 # Requests per address: a bucket of `burst` that refills at `rate` per second.
-RATE_LIMITS = {"post": (20, 120), "join": (0.2, 10), "tile": (60, 600), "static": (20, 200)}
+RATE_LIMITS = {"post": (20, 120), "join": (0.2, 10), "static": (20, 200)}
 USERNAME_RE = re.compile(r"^[A-Za-z0-9 _\-\.\[\]]{1,20}$")
 ROOM_RE = re.compile(r"^[a-z0-9_-]{3,32}$")
 ADMIN_SESSION_SECONDS = 12 * 3600  # a sign-in lasts at most this long
@@ -684,8 +679,6 @@ HUB = Hub()
 ADMIN = Admin()
 BANS = Bans(BANS_FILE)
 LIMITS = RateLimiter()
-_missing_tiles = set()
-_tile_fetches = threading.BoundedSemaphore(MAX_TILE_FETCHES)
 
 # Sent with every response. The page runs only its own scripts (no inline ones), talks only to this server,
 # and can't be framed by another site.
@@ -810,11 +803,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {**HUB.admin_snapshot(), "you": addr_key(self.client_ip())})
         if path == "/admin":
             path = "/admin.html"
-        m = re.match(r"^/tiles/([0-5])/(\d{1,3})/(\d{1,3})\.jpg$", path)
-        if m:
-            if self.limited("tile"):
-                return
-            return self.tile(*m.groups())
         if self.limited("static"):
             return
         return self.static(path)
@@ -890,42 +878,6 @@ class Handler(BaseHTTPRequestHandler):
         # Map data changes only when it is re-baked (tile URLs carry a version), so browsers keep it for a week.
         cache = "no-store" if path in ADMIN_PAGES else "public, max-age=604800" if path.startswith("/data/") else "no-cache"
         self.send_bytes(200, body, ctype, cache)
-
-    def tile(self, z, x, y):
-        n = 2 ** (7 - int(z))  # tiles per side at this zoom
-        if int(x) >= n or int(y) >= n:
-            return self.send_bytes(404, b"", "image/jpeg")
-        z, x, y = str(int(z)), str(int(x)), str(int(y))  # one spelling per tile ("007" is "7")
-        key = (z, x, y)
-        path = os.path.join(TILE_CACHE, z, x, f"{y}.jpg")
-        if os.path.isfile(path):
-            with open(path, "rb") as f:
-                return self.send_bytes(200, f.read(), "image/jpeg", "public, max-age=604800")
-        if key in _missing_tiles:
-            return self.send_bytes(404, b"", "image/jpeg")
-        req = urllib.request.Request(TILE_UPSTREAM.format(z=z, x=x, y=y),
-                                     headers={"User-Agent": "EveronFieldMap/1.0 (personal tile cache)"})
-        if not _tile_fetches.acquire(timeout=20):
-            return self.send_bytes(503, b"", "image/jpeg")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as r:
-                data = r.read(5_000_000)
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                _missing_tiles.add(key)
-            return self.send_bytes(404, b"", "image/jpeg")
-        except (urllib.error.URLError, TimeoutError, OSError):
-            return self.send_bytes(502, b"", "image/jpeg")
-        finally:
-            _tile_fetches.release()
-        if not data.startswith(b"\xff\xd8"):  # only ever cache JPEGs
-            return self.send_bytes(502, b"", "image/jpeg")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".part"
-        with open(tmp, "wb") as f:
-            f.write(data)
-        os.replace(tmp, path)
-        self.send_bytes(200, data, "image/jpeg", "public, max-age=604800")
 
     def events(self, qs):
         if self.limited("post"):

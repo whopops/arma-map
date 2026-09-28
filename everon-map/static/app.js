@@ -55,17 +55,6 @@
   });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-  const BLANK_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-  const EveronTiles = L.TileLayer.extend({
-    getTileUrl(c) {
-      // the 50 m offset makes Leaflet ask for a column just past the last tile at some zooms: nothing is there
-      const z = 5 - c.z, n = 2 ** (7 - z), y = -(c.y + 1);
-      if (c.x < 0 || y < 0 || c.x >= n || y >= n) return BLANK_TILE;
-      return `/tiles/${z}/${c.x}/${y}.jpg`;
-    },
-  });
-  new EveronTiles('', { minZoom: -1, maxZoom: 7, minNativeZoom: 0, maxNativeZoom: 5, bounds: worldBounds, keepBuffer: 3 }).addTo(map);
-
   const GridOverlay = L.GridLayer.extend({
     createTile(coords) {
       const size = this.getTileSize();
