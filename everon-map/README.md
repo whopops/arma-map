@@ -348,6 +348,10 @@ an orange count of the fire requests waiting), opens by itself when you pick the
 ## FIA caches this game
 - Type the coordinates you were given in the "FIA caches this game" section. It accepts a 6-digit grid (`089 028`),
   an 8-digit grid (`0890 0281`) or X/Z metres (`8908 2811`).
+- Or paste all of this game's caches at once: one or more per line (`089 028 096 016` works too), with any list
+  numbering (`1.`, `-`) ignored. They're all marked in one go; the message lists what was marked, what was already
+  marked, anything far from a known spot, and anything it couldn't read (left in the box to fix). Enter adds,
+  Shift+Enter starts a new line.
 - The entry snaps to the nearest of the 25 known cache spots and shows up for everyone as a pulsing pink marker.
   If the nearest spot is over 400 m away, you get a warning to double-check the coordinates.
 - You can also turn on "Show all possible cache spots" in that section, click any spot and choose "Mark as this game's cache".

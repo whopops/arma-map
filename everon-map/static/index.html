@@ -140,10 +140,10 @@
         <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-fia"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 9-8 9-8-9z"/></svg><span class="acc-title">FIA caches this game</span><span id="fia-count" class="count"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
         <div class="acc-body" id="sec-fia">
           <form id="fia-form" class="fia-form" autocomplete="off">
-            <input id="fia-input" placeholder="Grid, e.g. 089 028" aria-label="FIA cache coordinates">
+            <textarea id="fia-input" rows="1" placeholder="Grid, e.g. 089 028, or paste a list" aria-label="FIA cache coordinates (one or more)"></textarea>
             <button type="submit" class="primary">Add</button>
           </form>
-          <div id="fia-msg" class="fia-msg">Enter a grid or X/Z position. It snaps to the nearest known cache spot.</div>
+          <div id="fia-msg" class="fia-msg">Enter a grid or X/Z position, or paste all of this game's at once (one or more per line). Each snaps to the nearest known cache spot.</div>
           <ul id="fia-list"></ul>
           <div id="fia-layers" class="fia-layers"></div>
         </div>

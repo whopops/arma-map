@@ -4377,10 +4377,54 @@
     caches.length ? saveItem({ ...mine, caches }) : deleteItem(mine.id);
   }
 
+  // A pasted list of cache coordinates: one or more per line (list numbering like "1." or "-" is ignored). Each line's
+  // numbers pair up as grid or X/Z values ("089 028 091 030"), or a run of digits splits in half ("089028").
+  // Returns [{text, xz}] with xz null for anything unreadable, or 'off' off the map.
+  function parseCoordList(text) {
+    const out = [];
+    for (const raw of text.split(/[\n;]+/)) {
+      const line = raw.replace(/^\s*(\d{1,2}[.)]|[-*•])\s+/, '').trim();
+      if (!line) continue;
+      const nums = line.match(/\d+/g) || [];
+      if (nums.length >= 2 && nums.length % 2 === 0 && nums.every(n => n.length >= 3 && n.length <= 5)) {
+        for (let i = 0; i < nums.length; i += 2) out.push({ text: `${nums[i]} ${nums[i + 1]}`, xz: parseCoords(`${nums[i]} ${nums[i + 1]}`) });
+      } else if (nums.length > 1 && nums.every(n => n.length >= 6 && n.length <= 10)) {
+        nums.forEach(n => out.push({ text: n, xz: parseCoords(n) }));
+      } else out.push({ text: line, xz: parseCoords(line) });
+    }
+    return out;
+  }
+  // Mark several caches in one save; returns {added, already}.
+  function addFiaCaches(names) {
+    const marked = fiaMarked(), added = [], already = [];
+    for (const n of names) {
+      if (added.includes(n) || already.includes(n)) continue; // listed twice
+      (marked.has(n) ? already : added).push(n);
+    }
+    if (added.length && state.me) {
+      const mine = myFia();
+      saveItem(mine ? { ...mine, caches: [...mine.caches, ...added] }
+        : { id: uid(), type: 'fia', caches: added, label: 'FIA caches', note: '', color: state.me.color });
+      if (!map.hasLayer(refLayers.fiaGame)) {
+        refLayers.fiaGame.addTo(map);
+        const cb = document.querySelector('#fiaGame-n')?.closest('.layer')?.querySelector('input');
+        if (cb) cb.checked = true;
+      }
+    }
+    return { added, already };
+  }
+  const fiaInput = $('#fia-input');
+  const fitFiaInput = () => { fiaInput.style.height = 'auto'; fiaInput.style.height = `${Math.min(fiaInput.scrollHeight + 2, 180)}px`; };
+  fiaInput.addEventListener('input', fitFiaInput);
+  fiaInput.addEventListener('keydown', e => { // Enter adds; Shift+Enter starts a new line
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#fia-form').requestSubmit(); }
+  });
   $('#fia-form').addEventListener('submit', e => {
     e.preventDefault();
     const input = $('#fia-input');
     if (!FIA_KNOWN.length) return fiaMessage('Cache locations are still loading.', 'err');
+    const entries = parseCoordList(input.value);
+    if (entries.length > 1) return addFiaList(entries);
     const xz = parseCoords(input.value);
     if (!xz) return fiaMessage('Could not read that. Try a grid like "089 028" or "0890 0281", or X/Z metres like "8908 2811".', 'err');
     if (xz === 'off') return fiaMessage("Those coordinates are off the map. Everon grids run from 000 to 128.", 'err');
@@ -4388,10 +4432,36 @@
     const where = `${hit.cache.name} (${grid(hit.cache.xz)})`;
     if (!addFiaCache(hit.cache.name)) return;
     input.value = '';
+    fitFiaInput();
     if (hit.d > FIA_FAR) fiaMessage(`Snapped to ${where}, but it's ${fmtDist(hit.d)} from what you typed. Double-check the coordinates.`, 'warn');
     else fiaMessage(`Snapped to ${where}, ${fmtDist(hit.d)} from your coordinates.`, 'ok');
     flyAndOpen(hit.cache.xz, () => fiaPopup(hit.cache));
   });
+
+  // Several coordinates at once: snap each to its nearest cache and mark them all in one go.
+  function addFiaList(entries) {
+    const bad = [], off = [], far = [], names = [];
+    for (const { text, xz } of entries) {
+      if (!xz) { bad.push(text); continue; }
+      if (xz === 'off') { off.push(text); continue; }
+      const hit = nearestFia(xz);
+      names.push(hit.cache.name);
+      if (hit.d > FIA_FAR) far.push(`${text} → ${hit.cache.name} (${fmtDist(hit.d)} away)`);
+    }
+    const { added, already } = addFiaCaches(names);
+    const parts = [];
+    if (added.length) parts.push(`Marked ${added.length} cache${added.length === 1 ? '' : 's'}: ${added.join(', ')}.`);
+    if (already.length) parts.push(`Already marked: ${already.join(', ')}.`);
+    if (far.length) parts.push(`Far from any known spot, double-check: ${far.join('; ')}.`);
+    if (off.length) parts.push(`Off the map: ${off.join(', ')}.`);
+    if (bad.length) parts.push(`Couldn't read: ${bad.map(t => `"${t}"`).join(', ')}.`);
+    fiaMessage(parts.join(' ') || 'Nothing to add.', bad.length || off.length ? 'err' : far.length || !added.length ? 'warn' : 'ok');
+    // keep only what couldn't be read in the box, to fix and add again
+    $('#fia-input').value = [...bad, ...off].join('\n');
+    fitFiaInput();
+    const pts = added.map(n => FIA_KNOWN.find(k => k.name === n)?.xz).filter(Boolean);
+    if (pts.length) map.flyToBounds(L.latLngBounds(pts.map(toLL)).pad(0.3), { maxZoom: 3, duration: 0.8 });
+  }
 
   function fiaPopup(f) {
     const owner = fiaOwner(f.name);
