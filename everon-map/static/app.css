@@ -855,3 +855,14 @@ table.fire tr.best td:last-child { border-radius: 0 5px 5px 0; }
 #clock-more summary { cursor: pointer; }
 .clock-date { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 @media (max-width: 720px) { #clock-panel { width: 100%; } }
+
+/* Elevation profile: the range line's side-on view */
+.prof-side svg { height: 96px; }
+.prof-side .can polygon { fill: rgba(84, 160, 72, .6); }
+.prof-side .bld polygon { fill: #8d939c; }
+.prof-side .sight { stroke-width: 2; vector-effect: non-scaling-stroke; stroke-dasharray: 5 3; }
+.prof-side .sight.ok { stroke: #8ce99a; }
+.prof-side .sight.trees { stroke: #ffde32; }
+.prof-side .sight.no { stroke: #ff5c5c; }
+.prof-side .sight.cut { stroke: #ff5c5c; opacity: .35; stroke-dasharray: 2 4; }
+.prof-side .man { stroke: #fff; stroke-width: 2.4; vector-effect: non-scaling-stroke; }

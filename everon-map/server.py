@@ -506,6 +506,8 @@ def validate_item(item):
             return "Bad route plan."
     if t == "range" and not (_is_point(item.get("from")) and _is_point(item.get("to"))):
         return "Bad range line."
+    if t == "range" and any(k in item and not num(k, 0, 100) for k in ("h1", "h2")):
+        return "Bad profile height."
     if t == "mortar":
         targets = item.get("targets", [])
         if not _is_point(item.get("xz")) or item.get("weapon") not in MORTAR_WEAPONS:

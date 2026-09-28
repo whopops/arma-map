@@ -809,7 +809,8 @@
         routeCheckHtml(routeCheck(it.points)) + `<details class="legs"><summary>Legs</summary><div class="sub">${legs}</div></details>`;
     }
     if (it.type === 'range') {
-      extra += `<p><b>${fmtDist(dist(it.from, it.to))}</b> · ${fmtBearing(bearing(it.from, it.to))}</p><div class="sub">To grid ${grid(it.to)}</div>`;
+      extra += `<p><b>${fmtDist(dist(it.from, it.to))}</b> · ${fmtBearing(bearing(it.from, it.to))}</p><div class="sub">To grid ${grid(it.to)}</div>` +
+        sightHtml(sightProfile(it.from, it.to, it.h1 ?? 1.6, it.h2 ?? 1.6));
     }
     if (it.type === 'mortar') extra += mortarInfoHtml(it);
     if (it.type === 'marker' && it.icon === 'infantry' && it.at) extra += `<p class="sub">Updated ${fmtAgo(Date.now() - it.at)}</p>`;
@@ -958,6 +959,10 @@
       const line = L.polyline([a, b], { color, weight: 2.5, dashArray: '8 6', bubblingMouseEvents: false });
       bindInfo(line, html);
       layer.addLayer(line);
+      if (state.openPopupId === it.id) { // just drawn with the profile tool
+        state.openPopupId = null;
+        popup().setLatLng(toLL([(it.from[0] + it.to[0]) / 2, (it.from[1] + it.to[1]) / 2])).setContent(html()).openOn(map);
+      }
       const from = L.circleMarker(a, { radius: 4, color: '#000', weight: 1.5, fillColor: color, fillOpacity: 1, bubblingMouseEvents: false });
       const to = L.circleMarker(b, { radius: 6, color, weight: 2, fillColor: '#000', fillOpacity: 0.6, bubblingMouseEvents: false });
       bindInfo(from, html, () => it.from); bindInfo(to, html, () => it.to);
@@ -1366,6 +1371,8 @@
         '-',
         { tool: 'range', name: 'Range line', icon: svg('<circle cx="5" cy="19" r="2"/><path d="M7 17L15.5 8.5" stroke-dasharray="2.5 2.5"/><circle cx="18" cy="6" r="3.2"/>'),
           hint: 'Click the start point, then the target' },
+        { tool: 'profile', name: 'Elevation profile', short: 'Profile', icon: svg('<path d="M2 19l5.5-8 4 5 4.5-10L22 19z"/><path d="M2 21h20" stroke-dasharray="2 2.5"/>'),
+          hint: 'Click the start point, then the target · a side-on view of the ground between them, with line of sight' },
         '-',
         { tool: 'overwatch', name: 'Overwatch finder', short: 'Overwatch', icon: svg('<circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>', 'color:#8ce99a') },
         { tool: 'cover-route', name: 'Route planner', short: 'Route planner', icon: svg('<circle cx="4.5" cy="19" r="2"/><circle cx="19.5" cy="5" r="2"/><path d="M6 17.5c3-1 2-6 6-6s3-5 6-5" stroke-dasharray="3 2.5"/><path d="M3 9c3-3 6-3 8 0" style="color:#ff6b6b"/>', 'color:#8ce99a') },
@@ -1683,14 +1690,19 @@
       saveItem({ id: uid(), type: 'marker', icon: 'radio', xz: roundXZ(xz), label: `Radio ${n}`, note: '', color: state.me.color, ring: state.radioRing });
     } else if (tool === 'route' || LINE_CONSTRUCTS.includes(tool) || ARROW_OF_TOOL[tool]) {
       if (!draw) startDraw(tool, xz); else addDrawPoint(xz);
-    } else if (tool === 'range') {
+    } else if (tool === 'range' || tool === 'profile') {
       if (!draw) startDraw('range', xz);
       else {
         const from = draw.points[0];
         draw.layer.remove(); draw = null;
         if (dist(from, xz) >= 1) {
-          const n = [...(state.players.get(state.me.name)?.items.values() || [])].filter(i => i.type === 'range').length + 1;
-          saveItem({ id: uid(), type: 'range', from: roundXZ(from), to: roundXZ(xz), label: `Range line ${n}`, note: '', color: state.me.color });
+          const mine = [...(state.players.get(state.me.name)?.items.values() || [])].filter(i => i.type === 'range');
+          const id = uid();
+          if (tool === 'profile') { // opens its popup, with the profile, as soon as it's drawn
+            state.openPopupId = id;
+            saveItem({ id, type: 'range', from: roundXZ(from), to: roundXZ(xz), label: `Profile ${mine.filter(i => i.h1 != null).length + 1}`, note: '', color: state.me.color,
+              h1: state.profFrom, h2: state.profTo });
+          } else saveItem({ id, type: 'range', from: roundXZ(from), to: roundXZ(xz), label: `Range line ${mine.filter(i => i.h1 == null).length + 1}`, note: '', color: state.me.color });
         }
         updateLive();
       }
@@ -2724,6 +2736,8 @@
   // Option picker under the toolbar for the Plan tools; keys 1-4 pick too.
   const REACH = [[400, '400 m'], [800, '800 m'], [1500, '1.5 km']];
   const HELI_ALTS = [[30, '30 m'], [100, '100 m'], [200, '200 m']];
+  const EYES = [[0.5, 'Prone'], [1, 'Crouched'], [1.6, 'Standing'], [2.2, 'Vehicle']]; // eye height above the ground, m
+  state.profFrom = 1.6; state.profTo = 1.6;
   state.heliAlt = 100;
   state.routeMode = 'foot';
   state.swim = false;
@@ -2739,6 +2753,7 @@
     infantry: [{ label: 'I am', key: 'posUnit', options: [['inf', 'Infantry'], ['arm', 'Armour']] },
       { label: 'My range card', key: 'posRange', options: [[0, 'Off'], ...REACH] }],
     overwatch: { label: 'Overwatch · look out to', key: 'owRange', options: REACH },
+    profile: [{ label: 'From', key: 'profFrom', options: EYES }, { label: 'To', key: 'profTo', options: EYES }],
     'air-cas': { label: 'Target', key: 'casShape', options: [['point', 'Point'], ['area', 'Area']] },
     'aa-e': { label: 'Helicopter height', key: 'heliAlt', options: HELI_ALTS },
     'cover-route': () => [{ label: 'Travel', key: 'routeMode', options: [['foot', 'Foot'], ['air', 'Air']] },
@@ -2756,6 +2771,7 @@
     if (t === 'sectors') return !d ? 'Click the centre of your position' : 'Move to set size and rotation · click to set';
     if (t === 'vehicle-view-f') return state.armourRange ? 'Click where our vehicle is' : 'Click to mark friendly armour';
     if (t === 'overwatch') return 'Click the objective to find where it can be seen from';
+    if (t === 'profile') return draw ? 'Click the target' : 'Click the start point';
     if (t === 'radio') return 'Click where the radio backpack is';
     if (t === 'air-cas') return state.casShape === 'area' ? 'Hold the mouse button and circle the target area; let go and it is sent'
       : 'Click the target and it is sent · add details later with Edit';
@@ -3199,6 +3215,52 @@
   const fmtTime = s => s < 90 ? `${Math.max(1, Math.round(s))} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round(s / 60) % 60} min`;
   const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   const compass = brg => COMPASS[Math.round(brg / 45) % 8];
+
+  // --- Elevation profile: a side-on slice of the ground between two points, with the sight line across it ----------
+  // Ground from the 10 m heights (sea at 0), trees from the canopy heights and buildings from their heights, all above
+  // the ground under them. The ground alone decides the first row (a hill in the way); the line-of-sight model in the
+  // viewer's chosen detail decides the second, since it also counts trees and buildings.
+  function sightProfile(from, to, h1, h2) {
+    const D = dist(from, to);
+    if (!HEIGHT || D < 1) return null;
+    const N = Math.min(300, Math.max(24, Math.round(D / 6))), pts = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N, p = [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t];
+      pts.push({ d: D * t, xz: p, g: ground(p), tree: i && i < N ? canopyTop(p) : 0, bld: i && i < N ? buildingTop(p) : 0 });
+    }
+    const eye = pts[0].g + h1, tgt = pts[N].g + h2, slope = (tgt - eye) / D;
+    let block = null, worst = 0; // the ground that stands highest above the sight line
+    for (const s of pts.slice(1, N)) if (s.g - (eye + slope * s.d) > worst) { worst = s.g - (eye + slope * s.d); block = s; }
+    const los = losGrid(from, bearing(from, to), 0.02, D + 12, true, h1, h2, false);
+    return { pts, D, eye, tgt, h1, h2, block, view: los ? losAt(los, to) : undefined };
+  }
+  function sightHtml(pr) {
+    if (!pr) return '<p class="sub">The profile needs the terrain heights, which are still loading.</p>';
+    const { pts, D, eye, tgt, block, view } = pr;
+    const W = 300, H = 96;
+    const lo = Math.floor(Math.min(...pts.map(s => s.g), eye, tgt) - 1);
+    const hi = Math.ceil(Math.max(...pts.map(s => s.g + Math.max(s.tree, s.bld)), eye, tgt) + 2);
+    const X = d => (d / D * W).toFixed(1), Y = h => (H - 2 - (h - lo) / (hi - lo) * (H - 6)).toFixed(1);
+    const area = f => `<polygon points="${pts.map(s => `${X(s.d)},${Y(s.g + f(s))}`).join(' ')} ${pts.map(s => `${X(s.d)},${Y(s.g)}`).reverse().join(' ')}"/>`;
+    const gline = pts.map(s => `${X(s.d)},${Y(s.g)}`).join(" ");
+    const kind = block || view === LOS_HIDDEN ? 'no' : view === LOS_TREES ? 'trees' : 'ok';
+    const sight = block ? `<line class="sight no" x1="0" y1="${Y(eye)}" x2="${X(block.d)}" y2="${Y(eye + (tgt - eye) * block.d / D)}"/>` +
+        `<line class="sight cut" x1="${X(block.d)}" y1="${Y(eye + (tgt - eye) * block.d / D)}" x2="${W}" y2="${Y(tgt)}"/>`
+      : `<line class="sight ${kind}" x1="0" y1="${Y(eye)}" x2="${W}" y2="${Y(tgt)}"/>`;
+    const svgHtml = `<div class="profile prof-side"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">` +
+      `<g class="can">${area(s => s.tree)}</g><g class="bld">${area(s => s.bld)}</g>` +
+      `<polygon class="fill" points="0,${H} ${gline} ${W},${H}"/><polyline class="ln" points="${gline}"/>${sight}` +
+      `<line class="man" x1="0" y1="${Y(pts[0].g)}" x2="0" y2="${Y(eye)}"/><line class="man" x1="${W}" y1="${Y(pts[pts.length - 1].g)}" x2="${W}" y2="${Y(tgt)}"/></svg>` +
+      `<div class="profile-scale"><span>${hi} m</span><span>${lo} m</span></div>` +
+      `<div class="profile-axis"><span>Start</span><span>${fmtDist(D)}</span></div></div>`;
+    const rise = pts[pts.length - 1].g - pts[0].g;
+    const verdict = block ? `<b class="rc-no">Ground blocks it</b> at ${fmtDist(block.d)}, grid ${grid(block.xz)}`
+      : view === LOS_CLEAR ? '<b class="rc-ok">Clear view</b>' : view === LOS_TREES ? '<b class="rc-trees">Seen through trees</b>'
+      : view === LOS_HIDDEN ? '<b class="rc-no">Trees or buildings block it</b>' : '<span class="sub">Working out the view…</span>';
+    const eyeName = h => (EYES.find(([v]) => v === h) || [0, `${h} m up`])[1].toLowerCase();
+    return svgHtml + `<p>${verdict}</p><p class="sub">${Math.round(rise) >= 0 ? '+' : ''}${Math.round(rise)} m from start to end · ${eyeName(pr.h1)} to ${eyeName(pr.h2)}` +
+      ` · ${Math.round((H - 6) / (hi - lo) / (W / D))}× height. Green: trees, grey: buildings.</p>`;
+  }
 
   // --- Route check: height profile, time, and where marked enemies can see it -------------------------------
   const routeCache = new Map();
