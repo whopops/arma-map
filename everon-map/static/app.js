@@ -804,8 +804,7 @@
     let extra = '';
     if (it.type === 'route') {
       const legs = it.points.slice(1).map((p, i) => `<div>Leg ${i + 1}: ${fmtDist(dist(it.points[i], p))} · ${fmtBearing(bearing(it.points[i], p))}</div>`).join('');
-      if (it.plan) extra += `<p class="sub">Planned on foot by the route planner, ${fmtAgo(Date.now() - (it.plan.at || Date.now()))}. ` +
-        `${isMine(owner) ? 'It re-plans itself' : "It re-plans itself on its owner's page"} when enemy markings change.</p>`;
+      if (it.plan) extra += `<p class="sub">Planned ${fmtAgo(Date.now() - (it.plan.at || Date.now()))}; re-plans when enemies change.</p>`;
       extra += `<p><b>${fmtDist(pathLength(it.points))}</b> over ${it.points.length - 1} leg${it.points.length > 2 ? 's' : ''}</p>` +
         routeCheckHtml(routeCheck(it.points)) + `<details class="legs"><summary>Legs</summary><div class="sub">${legs}</div></details>`;
     }
@@ -831,10 +830,9 @@
         `<div><span class="k">Arc</span><span class="v">${it.arc}°</span></div>` +
         `<div><span class="k">Range</span><span class="v">${fmtDist(it.range)}</span></div></div>`;
       const los = fieldOfFireLos(it.xz, it.dir, it.arc, it.range, true, gunEye(it.height));
-      if (it.height) extra += `<p class="sub">Raised ${it.height} m above the ground (e.g. on a roof or tower)</p>`;
+      if (it.height) extra += `<p class="sub">Raised ${it.height} m</p>`;
       if (los) extra += `<p><b>Sees ${los.pct}%</b> of its field of fire${los.treePct ? `, ${los.treePct}% more only through trees` : ''}</p>` +
-        `<p class="sub">Dark shading is dead ground: the gun (${gunEye(it.height)} m up) can't see a standing soldier's chest (${TARGET_H} m) there. ` +
-        `Yellow is ground seen only partly, through trees. ${losNote(los)}</p>`;
+        `<p class="sub">Dark: dead ground · yellow: through trees</p>`;
     }
     if (it.type === 'marker' && it.icon === 'mine-at') extra += `<p class="sub">Shaded circle: ${AT_KILL_RADIUS} m kill radius</p>`;
     extra += planPopupHtml(owner, it);
@@ -1320,7 +1318,7 @@
         { tool: 'vehicle-view-f', name: 'Friendly armour', short: 'Armour', icon: unitSvg('arm', 'f') },
         '-',
         { tool: 'advance', name: 'Advance arrow', short: 'Advance', icon: svg('<path d="M3 18L17 7" stroke-width="3"/><path d="M12 5.5l7-.5-.5 7z" fill="currentColor"/>', 'color:#4dabf7'),
-          hint: `Click along the way you are moving; the arrowhead goes on the last point · ${FINISH}` },
+          hint: `Click along your route · ${FINISH}` },
         { tool: 'rally', name: 'Rally point', icon: svg('<path d="M6 21V4"/><path d="M6 4h11l-2.5 4L17 12H6z" fill="rgba(108,184,255,.3)"/>', 'color:#6cb8ff'),
           hint: 'Click to drop a rally point' },
         { tool: 'objective', name: 'Objective', icon: svg('<path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6l-5.4 2.9 1.2-6-4.5-4.2 6.1-.7z"/>', 'color:#ffd43b'),
@@ -1344,7 +1342,7 @@
         { tool: 'enemy-area', name: 'Enemy in area', short: 'In area', icon: '<svg class="area-ico" viewBox="0 0 24 24"><path d="M4 8l7-5 9 4-1.5 11L8 21 3 15z"/></svg>',
           hint: 'Hold the mouse button and circle the area; let go to close it' },
         { tool: 'enemy-approach', name: 'Approach arrow', short: 'Approach', icon: svg('<path d="M3 18L17 7" stroke-width="2.4" stroke-dasharray="3.5 3"/><path d="M12 5.5l7-.5-.5 7z" fill="currentColor"/>', 'color:#ff5c5c'),
-          hint: `Click along the way you expect the enemy to come; the arrowhead goes on the last point · ${FINISH}` },
+          hint: `Click along their expected route · ${FINISH}` },
         { tool: 'patrol', name: 'Patrol route', short: 'Patrol', icon: svg('<path d="M3 17c4-8 10 2 16-8" stroke-dasharray="2.5 3"/><path d="M15 8.5l4.5.5-.8 4.4"/>', 'color:#ffa94d'),
           hint: `Click along the enemy patrol route · ${FINISH}` },
         '-',
@@ -1367,7 +1365,7 @@
         { tool: 'overwatch', name: 'Overwatch finder', short: 'Overwatch', icon: svg('<circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>', 'color:#8ce99a') },
         { tool: 'cover-route', name: 'Route planner', short: 'Route planner', icon: svg('<circle cx="4.5" cy="19" r="2"/><circle cx="19.5" cy="5" r="2"/><path d="M6 17.5c3-1 2-6 6-6s3-5 6-5" stroke-dasharray="3 2.5"/><path d="M3 9c3-3 6-3 8 0" style="color:#ff6b6b"/>', 'color:#8ce99a') },
         { tool: 'lz', name: 'Landing zone check', short: 'LZ check', icon: svg('<circle cx="12" cy="12" r="9"/><path d="M8.5 7.5v9M15.5 7.5v9M8.5 12h7" stroke-width="2.2"/>', 'color:#8ce99a'),
-          hint: 'Move over the map to check a spot · click to mark a landing zone · green, amber and red shading show good, marginal and no-go ground' },
+          hint: 'Hover to check a spot · click to mark a landing zone' },
       ] },
     { id: 'support', name: 'Support', key: 'S', color: '#ff922b', title: 'Ask for support: mortar fire missions, gun runs, medevac, pickups and resupply',
       icon: svg('<circle cx="12" cy="12" r="7.5"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/>', 'color:#ff922b'),
@@ -1381,7 +1379,7 @@
       icon: svg('<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/>'),
       items: [
         { tool: 'trp', name: 'Target reference point', short: 'TRP', icon: svg('<path d="M12 3l9.5 17h-19z"/><path d="M12 10v6M9 13h6"/>'),
-          hint: 'Click to drop a TRP · its distance and bearing are measured from the nearest range card (a position or armour)' },
+          hint: 'Click to drop a TRP' },
         { tool: 'sectors', name: 'Sectors of fire', short: 'Sectors', icon: svg('<circle cx="12" cy="12" r="9"/><path d="M12 12V3M12 12l7.8 4.5M12 12l-7.8 4.5"/>') },
         '-',
         { tool: 'emplacement', name: 'MG nest', icon: svg('<path d="M12 20L4.5 7.5a14 14 0 0 1 15 0z" stroke-dasharray="2.5 2"/><rect x="9" y="16.5" width="6" height="5" rx="1"/>') },
@@ -2057,9 +2055,7 @@
     if (myMortar()?.id !== m.id) {
       const on = state.followMortar === m.id;
       html += `<div class="row"><button data-follow-mortar="${on ? '' : esc(m.id)}" aria-pressed="${on}">` +
-        `${on ? 'Stop showing its solutions' : 'Show its solutions on my map'}</button></div>` +
-        `<p class="sub">${on ? 'Fire requests on your map carry this mortar\'s firing solutions.'
-          : 'Fire requests on your map will carry this mortar\'s firing solutions, as its owner sees them.'}</p>`;
+        `${on ? 'Stop showing its solutions' : 'Show its solutions on my map'}</button></div>`;
     }
     if (alt != null) html += `<div class="sub">Altitude ${Math.round(alt)} m</div>`;
     if (lim) html += `<div class="sub">Reach ${fmtDist(lim.min)} – ${fmtDist(lim.max)}</div>`;
@@ -2237,7 +2233,7 @@
     const status = $('#mortar-status');
     $('#mortar-actions').classList.toggle('hidden', !m);
     if (!m) {
-      status.innerHTML = '<div class="empty">Choose <b>Friendly ▾ → Mortar</b> (F then 9), then click the map to place your mortar.</div>';
+      status.innerHTML = '<div class="empty"><b>Friendly ▾ → Mortar</b> (F, 9) to place one.</div>';
       $('#mortar-targets').innerHTML = '';
     } else {
       const lim = shellLimits(m.weapon, m.shell), alt = heightAt(m.xz);
@@ -2245,7 +2241,7 @@
         `<div><span class="k">Position</span><span class="v">${grid(m.xz)}</span></div>` +
         `<div><span class="k">Altitude</span><span class="v">${alt != null ? Math.round(alt) + ' m' : '—'}</span></div>` +
         `<div><span class="k">Reach</span><span class="v">${lim ? `${(lim.max / 1000).toFixed(1)} km` : '—'}</span></div></div>` +
-        (m.targets.length ? '' : '<div class="empty" style="margin-top:8px">Click the map with the Mortar tool to add targets.</div>');
+        (m.targets.length ? '' : '<div class="empty" style="margin-top:8px">No targets yet.</div>');
       $('#mortar-targets').innerHTML = m.targets.map((t, i) => {
         const sol = solve(m.weapon, m.shell, m.xz, t), b = sol.best;
         const head = `<div class="tgt-head"><span class="id">T${i + 1}</span><span>${grid(t)}</span><span>·</span><span>${fmtDist(sol.d)}</span>` +
@@ -2276,7 +2272,7 @@
     $('#fire-count').textContent = $('#fire-count-head').textContent = reqs.length || '';
     $('#fire-requests-from').textContent = m && !own ? `Solutions from ${m.label || 'Mortar'} (${sm.p.name})` : '';
     $('#mortar-requests').innerHTML = !m
-      ? `<li class="empty">Place your mortar, or click a team mortar and pick "Show its solutions on my map", to get a firing solution for ${reqs.length === 1 ? 'this request' : `these ${reqs.length} requests`}.</li>`
+      ? '<li class="empty">Place a mortar or follow a team mortar for solutions.</li>'
       : reqs.map(({ p, it }) => {
         const f = FIRE[it.fire] || FIRE.he, { shell, sol } = fireSolution(m, it), b = sol.best, lim = shellLimits(m.weapon, shell);
         const head = `<div class="tgt-head"><span class="id" style="background:${f.color};color:#111">${f.name}</span>` +
@@ -2427,7 +2423,6 @@
   const LOW_TOP = 4; // bands up to this height (m) use FOLIAGE_LOW_K: undergrowth and trunks, not crowns
   const BAND_AT = new Uint8Array(LIGHT_BANDS[LIGHT_BANDS.length - 1]); // band for each whole metre of height
   for (let b = 0; b < LIGHT_BANDS.length - 1; b++) BAND_AT.fill(b, LIGHT_BANDS[b], LIGHT_BANDS[b + 1]);
-  const TREES_NOTE = "Light: every tree and bush on Everon, averaged over 10 m squares at each height, thins the view the further it runs through them (faster in thick undergrowth and dense crowns); walls, rocks and small buildings thin it too, and large buildings block. It agrees with the Visual model on 91% of the ground.";
   const TAU_CLEAR = -Math.log(SEE_CLEAR), TAU_TREES = -Math.log(SEE_TREES);
   const LOS_HIDDEN = 1, LOS_CLEAR = 2, LOS_TREES = 3;
   const LOS_RANK = [0, 1, 3, 2]; // when samples disagree about a cell: clear beats through trees beats hidden
@@ -2582,12 +2577,6 @@
     refreshCoverage(true);
     refreshThreats(true);
   }
-  // The popups' explanation, for whichever detail produced the result.
-  const losNote = los => (los && los.model === 'visual'
-    ? 'Visual (on trial): every building, wall and rock from the game at 0.5 m, and every tree and bush on Everon with its own shape and size, letting sight through as much as it does on screen (measured from the game\'s pictures of each kind of plant). Yellow is a soldier seen at least 20% through foliage; more foliage than that hides them.'
-    : los && los.cell < LOS_CELL
-    ? 'Full detail: every building, wall, rock, tree and bush from the game at 0.5 m, with the open space under tree crowns; yellow is ground behind no more than 2 m of foliage. Checked against 20,000 of the game\'s own sight lines, it agrees 95% of the time.'
-    : TREES_NOTE);
   function renderLosDetail() {
     const box = $('#los-detail');
     if (!box) return;
@@ -2599,9 +2588,9 @@
     });
     $('#los-note').textContent = WORKER_MODES.includes(state.losMode) && fullError ? 'Full detail could not load, so Light is shown.'
       : WORKER_MODES.includes(state.losMode) && fullWanted.size ? 'Working out full detail…'
-      : state.losMode === 'full' ? '0.5 m: every building, wall and tree from the game (95% match). Downloads the area you look at, a few MB at a time.'
-      : state.losMode === 'visual' ? 'On trial: Full, but every tree and bush is its own kind, shape and size, as see-through as it looks in game. Switch between this and Full to compare.'
-      : '10 m: quick and small (91% match with Visual). Best for phones and slow connections.';
+      : state.losMode === 'full' ? '0.5 m detail from the game.'
+      : state.losMode === 'visual' ? 'On trial: plants as see-through as in game.'
+      : '10 m. Quick, for phones.';
   }
   $('#los-detail').addEventListener('click', e => {
     const b = e.target.closest('[data-los-mode]');
@@ -3270,7 +3259,7 @@
       `<div><span class="k">Up / down</span><span class="v">${Math.round(rc.climb)} / ${Math.round(rc.descent)} m</span></div></div>` +
       profileSvg(rc) + `<p class="sub">Steepest stretch ${Math.round(rc.steep * 100)}%.</p>`;
     if (!rc.watchers) {
-      html += '<p class="sub">Mark enemy positions (Enemy menu: units, sniper, contact or line of sight) to see where this route is exposed.</p>';
+      html += '<p class="sub">Mark enemies to see where it\'s exposed.</p>';
     } else if (!rc.seenClear && !rc.seenTrees) {
       html += `<p><b class="rc-ok">Out of sight</b> of all ${rc.watchers} marked enemy position${rc.watchers === 1 ? '' : 's'}.</p>`;
     } else {
@@ -3282,9 +3271,7 @@
     }
     if (rc.crossed.length) html += `<p><b class="rc-no">Goes through</b> ${rc.crossed.map(esc).join(', ')}</p>`;
     if (rc.hazards.length) html += `<p><b class="rc-warn">Passes close to</b> ${rc.hazards.map(h => `${esc(h.name)} (${fmtDist(h.d)} along)`).join(', ')}</p>`;
-    return html + `<p class="sub">On foot is a jog (${JOG} m/s on the flat), slowed by slopes; the vehicle time assumes ${DRIVE_KMH} km/h. On the map, red shows where a marked ` +
-      `enemy sees the route clearly and yellow where it sees it only through trees. Enemy soldiers are assumed to see ${fmtDist(ENEMY_WATCH['unit-inf-e'].reach)} ` +
-      `from a crouch, snipers ${fmtDist(ENEMY_WATCH.sniper.reach)}, armour ${fmtDist(ENEMY_WATCH['unit-arm-e'].reach)}.</p>`;
+    return html + '<p class="sub">Red: seen clearly · yellow: through trees</p>';
   }
   // Redraw routes when what they are checked against changes.
   let threatSigLast = null;
@@ -3348,12 +3335,11 @@
     return `<div class="stats"><div><span class="k">Reach</span><span class="v">${fmtDist(it.range)}</span></div>` +
       `<div><span class="k">Clear view from</span><span class="v">${los.pct}%</span></div>` +
       `<div><span class="k">Height</span><span class="v">${alt != null ? Math.round(alt) + ' m' : '—'}</span></div></div>` +
-      (los.treePct ? `<p class="sub">Plus ${los.treePct}% that sees it only through trees</p>` : '') +
+      (los.treePct ? `<p class="sub">+${los.treePct}% through trees</p>` : '') +
       (near ? `<p>Closest clear view beyond ${OW_MIN} m: ${spot(near)}</p>` +
           (high !== near && high.h - near.h >= 5 ? `<p>Highest clear view: ${spot(high)}</p>` : '')
         : `<p><b class="rc-no">Nowhere ${OW_MIN} m to ${fmtDist(it.range)} out</b> has a clear view of it.</p>`) +
-      `<p class="sub">Tinted ground is where a crouched observer (${POST_KIND.f.eye} m) can see a standing soldier (${TARGET_H} m) here; ` +
-      `yellow sees it only partly, through trees; unshaded ground can't see it. ${losNote(los)}</p>`;
+      '<p class="sub">Tinted: can see it · yellow: through trees</p>';
   }
 
   // --- Route planner (foot): the quickest way on foot around marked enemies ---------------------------------------
@@ -3507,9 +3493,7 @@
         `Straight across: ${fmtDist(straight.total)}, ${fmtTime(straight.walk)}${rc.watchers ? `, seen for ${fmtDist(straight.seenClear)}` : ''}.</p>` +
         `<p class="sub">Climbs ${Math.round(rc.climb)} m, descends ${Math.round(rc.descent)} m; steepest stretch ${Math.round(rc.steep * 100)}%.</p>` : '') +
       '<div class="row"><button data-cover="save">Save as route</button><button data-cover="discard">Discard</button></div>' +
-      `<p class="sub">The quickest way at a jog (${JOG} m/s on the flat, slower on slopes, nothing over ${FOOT_MAX_DEG}°) that keeps out of sight of marked ` +
-      `enemies and ${FOOT_BERTH.infantry} m from soldiers (${FOOT_BERTH.armour} m from armour and AA), off the sea and minefields. Saved, it re-plans itself ` +
-      'when enemy markings change. Only as good as the enemies marked; the tree cover is an estimate.</p>');
+      '<p class="sub">Quickest way out of sight of marked enemies. Re-plans when they change.</p>');
     line.on('click', e => { L.DomEvent.stop(e); popup().setLatLng(toLL(end)).setContent(html()).openOn(map); });
     popup().setLatLng(toLL(end)).setContent(html()).openOn(map);
   }
@@ -3678,10 +3662,8 @@
         : '<p class="sub">No good spot within 150 m.</p>';
     }
     return html + (c.exact
-      ? `<p class="sub">From the game's own terrain (1 m) and objects (0.5 m): the slope of the ${LZ_SLOPE_R * 2} m touchdown area, anything ${LZ_SPOT_H} m+ on the ` +
-        `${LZ_TOUCH * 2} m touchdown spot or ${LZ_ROTOR_H} m+ within ${LZ_R} m (under a Mi-8's rotor and tail), uneven ground, trees and buildings ` +
-        `${LZ_NEAR_H} m+ within ${LZ_NEAR} m, and which directions a helicopter can come in on a 10° descent. Power lines and grass aren't in the data.</p>`
-      : '<p class="sub">Rough check on the 10 m data while the detail loads.</p>');
+      ? '<p class="sub">Doesn\'t check power lines.</p>'
+      : '<p class="sub">Rough check; detail loading.</p>');
   }
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-lz-move]');
@@ -3735,8 +3717,7 @@
       ? `<p><b class="rc-no">Spawn blocked</b>: ${b.map(x => `${esc(x.name)} ${x.d < 1 ? 'on it' : `${fmtDist(x.d)} ${compass(bearing(it.xz, x.xz))}`}`).join(', ')}</p>`
       : `<p><b class="rc-ok">Spawn clear</b>: no marked enemy within ${RADIO_CLEAR} m</p>`;
     if (isMine(owner)) html += `<div class="row"><button data-radio-ring="${esc(it.id)}">${it.ring ? 'Hide' : 'Show'} the ${RADIO_CLEAR} m radius</button></div>`;
-    return html + `<p class="sub">Players can spawn on the radio backpack only while no enemy is within ${RADIO_CLEAR} m. This only knows about enemies ` +
-      'marked on the map (units, contacts, snipers and enemy-in-area shapes).</p>';
+    return html;
   }
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-radio-ring]');
@@ -3868,8 +3849,7 @@
       return `<tr><td>${name}<div class="sub">${grid(xz, 4)} · ${fmtDist(sol.d)}</div></td><td>${fmtSolution(sol, true)}</td></tr>`;
     };
     return `<h4 class="pop-h">Across the area · ${who}, ${esc(s.shell)}</h4><table class="fire trp-table"><tr><th>Aim</th><th>Solution</th></tr>` +
-      row('Middle', c) + Object.entries(ends).map(([name, xz]) => row(`${name} end`, xz)).join('') + '</table>' +
-      `<p class="sub">Each end is where a north–south or east–west line through the middle leaves the area.</p>`;
+      row('Middle', c) + Object.entries(ends).map(([name, xz]) => row(`${name} end`, xz)).join('') + '</table>';
   }
   function fireHtml(it, owner) {
     const f = FIRE[it.fire] || FIRE.he, c = fireAim(it), he = f === FIRE.he, z = it.points ? null : fireZones(it);
@@ -3885,11 +3865,8 @@
     if (z) {
       const s = z.s, who = s && `${esc(s.m.label || 'Mortar')}${isMine(s.p.name) ? '' : ` (${esc(s.p.name)})`}`;
       html += s
-        ? `<p class="sub">Sized for ${who} on ring ${s.sol.best.ring} with ${esc(s.shell)}: rounds land within about ${z.kill} m of the aim point (the range ` +
-          `table's average dispersion)${he ? `, and each round kills within about ${KILL_RADIUS} m of where it lands. Shaded red is the kill zone; the dashed ` +
-          `circle ${KILL_RADIUS} m further out is the danger zone.` : '.'}</p>`
-        : `<p class="sub">No mortar in range yet, so the spread is unknown${he ? `: the circle shows one round's ${KILL_RADIUS} m kill radius only` : ''}. ` +
-          'It is sized automatically once a mortar that can reach it is on the map.</p>';
+        ? `<p class="sub">Sized for ${who}, ring ${s.sol.best.ring}</p>`
+        : `<p class="sub">No mortar in range${he ? `: showing one round's ${KILL_RADIUS} m radius` : ''}</p>`;
     }
     if (he) {
       const near = friendliesNear(it, it.points ? KILL_RADIUS : z.danger);
@@ -3897,7 +3874,7 @@
     }
     const mortars = allVisibleItems(i => i.type === 'mortar');
     if (!TABLES) html += '<p class="sub">Firing tables are still loading.</p>';
-    else if (!mortars.length) html += '<p class="sub">No mortar on the map yet. Place one (Friendly ▾ → Mortar) to get a firing solution here.</p>';
+    else if (!mortars.length) html += '<p class="sub">No mortar on the map.</p>';
     else {
       html += '<table class="fire trp-table"><tr><th>Mortar</th><th>Shell</th><th>Solution</th></tr>' + mortars.map(({ p, it: m }) => {
         const { shell, sol } = fireSolution(m, it);
@@ -3912,7 +3889,7 @@
           (canClear ? `<button data-fire-clear="${esc(it.id)}" data-owner="${esc(owner)}">Mission complete: clear</button>` : '') + '</div>';
       }
     }
-    return html + (it.points ? `<p class="sub">Solutions aim at the middle of the area; walk the rounds across it for anything bigger than the shell's spread.</p>` : '');
+    return html;
   }
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-fire-clear]');
@@ -3964,9 +3941,7 @@
     return `<div class="stats"><div><span class="k">Facing</span><span class="v">${pad(Math.round(it.dir) % 360, 3)}°</span></div>` +
       `<div><span class="k">Arc</span><span class="v">${it.arc}°</span></div><div><span class="k">Range</span><span class="v">${fmtDist(it.range)}</span></div></div>` +
       (los ? `<p><b class="rc-no">Sees a helicopter over ${los.pct}%</b> of its arc${los.treePct ? `, ${los.treePct}% more only through trees` : ''}</p>` : '') +
-      `<p class="sub">For a helicopter ${state.heliAlt} m above the ground (change it in the options of Enemy ▾ → AA gun or Plan ▾ → Route planner, Air). ` +
-      `Unshaded ground inside the arc is hidden from the gun by terrain, buildings or trees; fly low through it. ` +
-      `The gun can aim from ${AA_ELEV[0]}° to +${AA_ELEV[1]}°, and a gun inside a wood sees up only through the gaps in the crowns over it.</p>`;
+      `<p class="sub">Helicopter at ${state.heliAlt} m. Unshaded ground in the arc is hidden from the gun.</p>`;
   }
   let aaDraft = null; // {xz, layer, sector, los, raf}
   function aaClick(xz) {
@@ -4075,15 +4050,13 @@
     let html = `<div class="stats"><div><span class="k">Distance</span><span class="v">${fmtDist(fc.total)}</span></div>` +
       `<div><span class="k">Flight time</span><span class="v">${fmtTime(fc.time)}</span></div>` +
       `<div><span class="k">AA can see</span><span class="v">${fc.aaSeen ? fmtDist(fc.aaSeen) : 'none'}</span></div></div>`;
-    if (!fc.threats) html += '<p class="sub">No enemies marked, so this is simply the straight line. Mark AA guns, vehicles and positions first.</p>';
+    if (!fc.threats) html += '<p class="sub">No enemies marked: straight line.</p>';
     else if (!fc.near.length) html += `<p><b class="rc-ok">Keeps a wide berth</b> of all ${fc.threats} marked enemies.</p>`;
     else {
       html += '<table class="fire trp-table"><tr><th>Passes</th><th>Closest</th><th>Berth</th></tr>' + fc.near.slice(0, 6).map(x =>
         `<tr><td>${esc(x.name)}</td><td>${x.min < x.hard ? `<span class="no">${fmtDist(x.min)}</span>` : fmtDist(x.min)}</td><td>${fmtDist(x.hard)}</td></tr>`).join('') + '</table>';
     }
-    return html + `<p class="sub">At ${HELI_KMH} km/h, ${state.heliAlt} m above the ground. Berths: AA guns ${fmtDist(HELI_BERTH.aa.hard)} plus all they can see, ` +
-      `armour and enemy vehicles ${fmtDist(HELI_BERTH.armour.hard)}, soldiers and contacts ${fmtDist(HELI_BERTH.infantry.hard)}, enemy-in-area shapes ` +
-      `${fmtDist(HELI_BERTH.area.hard)}. Only as good as the enemies marked on the map.</p>`;
+    return html + `<p class="sub">${HELI_KMH} km/h, ${state.heliAlt} m up</p>`;
   }
   // Flights start and end on a landing zone or pickup request when you click near one.
   function snapHeli(xz) {
@@ -4174,7 +4147,7 @@
     }
     if (it.points) html += `<p>Target area ${fmtArea(polyArea(it.points))}, middle at grid <b>${grid(airAim(it), 4)}</b></p>`;
     if (key === 'air-cas') html += friendlyWarning(friendliesNear(it, DANGER_CLOSE)).replace('in the danger zone', `danger close (${DANGER_CLOSE} m)`);
-    return html + '<p class="sub">Anyone in the room can move the request on with the buttons above.</p>';
+    return html;
   }
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-air-status]');
@@ -4249,17 +4222,15 @@
       let html = `<div class="stats"><div><span class="k">Reach</span><span class="v">${fmtDist(it.range)}</span></div>` +
         `<div><span class="k">${enemy ? 'Enemy sees' : 'Sees'}</span><span class="v">${los ? los.pct + '%' : '—'}</span></div>` +
         `<div><span class="k">Height</span><span class="v">${alt != null ? Math.round(alt) + ' m' : '—'}</span></div></div>`;
-      if (los && los.treePct) html += `<p class="sub">Plus ${los.treePct}% only through trees</p>`;
+      if (los && los.treePct) html += `<p class="sub">+${los.treePct}% through trees</p>`;
       if (!enemy) {
         const trps = allVisibleItems(i => i.type === 'marker' && i.icon === 'trp').map(({ it: t }) => t)
           .sort((a, b) => bearing(it.xz, a.xz) - bearing(it.xz, b.xz));
         html += trps.length
           ? `<table class="fire trp-table"><tr><th>TRP</th><th>Distance</th><th>Bearing</th><th>Seen</th></tr>${trps.map(t => trpRow(t.label || 'TRP', it.xz, t.xz, los)).join('')}</table>`
-          : '<p class="sub">Add target reference points with Defend ▾ → TRP (D then 1) to get their distance and bearing from here.</p>';
+          : '<p class="sub">No TRPs yet (Defend ▾ → TRP).</p>';
       }
-      html += `<p class="sub">${enemy ? `Red shading is ground ${kind.who} here can see clearly; yellow only through trees. Keep out of both.`
-        : 'Tinted ground is seen from here, yellow only through trees; dark ground is hidden from every range card.'} ` +
-        `Seen from ${kind.eye} m up (${kind.who}), looking for a standing soldier's chest (${TARGET_H} m). ${losNote(los)}</p>`;
+      html += `<p class="sub">${enemy ? 'Red: seen clearly' : 'Tinted: seen'} · yellow: through trees</p>`;
       return html;
     }
     if (it.type === 'marker' && it.icon === 'trp') {
@@ -4267,7 +4238,7 @@
       const me = myPosition();
       if (me && !isPositionCard(me)) rows.push(trpRow('My position', me.xz, it.xz, null));
       return rows.length ? `<table class="fire trp-table"><tr><th>From</th><th>Distance</th><th>Bearing</th><th>Seen</th></tr>${rows.join('')}</table>`
-        : '<p class="sub">Give your position a range card (Friendly ▾ → My position, then pick its reach) or place friendly armour with line of sight to get the distance and bearing to this point.</p>';
+        : '<p class="sub">No range card to measure from.</p>';
     }
     if (it.type === 'sectors') {
       return `<table class="fire trp-table"><tr><th>Sector</th><th>Bearings</th><th>Covered by</th></tr>` + sectorSpans(it).map(([a, b], i) =>
@@ -4426,7 +4397,7 @@
     const entries = parseCoordList(input.value);
     if (entries.length > 1) return addFiaList(entries);
     const xz = parseCoords(input.value);
-    if (!xz) return fiaMessage('Could not read that. Try a grid like "089 028" or "0890 0281", or X/Z metres like "8908 2811".', 'err');
+    if (!xz) return fiaMessage('Couldn\'t read that. Try "089 028".', 'err');
     if (xz === 'off') return fiaMessage("Those coordinates are off the map. Everon grids run from 000 to 128.", 'err');
     const hit = nearestFia(xz);
     const where = `${hit.cache.name} (${grid(hit.cache.xz)})`;
@@ -4672,7 +4643,7 @@
   function renderBriefing() {
     const b = briefing, has = !!(b && b.text.trim());
     $('#briefing-text').innerHTML = has ? briefingHtml(b.text)
-      : '<div class="empty">No briefing yet. Anyone in the room can write one: the plan, radio channels, rally points and who does what.</div>';
+      : '<div class="empty">No briefing yet.</div>';
     $('#briefing-meta').textContent = has ? `Updated by ${b.by}${isMine(b.by) ? ' (you)' : ''}, ${fmtAgo(Date.now() - b.at)}` : '';
     $('#briefing-edit').textContent = has ? 'Edit briefing' : 'Write a briefing';
   }

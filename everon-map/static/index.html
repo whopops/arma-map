@@ -28,7 +28,7 @@
     <button type="button" data-arc="60" role="radio" class="sel">60°<kbd>2</kbd></button>
     <button type="button" data-arc="90" role="radio">90°<kbd>3</kbd></button>
     <button type="button" data-arc="120" role="radio">120°<kbd>4</kbd></button>
-    <label class="mp-num" title="How high the nest sits above the ground, e.g. on a roof or tower">Raised
+    <label class="mp-num" title="Height above the ground">Raised
       <input id="empl-height" type="number" min="0" max="100" step="0.5" value="0" aria-label="Height above the ground in metres"> m</label>
     <span class="mp-hint" id="arc-hint">Click to place the nest</span>
   </div>
@@ -150,7 +150,7 @@
             <textarea id="fia-input" rows="1" placeholder="Grid, e.g. 089 028, or paste a list" aria-label="FIA cache coordinates (one or more)"></textarea>
             <button type="submit" class="primary">Add</button>
           </form>
-          <div id="fia-msg" class="fia-msg">Enter a grid or X/Z position, or paste all of this game's at once (one or more per line). Each snaps to the nearest known cache spot.</div>
+          <div id="fia-msg" class="fia-msg">A grid, or paste a list.</div>
           <ul id="fia-list"></ul>
           <div id="fia-layers" class="fia-layers"></div>
         </div>
@@ -163,8 +163,8 @@
             <span class="ld-label">Line-of-sight detail</span>
             <span class="ld-opts">
               <button type="button" data-los-mode="full" role="radio" title="Every building, wall and tree from the game, at 0.5 m">Full</button>
-              <button type="button" data-los-mode="visual" role="radio" title="On trial: Full, but trees and bushes are as see-through as they look in game">Visual</button>
-              <button type="button" data-los-mode="light" role="radio" title="10 m squares: quick and small, for phones and slow connections">Light</button>
+              <button type="button" data-los-mode="visual" role="radio" title="On trial: plants as see-through as in game">Visual</button>
+              <button type="button" data-los-mode="light" role="radio" title="10 m squares, quick">Light</button>
             </span>
             <div id="los-note" class="ld-note"></div>
           </div>
@@ -190,7 +190,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v6M12 16.5v6M1.5 12h6M16.5 12h6"/></svg>
         <h1>Everon Field Map</h1>
       </div>
-      <p>Pick a username and your squad's room code. Your markings are shared live with everyone in the room and disappear when you close the tab.</p>
+      <p>Pick a name and your squad's room code. Markings are shared with the room and vanish when you close the tab.</p>
       <label class="field"><span>Username</span><input id="join-name" maxlength="20" placeholder="e.g. Viper 2-1" autocomplete="off" required></label>
       <div class="field"><span>Room code · everyone in your squad uses the same one</span>
         <div class="room-row">
