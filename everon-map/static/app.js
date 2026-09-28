@@ -2804,6 +2804,7 @@
   state.heliAlt = 100;
   state.routeMode = 'foot';
   state.swim = false;
+  state.offroad = true;
   state.casShape = 'point';
   const PICKERS = {
     ambush: { label: 'Ambush', key: 'ambushKind', options: [['linear', 'Linear'], ['l', 'L-shaped']] },
@@ -2822,8 +2823,9 @@
     profile: [{ label: 'From', key: 'profFrom', options: EYES }, { label: 'To', key: 'profTo', options: EYES }],
     'air-cas': { label: 'Target', key: 'casShape', options: [['point', 'Point'], ['area', 'Area']] },
     'aa-e': { label: 'Helicopter height', key: 'heliAlt', options: HELI_ALTS },
-    'cover-route': () => [{ label: 'Travel', key: 'routeMode', options: [['foot', 'Foot'], ['air', 'Air']] },
+    'cover-route': () => [{ label: 'Travel', key: 'routeMode', options: [['foot', 'Foot'], ['vehicle', 'Vehicle'], ['air', 'Air']] },
       ...(state.routeMode === 'air' ? [{ label: 'Helicopter height', key: 'heliAlt', options: HELI_ALTS }]
+        : state.routeMode === 'vehicle' ? [{ label: 'Off-road', key: 'offroad', options: [[true, 'Allow'], [false, 'Roads only']] }]
         : [{ label: 'Swimming', key: 'swim', options: [[false, 'Off'], [true, 'On']] }])],
     radio: { label: `Spawn radius (${RADIO_CLEAR} m)`, key: 'radioRing', options: [[true, 'Show'], [false, 'Hide']] },
     'fire-support': [
@@ -3455,8 +3457,9 @@
       if (!me || !HEIGHT) return;
       const ws = watchers();
       me.items.forEach(it => {
-        if (it.type !== 'route' || !it.plan || it.plan.mode !== 'foot') return;
-        const pts = findCoveredRoute(it.plan.from, it.plan.to, ws, !!it.plan.swim);
+        if (it.type !== 'route' || !it.plan || !['foot', 'vehicle'].includes(it.plan.mode)) return;
+        const pts = it.plan.mode === 'vehicle' ? (ROADS ? findVehicleRoute(it.plan.from, it.plan.to, ws, !it.plan.roadsOnly)?.pts : null)
+          : findCoveredRoute(it.plan.from, it.plan.to, ws, !!it.plan.swim);
         if (pts && pts.join(';') !== it.points.join(';')) saveItem({ ...it, points: pts, plan: { ...it.plan, at: Date.now() } });
       });
     }, 400);
@@ -3621,6 +3624,10 @@
       return !coverDraft ? 'Click where the flight starts (snaps to landing zones) · it keeps a wide berth of marked enemies and AA'
         : !coverDraft.pts ? 'Click where the flight ends' : 'Save it from its popup, or click to start another';
     }
+    if (state.tool === 'cover-route' && state.routeMode === 'vehicle') {
+      return !coverDraft ? 'Click where the drive starts · the quickest way by road, keeping out of sight of marked enemies'
+        : !coverDraft.pts ? 'Click where the drive ends' : 'Save it from its popup, or click to start another';
+    }
     return !coverDraft ? 'Click where the route starts · the quickest way on foot around marked enemies'
       : !coverDraft.pts ? 'Click where the route ends' : 'Save it from its popup, or click to start another';
   }
@@ -3647,9 +3654,19 @@
     const draft = coverDraft;
     setTimeout(() => { // let the toast paint first
       if (coverDraft !== draft) return;
-      const pts = findCoveredRoute(from, xz, ws, state.swim);
-      if (!pts) { toast(`No way through on foot${state.swim ? '' : ' (try Swimming: On)'}.`); cancelCoverDraft(); return; }
-      draft.swim = state.swim;
+      const vehicle = state.routeMode === 'vehicle';
+      let pts, drive = null;
+      if (vehicle) {
+        if (!ROADS) { toast('The road map is still loading.'); cancelCoverDraft(); return; }
+        const r = findVehicleRoute(from, xz, ws, state.offroad);
+        if (!r) { toast(`No way through by vehicle${state.offroad ? '' : ' (try Off-road: Allow)'}.`); cancelCoverDraft(); return; }
+        pts = r.pts; drive = r;
+      } else {
+        pts = findCoveredRoute(from, xz, ws, state.swim);
+        if (!pts) { toast(`No way through on foot${state.swim ? '' : ' (try Swimming: On)'}.`); cancelCoverDraft(); return; }
+      }
+      draft.swim = !vehicle && state.swim;
+      draft.vehicle = vehicle; draft.drive = drive; draft.offroad = state.offroad;
       draft.pts = pts;
       showCoverResult(draft);
       updateHint();
@@ -3706,15 +3723,15 @@
   }
   // Searched in a box around the start and end; if nothing is found (a bay or a ridge in the way needs a long way
   // round), again in bigger boxes, up to the whole island.
-  function findCoveredRoute(from, to, ws, swim = false) {
+  function findCoveredRoute(from, to, ws, swim = false, car = false) {
     const first = Math.min(800, Math.max(250, dist(from, to) * 0.4));
     for (const pad of [first, 2000, WORLD]) {
-      const pts = routeInBox(from, to, ws, swim, pad);
+      const pts = routeInBox(from, to, ws, swim, pad, car);
       if (pts || pad >= WORLD) return pts;
     }
     return null;
   }
-  function routeInBox(from, to, ws, swim, pad) {
+  function routeInBox(from, to, ws, swim, pad, car = false) {
     const C = LOS_CELL;
     const x0 = Math.max(0, Math.floor((Math.min(from[0], to[0]) - pad) / C) * C), x1 = Math.min(WORLD, Math.ceil((Math.max(from[0], to[0]) + pad) / C) * C);
     const z0 = Math.max(0, Math.floor((Math.min(from[1], to[1]) - pad) / C) * C), z1 = Math.min(WORLD, Math.ceil((Math.max(from[1], to[1]) + pad) / C) * C);
@@ -3725,7 +3742,7 @@
     for (let k = 0; k < N; k++) {
       const c = centre(k), h = heightAt(c), [seen] = watchedAt(ws, c);
       hgt[k] = h;
-      mult[k] = isWater(h) && !swim ? Infinity : 1 + (seen === LOS_CLEAR ? 9 : seen === LOS_TREES ? 1.5 : 0);
+      mult[k] = isWater(h) && !swim && !car ? Infinity : 1 + (seen === LOS_CLEAR ? 9 : seen === LOS_TREES ? 1.5 : 0);
     }
     // Keep-out rings and minefields, only over the cells they can touch
     const each = (bx0, bz0, bx1, bz1, fn) => {
@@ -3743,9 +3760,13 @@
     });
     const s = cellOf(from), g = cellOf(to);
     mult[s] = Math.min(mult[s], 8); mult[g] = Math.min(mult[g], 8); // you're already there / you have to get there
-    const gx = centre(g), vmax = walkSpeed(-0.05);
+    const gx = centre(g), vmax = car ? OFFROAD_MS : walkSpeed(-0.05);
     const path = aStar(W, H, C, s, g, (k, n, len) => {
       if (mult[n] === Infinity) return Infinity;
+      if (car) { // a vehicle across country: no water, nothing steeper than CAR_MAX_GRADE
+        const grade = (hgt[n] - hgt[k]) / len;
+        return Math.abs(grade) > CAR_MAX_GRADE || isWater(hgt[n]) ? Infinity : len / (OFFROAD_MS * driveFactor(grade)) * (mult[k] + mult[n]) / 2;
+      }
       if (isWater(hgt[k]) || isWater(hgt[n])) return len / SWIM * (mult[k] + mult[n]) / 2; // swimming (only when on)
       const grade = (hgt[n] - hgt[k]) / len;
       return Math.abs(grade) > FOOT_MAX_GRADE ? Infinity : len / walkSpeed(grade) * (mult[k] + mult[n]) / 2;
@@ -3757,6 +3778,170 @@
     while (pts.length > 200) pts = simplify(cells, tol *= 1.5);
     return pts.map(roundXZ);
   }
+
+  // --- Route planner (vehicle): the quickest drive on the road network, around marked enemies ---------------------
+  // Dijkstra over the roads traced from the printed map (ROADS, tools/extract_roads.py), costed in driving time: each
+  // kind of road has a speed (ROAD_KMH), slopes slow it (driveFactor) and where a marked enemy sees a stretch the time
+  // is multiplied like the foot planner does. Start and end are joined to the nearest roads by short off-road legs
+  // (no water, nothing steeper than CAR_MAX_GRADE). With off-road allowed, and when there's no road way or the roads
+  // are far, the grid search crosses country instead. The speeds are estimates, not measured in game.
+  const ROAD_KMH = [65, 45, 35, 25];   // main road, street, dirt road, foot path
+  const PATH_PENALTY = 1.6;            // foot paths cost this much more than their time, so roads win unless a path saves a lot
+  const OFFROAD_MS = 15 / 3.6;         // across country, on the flat
+  const CAR_MAX_GRADE = Math.tan(30 * Math.PI / 180);
+  const CONNECT_M = 700, CONNECT_ROADS_ONLY_M = 250, CONNECT_EDGES = 6;
+  const ROAD_WORD = ['main road', 'street', 'dirt road', 'foot path'];
+  const driveFactor = grade => 1 / (1 + 4 * Math.max(0, grade - 0.06) + 2 * Math.max(0, -grade - 0.10));
+  const seenMult = (ws, c) => { if (!ws.length) return 1; const [seen] = watchedAt(ws, c); return 1 + (seen === LOS_CLEAR ? 9 : seen === LOS_TREES ? 1.5 : 0); };
+  // Driving time along a polyline at a kind's speed (kind 4 = off-road), in steps of at most 25 m. With pref, the cost the
+  // search uses (foot paths count extra); without, the time it really takes.
+  function driveTime(pts, kind, ws, pref = true) {
+    const v = kind === 4 ? OFFROAD_MS : ROAD_KMH[kind] / 3.6;
+    let t = 0;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1], L = dist(a, b), n = Math.max(1, Math.ceil(L / 25));
+      for (let j = 0; j < n; j++) {
+        const p = [a[0] + (b[0] - a[0]) * j / n, a[1] + (b[1] - a[1]) * j / n], q = [a[0] + (b[0] - a[0]) * (j + 1) / n, a[1] + (b[1] - a[1]) * (j + 1) / n];
+        const step = L / n, h0 = heightAt(p) ?? 0, h1 = heightAt(q) ?? 0;
+        t += step / (v * driveFactor((h1 - h0) / step)) * seenMult(ws, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]);
+      }
+    }
+    return pref && kind === 3 ? t * PATH_PENALTY : t;
+  }
+  // The nearest point on a polyline to xz: {d, i (segment), p}
+  function nearOnLine(pts, xz) {
+    let best = null;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dz = b[1] - a[1], L2 = dx * dx + dz * dz;
+      const t = L2 ? Math.max(0, Math.min(1, ((xz[0] - a[0]) * dx + (xz[1] - a[1]) * dz) / L2)) : 0;
+      const p = [a[0] + t * dx, a[1] + t * dz], d = dist(p, xz);
+      if (!best || d < best.d) best = { d, i, p };
+    }
+    return best;
+  }
+  // Can a vehicle cross from a to b off the road? Returns its driving time, or null (water, too steep).
+  function offroadTime(a, b, ws) {
+    const L = dist(a, b), n = Math.max(1, Math.ceil(L / 10));
+    let prev = heightAt(a);
+    if (prev == null) return null;
+    let t = 0;
+    for (let j = 1; j <= n; j++) {
+      const p = [a[0] + (b[0] - a[0]) * j / n, a[1] + (b[1] - a[1]) * j / n], h = heightAt(p), step = L / n, grade = (h - prev) / step;
+      if (isWater(h) || Math.abs(grade) > CAR_MAX_GRADE) return null;
+      t += step / (OFFROAD_MS * driveFactor(grade)) * seenMult(ws, p);
+      prev = h;
+    }
+    return t;
+  }
+  let roadAdj = null;
+  function roadGraph() {
+    if (roadAdj && roadAdj.src === ROADS) return roadAdj;
+    const adj = ROADS.nodes.map(() => []);
+    ROADS.edges.forEach((e, i) => { adj[e[0]].push({ to: e[1], e: i, fwd: true }); adj[e[1]].push({ to: e[0], e: i, fwd: false }); });
+    return (roadAdj = { src: ROADS, adj });
+  }
+  // Route by road from `from` to `to`; returns {pts, secs, legs: {kind: metres}, roadShare} or null.
+  function driveRoadRoute(from, to, ws, offroad) {
+    const { adj } = roadGraph(), nodes = ROADS.nodes, edges = ROADS.edges, reach = offroad ? CONNECT_M : CONNECT_ROADS_ONLY_M;
+    const ncost = new Map(); // `${edge}:${dir}` -> seconds along the whole edge
+    const edgeCost = (i, fwd) => {
+      const key = i * 2 + (fwd ? 1 : 0);
+      let c = ncost.get(key);
+      if (c === undefined) { const e = edges[i]; c = driveTime(fwd ? e[3] : [...e[3]].reverse(), e[2], ws); ncost.set(key, c); }
+      return c;
+    };
+    const extra = new Map(); // virtual node -> [{to, secs, pts, kind}]
+    const add = (u, v) => { if (!extra.has(u)) extra.set(u, []); extra.get(u).push(v); };
+    let nextId = nodes.length;
+    const attach = (xz, isStart) => {
+      // the nearest few roads, each joined by an off-road leg to its nearest point
+      const cands = [];
+      edges.forEach((e, k) => { const n = nearOnLine(e[3], xz); if (n.d <= reach) cands.push({ ...n, edge: k }); }); // n.i is the segment along the edge
+      cands.sort((a, b) => a.d - b.d);
+      const made = [];
+      for (const c of cands.slice(0, CONNECT_EDGES)) {
+        const leg = c.d < 1 ? 0 : offroadTime(isStart ? xz : c.p, isStart ? c.p : xz, ws);
+        if (leg === null) continue;
+        const e = edges[c.edge], pts = e[3], id = nextId++;
+        const toA = [c.p, ...pts.slice(0, c.i + 1).reverse()], toB = [c.p, ...pts.slice(c.i + 1)];
+        const legPts = isStart ? [xz, c.p] : [c.p, xz];
+        made.push({ id, i: c.edge, at: c.i, p: c.p, legPts, legSecs: leg, legLen: c.d });
+        // moving out of this point along the road to either end (start), or in from either end (goal)
+        const secsA = driveTime(toA, e[2], ws), secsB = driveTime(toB, e[2], ws);
+        if (isStart) {
+          add(id, { to: e[0], secs: secsA, pts: toA, kind: e[2] });
+          add(id, { to: e[1], secs: secsB, pts: toB, kind: e[2] });
+        } else {
+          add(e[0], { to: id, secs: driveTime([...toA].reverse(), e[2], ws), pts: [...toA].reverse(), kind: e[2] });
+          add(e[1], { to: id, secs: driveTime([...toB].reverse(), e[2], ws), pts: [...toB].reverse(), kind: e[2] });
+        }
+      }
+      return made;
+    };
+    const S = attach(from, true), G = attach(to, false);
+    if (!S.length || !G.length) return null;
+    // start and end on the same road: straight along it
+    S.forEach(s => G.forEach(g => {
+      if (s.i !== g.i) return;
+      const e = edges[s.i], pts = e[3], fwd = s.at < g.at || (s.at === g.at && dist(pts[s.at], s.p) <= dist(pts[s.at], g.p));
+      const mid = fwd ? pts.slice(s.at + 1, g.at + 1) : pts.slice(g.at + 1, s.at + 1).reverse();
+      const run = [s.p, ...mid, g.p];
+      add(s.id, { to: g.id, secs: driveTime(run, e[2], ws), pts: run, kind: e[2] });
+    }));
+    // Dijkstra from a virtual start node joined to every start candidate
+    const N = nextId, dist_ = new Float64Array(N).fill(Infinity), prev = new Array(N).fill(null), done = new Uint8Array(N);
+    S.forEach(s => { dist_[s.id] = s.legSecs; prev[s.id] = { from: null, s }; });
+    const goalSecs = new Map(G.map(g => [g.id, g]));
+    let goal = -1, best = Infinity;
+    for (;;) {
+      let u = -1, bd = Infinity;
+      for (let k = 0; k < N; k++) if (!done[k] && dist_[k] < bd) { bd = dist_[k]; u = k; }
+      if (u < 0 || bd >= best) break;
+      done[u] = 1;
+      if (goalSecs.has(u)) { const tot = bd + goalSecs.get(u).legSecs; if (tot < best) { best = tot; goal = u; } continue; }
+      const relax = (v, secs, pts, kind) => { if (bd + secs < dist_[v]) { dist_[v] = bd + secs; prev[v] = { from: u, pts, kind }; } };
+      if (u < nodes.length) adj[u].forEach(a => relax(a.to, edgeCost(a.e, a.fwd), a.fwd ? edges[a.e][3] : [...edges[a.e][3]].reverse(), edges[a.e][2]));
+      (extra.get(u) || []).forEach(x => relax(x.to, x.secs, x.pts, x.kind));
+    }
+    if (goal < 0) return null;
+    // walk back, collecting the pieces
+    const pieces = [];
+    for (let v = goal; v !== null;) {
+      const pr = prev[v];
+      if (pr.from === null) { pieces.push({ pts: pr.s.legPts, kind: 4 }); break; }
+      pieces.push({ pts: pr.pts, kind: pr.kind });
+      v = pr.from;
+    }
+    pieces.reverse();
+    pieces.push({ pts: goalSecs.get(goal).legPts, kind: 4 });
+    const pts = [], legs = {};
+    pieces.forEach(pc => {
+      pc.pts.forEach(p => { if (!pts.length || dist(pts[pts.length - 1], p) > 0.05) pts.push(p); });
+      legs[pc.kind] = (legs[pc.kind] || 0) + pathLength(pc.pts);
+    });
+    // the search used costs (exposure and the foot path penalty); the time shown is the plain driving time
+    const secs = pieces.reduce((t, pc) => t + driveTime(pc.pts, pc.kind, [], false), 0);
+    return { pts, cost: best, secs, legs };
+  }
+  // Roads first; across country when allowed and there's no road way, or the road way is far longer than the direct line.
+  function findVehicleRoute(from, to, ws, offroad = true) {
+    const road = driveRoadRoute(from, to, ws, offroad);
+    let pts = road && road.pts, res = road;
+    const tooLong = road && offroad && pathLength(road.pts) > 4 * dist(from, to) + 500;
+    if (offroad && (!road || tooLong)) {
+      const direct = findCoveredRoute(from, to, ws, false, true);
+      if (direct) {
+        const secs = driveTime(direct, 4, ws);
+        if (!road || secs < road.cost) res = { pts: direct, cost: secs, secs: driveTime(direct, 4, [], false), legs: { 4: pathLength(direct) } };
+      }
+    }
+    if (!res) return null;
+    pts = res.pts;
+    let tol = 1.5, out = simplify(pts, tol);
+    while (out.length > 200) out = simplify(pts, tol *= 1.5);
+    return { ...res, pts: out.map(roundXZ) };
+  }
+
   function showCoverResult(d) {
     d.layer.clearLayers();
     const rc = routeCheck(d.pts), straight = routeCheck([d.pts[0], d.pts[d.pts.length - 1]]);
@@ -3766,6 +3951,23 @@
     const line = L.polyline(lls, { color: state.me.color, weight: 4, dashArray: '8 6', bubblingMouseEvents: false }).addTo(d.layer);
     [d.pts[0], d.pts[d.pts.length - 1]].forEach(xz => d.layer.addLayer(L.circleMarker(toLL(xz), { radius: 5, color: '#000', weight: 1.5, fillColor: state.me.color, fillOpacity: 1, interactive: false })));
     const end = d.pts[d.pts.length - 1];
+    if (d.vehicle && d.drive) {
+      const dr = d.drive, total = rc ? rc.total : pathLength(d.pts);
+      const legs = Object.entries(dr.legs).filter(([, m]) => m >= 20).sort((a, b) => b[1] - a[1])
+        .map(([k, m]) => `${fmtDist(m)} ${k === '4' ? 'off-road' : ROAD_WORD[k]}`).join(' · ');
+      const vhtml = () => popupHtml('Vehicle route', `${fmtDist(total)} · ${fmtTime(dr.secs)} driving`, end,
+        `<p>${legs || 'Across country'}.</p>` +
+        (rc ? `<p>${rc.watchers ? `${rc.seenClear ? `<b class="rc-no">Seen for ${fmtDist(rc.seenClear)}</b>` : '<b class="rc-ok">Never seen clearly</b>'}` +
+          `${rc.seenTrees ? `, <span class="rc-trees">through trees for ${fmtDist(rc.seenTrees)}</span>` : ''}.` : '<span class="sub">Mark enemies to see where it is exposed.</span>'}</p>` +
+          `<p class="sub">Climbs ${Math.round(rc.climb)} m, descends ${Math.round(rc.descent)} m; steepest stretch ${Math.round(rc.steep * 100)}%.</p>` : '') +
+        '<div class="row"><button data-cover="save">Save as route</button><button data-cover="discard">Discard</button></div>' +
+        `<p class="sub">Main roads ${ROAD_KMH[0]}, streets ${ROAD_KMH[1]}, dirt roads ${ROAD_KMH[2]}, foot paths ${ROAD_KMH[3]} (avoided unless they save a lot) and across country ${Math.round(OFFROAD_MS * 3.6)} km/h, slower on slopes. Re-plans when enemies change.</p>`);
+      d.layer.removeLayer(line); // the foot route's dashes; a drive is drawn solid
+      const vline = L.polyline(lls, { color: state.me.color, weight: 4, bubblingMouseEvents: false }).addTo(d.layer);
+      vline.on('click', e => { L.DomEvent.stop(e); popup().setLatLng(toLL(end)).setContent(vhtml()).openOn(map); });
+      popup().setLatLng(toLL(end)).setContent(vhtml()).openOn(map);
+      return;
+    }
     const html = () => popupHtml('Foot route', rc ? `${fmtDist(rc.total)} · ${fmtTime(rc.walk)} at a jog` : '', end,
       (rc ? `<p>${rc.watchers ? `${rc.seenClear ? `<b class="rc-no">Seen for ${fmtDist(rc.seenClear)}</b>` : '<b class="rc-ok">Never seen clearly</b>'}` +
         `${rc.seenTrees ? `, <span class="rc-trees">through trees for ${fmtDist(rc.seenTrees)}</span>` : ''}. ` : ''}` +
@@ -3785,9 +3987,10 @@
       saveItem({ id: uid(), type: 'arrow', kind: 'flight', points: coverDraft.pts, label: `Flight route ${n}`, note: '', color: ARROWS.flight.color });
     } else if (b.dataset.cover === 'save') {
       const pts = coverDraft.pts;
-      const n = issueNumber('foot', [...(state.players.get(state.me.name)?.items.values() || [])].filter(i => i.type === 'route' && i.plan).length + 1);
-      saveItem({ id: uid(), type: 'route', points: pts, label: `Foot route ${n}`, note: '', color: state.me.color,
-        plan: { mode: 'foot', from: pts[0], to: pts[pts.length - 1], at: Date.now(), ...(coverDraft.swim ? { swim: true } : {}) } });
+      const veh = coverDraft.vehicle;
+      const n = issueNumber(veh ? 'drive' : 'foot', [...(state.players.get(state.me.name)?.items.values() || [])].filter(i => i.type === 'route' && i.plan && (i.plan.mode === 'vehicle') === !!veh).length + 1);
+      saveItem({ id: uid(), type: 'route', points: pts, label: `${veh ? 'Vehicle' : 'Foot'} route ${n}`, note: '', color: state.me.color,
+        plan: { mode: veh ? 'vehicle' : 'foot', from: pts[0], to: pts[pts.length - 1], at: Date.now(), ...(coverDraft.swim ? { swim: true } : {}), ...(veh && !coverDraft.offroad ? { roadsOnly: true } : {}) } });
     }
     map.closePopup();
     cancelCoverDraft();

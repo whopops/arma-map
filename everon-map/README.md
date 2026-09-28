@@ -228,7 +228,7 @@ Esc, double-click or right-click finishes.
   crouched observer can see a standing soldier on the objective is tinted in your colour (yellow if only through
   trees); ground that can't see it is left unshaded. The popup gives the share of ground with a clear view, the
   closest clear spot at least 150 m out and the highest one, with their grids and height above the objective.
-- Route planner: pick Foot or Air in the options, then click a start and an end.
+- Route planner: pick Foot, Vehicle or Air in the options, then click a start and an end.
   - Foot (any distance; long routes take a few seconds to plan): the quickest way at a jog. Arma Reforger's run is about 3.33 m/s on the flat (100 m in 30 s, timed in game); slopes slow it
     (every 10% of uphill grade costs 15% more time; downhill is full speed up to 30%, then slows the same way;
     measured along the direction of travel, so going round a hillside counts as flat), and slopes over 80° can't be
@@ -240,6 +240,14 @@ Esc, double-click or right-click finishes.
     game), and the popup shows how far it swims. A saved route keeps its swimming setting when it re-plans. The popup compares it with going straight across.
     "Save as route" shares it; a saved foot route re-plans itself on its owner's page whenever enemy markings are added,
     moved or time out. The slope curve and jog speed are estimates; the 10 m heightmap smooths out short cliffs and banks.
+  - Vehicle: the quickest drive on the Roads layer's network (main roads 65 km/h, streets 45, dirt roads 35, foot paths 25
+    but counted at 1.6 times their time so roads win unless a path saves a lot), with the start and end joined to the
+    nearest roads by short off-road legs (up to 700 m; no water, nothing steeper than 30°). Slopes slow it (over 6% uphill
+    or 10% downhill). Where marked enemies see a stretch its time is multiplied like the foot planner does. **Off-road:
+    Allow** (the default) also lets it cross country at 15 km/h when there's no road way or the roads are far longer than
+    the direct line; **Roads only** joins the roads within 250 m of the start and end and nothing else. The popup gives the
+    driving time and how far it goes on each kind of road. Saving keeps it as a route that re-plans when enemies change.
+    The speeds are estimates, not timed in game: change `ROAD_KMH` and `OFFROAD_MS` in `static/app.js`.
   - Air: pick the helicopter's height (30, 100 or 200 m) and click a start and an end; both snap to a
     nearby landing zone, medevac or pickup. It plans across the whole island and keeps a wide berth of marked enemies:
     300 m from AA guns plus everywhere they can see the helicopter, 1 km from armour and enemy vehicles, 600 m from

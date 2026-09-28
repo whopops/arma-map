@@ -512,7 +512,7 @@ def validate_item(item):
         if not isinstance(pts, list) or not 2 <= len(pts) <= 200 or not all(_is_point(p) for p in pts):
             return "Bad route."
         plan = item.get("plan")
-        if plan is not None and not (isinstance(plan, dict) and plan.get("mode") == "foot" and _is_point(plan.get("from"))
+        if plan is not None and not (isinstance(plan, dict) and plan.get("mode") in {"foot", "vehicle"} and _is_point(plan.get("from"))
                                      and _is_point(plan.get("to")) and isinstance(plan.get("at", 0), (int, float))):
             return "Bad route plan."
     if t == "range" and not (_is_point(item.get("from")) and _is_point(item.get("to"))):
