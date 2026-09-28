@@ -494,7 +494,7 @@ def validate_item(item):
     if t == "overwatch" and not (_is_point(item.get("xz")) and num("range", 50, 2000)):
         return "Bad overwatch."
     if t == "hulldown":
-        if not (_is_point(item.get("xz")) and num("range", 50, 2000) and item.get("veh") in {"apc", "car"}
+        if not (_is_point(item.get("xz")) and num("range", 50, 2000) and item.get("veh") in {"btr70", "brdm2", "lav25", "apc", "car"}
                 and item.get("foe") in {"s", "v"}):
             return "Bad hull-down finder."
     if t == "sectors":

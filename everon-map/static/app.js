@@ -773,7 +773,7 @@
   function itemSummary(it) {
     if (it.type === 'route') { const rc = routeCheck(it.points); return `${fmtDist(pathLength(it.points))}${rc ? ` · ${fmtTime(rc.walk)}` : ''}`; }
     if (it.type === 'overwatch') { const los = overwatchLos(it.xz, it.range); return `${fmtDist(it.range)}${los ? ` · ${los.pct}% clear` : ''}`; }
-    if (it.type === 'hulldown') return `${fmtDist(it.range)} · ${HULL[it.veh] ? HULL[it.veh].short : 'APC'}`;
+    if (it.type === 'hulldown') return `${fmtDist(it.range)} · ${hullOf(it).short}`;
     if (isMarker(it, 'lz')) { const c = lzCheck(it.xz); return c ? LZ_WORD[c.verdict] : grid(it.xz); }
     if (it.type === 'range') return `${fmtDist(dist(it.from, it.to))} · ${pad(Math.round(bearing(it.from, it.to)) % 360, 3)}°`;
     if (it.type === 'mortar') return `${it.weapon} · ${(it.targets || []).length} target${(it.targets || []).length === 1 ? '' : 's'}`;
@@ -2794,7 +2794,7 @@
   const HELI_ALTS = [[30, '30 m'], [100, '100 m'], [200, '200 m']];
   const EYES = [[0.5, 'Prone'], [1, 'Crouched'], [1.6, 'Standing'], [2.2, 'Vehicle']]; // eye height above the ground, m
   state.profFrom = 1.6; state.profTo = 1.6;
-  state.hdFoe = 's'; state.hdVeh = 'apc'; state.hdRange = 800;
+  state.hdFoe = 's'; state.hdVeh = 'btr70'; state.hdRange = 800;
   state.heliAlt = 100;
   state.routeMode = 'foot';
   state.swim = false;
@@ -2811,7 +2811,7 @@
       { label: 'My range card', key: 'posRange', options: [[0, 'Off'], ...REACH] }],
     overwatch: { label: 'Overwatch · look out to', key: 'owRange', options: REACH },
     hulldown: [{ label: 'Enemy', key: 'hdFoe', options: [['s', 'Soldier'], ['v', 'Vehicle']] },
-      { label: 'My vehicle', key: 'hdVeh', options: [['apc', 'APC'], ['car', 'Car / truck']] },
+      { label: 'My vehicle', key: 'hdVeh', options: [['btr70', 'BTR-70'], ['brdm2', 'BRDM-2'], ['lav25', 'LAV-25']] },
       { label: 'Look out to', key: 'hdRange', options: REACH }],
     profile: [{ label: 'From', key: 'profFrom', options: EYES }, { label: 'To', key: 'profTo', options: EYES }],
     'air-cas': { label: 'Target', key: 'casShape', options: [['point', 'Point'], ['area', 'Area']] },
@@ -3505,18 +3505,22 @@
   // the two line-of-sight results the overwatch finder uses, one for each height. Shaded green where the enemy can see
   // the turret clearly and the hull is hidden, yellow where the turret is only seen through trees. Water, woods and
   // ground steeper than HD_SLOPE are left out (nowhere to drive).
+  // sights: the vehicle's overall height with its turret, from the real vehicle (BTR-70 2.32 m, BRDM-2 2.31 m,
+  // LAV-25 2.69 m). hull: where the body ends and the turret begins, estimated; the game's own numbers aren't published.
   const HULL = {
-    apc: { name: 'APC', short: 'APC', hull: 1.9, sights: 2.4 },
-    car: { name: 'Car or truck', short: 'Car / truck', hull: 1.4, sights: 1.8 },
+    btr70: { name: 'BTR-70', short: 'BTR-70', hull: 1.9, sights: 2.3 },
+    brdm2: { name: 'BRDM-2', short: 'BRDM-2', hull: 1.75, sights: 2.3 },
+    lav25: { name: 'LAV-25', short: 'LAV-25', hull: 2.0, sights: 2.65 },
   };
+  const hullOf = it => HULL[it.veh] || HULL.btr70; // older markings said "apc"; that was the BTR-70's numbers
   const HD_FOE = { s: 1.6, v: 2.0 }, HD_SLOPE = 0.5, HD_MIN = 60, HD_BACK = 30; // enemy height (m); steepest ground (rise per run); nearest to the enemy (m); how far back cover is shown (m)
   const hdCache = new Map();
   function hullDown(it) {
-    const v = HULL[it.veh] || HULL.apc, fh = HD_FOE[it.foe] || HD_FOE.s;
+    const v = hullOf(it), fh = HD_FOE[it.foe] || HD_FOE.s;
     const a = losGrid(it.xz, 0, 360, it.range, true, fh, v.sights, true), b = losGrid(it.xz, 0, 360, it.range, true, fh, v.hull, true);
     if (!a || !b) return null;
     if (a.cell !== b.cell || a.W !== b.W || a.H !== b.H) return { pending: true }; // one of them is still being worked out in full
-    const key = `${it.xz}|${it.range}|${it.veh}|${it.foe}`;
+    const key = `${it.xz}|${it.range}|${it.veh}|${it.foe}`; // the vehicle name picks the heights
     const hit = hdCache.get(key);
     if (hit && hit.a === a && hit.b === b) return hit.res;
     const cells = new Uint8Array(a.W * a.H); // 0 no, 1 hull-down, 2 turret only through trees, 3 defilade
@@ -3582,7 +3586,7 @@
     layer.addLayer(m);
   }
   function hullDownHtml(it) {
-    const r = hullDown(it), v = HULL[it.veh] || HULL.apc, alt = heightAt(it.xz);
+    const r = hullDown(it), v = hullOf(it), alt = heightAt(it.xz);
     if (!r) return '<p class="sub">The hull-down finder needs the terrain heights, which are still loading.</p>';
     if (r.pending) return '<p class="sub">Working out the view…</p>';
     // Firing spots at least OW_MIN out, closest first, keeping each 80 m from the last one listed.

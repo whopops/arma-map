@@ -210,12 +210,13 @@ Esc, double-click or right-click finishes.
   trees and buildings.
 - Elevation profile: the same line, with the profile opened as soon as you finish it. Pick From and To (prone,
   crouched, standing or vehicle eye height) in the options.
-- Hull-down finder: pick the enemy (soldier or vehicle), your vehicle (APC: hull 1.9 m, sights 2.4 m; car or truck:
-  hull 1.4 m, sights 1.8 m) and how far out to look, then click where the enemy is. Green ground is where the enemy can
+- Hull-down finder: pick the enemy (soldier or vehicle), your vehicle (BTR-70: hull 1.9 m, sights 2.3 m; BRDM-2: 1.75 m and 2.3 m;
+  LAV-25: 2.0 m and 2.65 m) and how far out to look, then click where the enemy is. Green ground is where the enemy can
   see the turret clearly and not the hull; yellow where it's seen only through trees; blue is hidden from the enemy,
   within 30 m of a hull-down spot, where a vehicle can wait and then move up. Water, woods and ground steeper than
   50% are left out. The popup gives the share of ground and the closest spots at least 150 m out, with grid and height.
-  The heights are estimates: change `HULL` in `static/app.js` to match your vehicles.
+  The sights heights are the real vehicles' overall heights (2.32, 2.31 and 2.69 m); where the hull ends and the turret
+  begins is estimated, since the game's own numbers aren't published. Change `HULL` in `static/app.js` to tune them.
 - Overwatch finder: pick how far out to look (400 m, 800 m or 1.5 km) and click an objective. Ground from which a
   crouched observer can see a standing soldier on the objective is tinted in your colour (yellow if only through
   trees); ground that can't see it is left unshaded. The popup gives the share of ground with a clear view, the
