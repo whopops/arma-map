@@ -1,0 +1,4 @@
+tile_cache/
+__pycache__/
+bans.json
+bans.json.part

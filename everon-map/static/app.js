@@ -55,8 +55,14 @@
   });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
 
+  const BLANK_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   const EveronTiles = L.TileLayer.extend({
-    getTileUrl(c) { return `/tiles/${5 - c.z}/${c.x}/${-(c.y + 1)}.jpg`; },
+    getTileUrl(c) {
+      // the 50 m offset makes Leaflet ask for a column just past the last tile at some zooms: nothing is there
+      const z = 5 - c.z, n = 2 ** (7 - z), y = -(c.y + 1);
+      if (c.x < 0 || y < 0 || c.x >= n || y >= n) return BLANK_TILE;
+      return `/tiles/${z}/${c.x}/${y}.jpg`;
+    },
   });
   new EveronTiles('', { minZoom: -1, maxZoom: 7, minNativeZoom: 0, maxNativeZoom: 5, bounds: worldBounds, keepBuffer: 3 }).addTo(map);
 
@@ -158,9 +164,16 @@
   });
   const hillshadeLayer = new HillshadeLayer({ bounds: worldBounds, zIndex: 3, minZoom: -1, maxZoom: 7 });
 
-  // Estimated tree cover (tools/build_forest.py): one bit per 10 m cell, row 0 = south edge. Drawn as a green
-  // diagonal hatch so the imagery underneath stays visible for checking it.
+  // Trees and buildings, per 10 m cell (row 0 = south edge), baked from the game's own objects by tools/bake_los.py:
+  // FOREST   one bit per cell: woods (trees or bushes 3 m or taller over at least 35% of it). Drawn as a green hatch.
+  // CANOPY   four planes of HN*HN bytes: canopy top (m), crown base (m), share of the cell blocked at head height by
+  //          trunks, bushes and low branches (0-255), share covered by crowns seen from above (0-255).
+  // BUILDINGS building height (m) where buildings fill at least 40% of the cell.
   let FOREST = null; // Uint8Array of packed bits
+  let CANOPY = null, BUILDINGS = null;
+  const cellOf = ([x, z]) => (x < 0 || z < 0 || x >= WORLD || z >= WORLD ? -1 : Math.floor(z / HCELL) * HN + Math.floor(x / HCELL));
+  const canopyTop = p => { const k = cellOf(p); return CANOPY && k >= 0 ? CANOPY[k] : 0; };
+  const buildingTop = p => { const k = cellOf(p); return BUILDINGS && k >= 0 ? BUILDINGS[k] : 0; };
   const isForest = ([x, z]) => {
     if (!FOREST || x < 0 || z < 0 || x >= WORLD || z >= WORLD) return false;
     const k = Math.floor(z / HCELL) * HN + Math.floor(x / HCELL);
@@ -192,42 +205,18 @@
   });
   const forestLayer = new ForestLayer({ bounds: worldBounds, zIndex: 4, minZoom: -1, maxZoom: 7 });
 
-  // Helicopter landing suitability for every 10 m cell, from the same slope and tree limits as the landing zone check
-  // (LZ_OK_DEG / LZ_MAX_DEG, trees within LZ_R or LZ_NEAR). Worked out once for the whole map when first drawn.
+  // Helicopter landing suitability at every 10 m cell, baked by tools/bake_los.py from the game's own terrain and
+  // objects with the same rules as the landing zone check (everon-lz.bin: 0 water, 1 good, 2 marginal, 3 no-go).
   // It leaves out the approach directions, which are too slow to check everywhere; hover or drop an LZ for those.
-  let LZ_GRID = null; // Uint8Array: 0 water, 1 good, 2 marginal, 3 no-go
+  // Loaded the first time the shading is shown.
+  let LZ_GRID = null, lzGridLoading = false;
   function lzGrid() {
-    if (LZ_GRID || !HEIGHT) return LZ_GRID;
-    const N = HN, h = k => HEIGHT[k] / 10, slope = new Float32Array(N * N), tree = new Uint8Array(N * N);
-    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
-      const k = r * N + c;
-      const dx = h(r * N + Math.min(c + 1, N - 1)) - h(r * N + Math.max(c - 1, 0));
-      const dz = h(Math.min(r + 1, N - 1) * N + c) - h(Math.max(r - 1, 0) * N + c);
-      slope[k] = Math.atan(Math.hypot(dx, dz) / (2 * HCELL)) * 180 / Math.PI;
-      tree[k] = FOREST ? (FOREST[k >> 3] >> (7 - (k & 7))) & 1 : 0;
-    }
-    // Square max filter, separable: the highest value within `rad` cells
-    const maxFilter = (src, rad) => {
-      const tmp = new src.constructor(N * N), out = new src.constructor(N * N);
-      for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
-        let m = 0;
-        for (let d = Math.max(0, c - rad); d <= Math.min(N - 1, c + rad); d++) m = Math.max(m, src[r * N + d]);
-        tmp[r * N + c] = m;
-      }
-      for (let c = 0; c < N; c++) for (let r = 0; r < N; r++) {
-        let m = 0;
-        for (let d = Math.max(0, r - rad); d <= Math.min(N - 1, r + rad); d++) m = Math.max(m, tmp[d * N + c]);
-        out[r * N + c] = m;
-      }
-      return out;
-    };
-    const cells = Math.round(LZ_R / HCELL), near = Math.round(LZ_NEAR / HCELL);
-    const s2 = maxFilter(slope, cells), t2 = maxFilter(tree, cells), t4 = maxFilter(tree, near);
-    LZ_GRID = new Uint8Array(N * N);
-    for (let k = 0; k < N * N; k++) {
-      LZ_GRID[k] = h(k) < 0.5 ? 0 : t2[k] || s2[k] > LZ_MAX_DEG ? 3 : t4[k] || s2[k] > LZ_OK_DEG ? 2 : 1;
-    }
-    return LZ_GRID;
+    if (LZ_GRID || lzGridLoading) return LZ_GRID;
+    lzGridLoading = true;
+    lightBin('everon-lz.bin')
+      .then(buf => { LZ_GRID = new Uint8Array(buf); lzShadeLayer.redraw(); })
+      .catch(err => { lzGridLoading = false; console.error('Landing grid not loaded', err); });
+    return null;
   }
   const LZ_SHADE = [null, [81, 207, 102, 80], [255, 197, 61, 75], [255, 92, 92, 60]];
   const LzShadeLayer = L.GridLayer.extend({
@@ -379,8 +368,8 @@
       '<div class="legend-key one"><div><span class="lk-line solid"></span>Both in range of each other</div>' +
       '<div><span class="lk-line dash"></span>Only the radio tower reaches</div></div>' },
     { key: 'mob', label: 'HQ start positions', on: false, icon: badge('⚑', C.mob) },
-    { group: 'Terrain', key: 'forest', label: 'Forest (estimate)', on: false, icon: '<span class="lg-forest"></span>', countText: '', legendHtml:
-      '<div class="legend-key one"><div>Worked out from the satellite colours. Line of sight treats it as 8 m tall trees.</div></div>' },
+    { group: 'Terrain', key: 'forest', label: 'Forest', on: false, icon: '<span class="lg-forest"></span>', countText: '', legendHtml:
+      '<div class="legend-key one"><div>From the trees in the game: woods where trees or bushes 3 m or taller cover a third or more of the ground. Line of sight uses the real height of every tree.</div></div>' },
     { key: 'hillshade', label: 'Hill shading', on: false, icon: '<span class="lg-hill"></span>', countText: '' },
     { key: 'contours', label: 'Contour lines', on: false, icon: '<span class="lg-contour"></span>', countText: '10–50 m' },
     { key: 'fiaGame', box: '#fia-layers', label: "Show this game's caches", on: true, icon: '<span class="lg-live">◆</span>', dynamic: true },
@@ -841,7 +830,7 @@
       if (it.height) extra += `<p class="sub">Raised ${it.height} m above the ground (e.g. on a roof or tower)</p>`;
       if (los) extra += `<p><b>Sees ${los.pct}%</b> of its field of fire${los.treePct ? `, ${los.treePct}% more only through trees` : ''}</p>` +
         `<p class="sub">Dark shading is dead ground: the gun (${gunEye(it.height)} m up) can't see a standing soldier's chest (${TARGET_H} m) there. ` +
-        `Yellow is ground seen only through trees: up to ${TREE_BLOCK} m of woods (${TREE_H} m tall) in the way; more hides it. Buildings aren't included.</p>`;
+        `Yellow is ground seen only partly, through trees. ${losNote(los)}</p>`;
     }
     if (it.type === 'marker' && it.icon === 'mine-at') extra += `<p class="sub">Shaded circle: ${AT_KILL_RADIUS} m kill radius</p>`;
     extra += planPopupHtml(owner, it);
@@ -1885,6 +1874,80 @@
     return south + (north - south) * tz;
   }
 
+  // Exact heights and objects for the few spots that need them (the mortar and its targets, landing zones): the same
+  // 500 m full-detail tiles static/los-worker.js reads - terrain every 1 m and what stands on every 0.5 m, all
+  // measured by the game engine - fetched here when first needed and kept. Until a tile arrives the 10 m heights
+  // stand in, and the mortar and landing zones redo themselves when it lands.
+  const SEA = 'sea';
+  let detailIndex = null, detailV = 0;
+  const detailTiles = new Map(), detailLoading = new Set();
+  let detailRedraw = 0;
+  if (typeof DecompressionStream !== 'undefined') {
+    fetch('data/los/index.json', { cache: 'no-cache' }).then(r => r.json())
+      .then(ix => { detailIndex = new Set(ix.tiles); detailV = ix.version; afterDetail(); })
+      .catch(err => console.error('Detail tiles not available', err));
+  }
+  // A tile (or SEA for open water), or undefined while it loads or when there's no detail to be had.
+  function detailTile(x, z) {
+    if (!detailIndex || x < 0 || z < 0 || x >= WORLD || z >= WORLD) return undefined;
+    const tx = Math.floor(x / 500), tz = Math.floor(z / 500), name = `${tx}_${tz}`;
+    if (detailTiles.has(name)) return detailTiles.get(name);
+    if (!detailIndex.has(name)) return SEA;
+    if (!detailLoading.has(name)) {
+      detailLoading.add(name);
+      fetch(`data/los/${name}.bin.gz?v=${detailV}`)
+        .then(r => { if (!r.ok) throw new Error(r.status); return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer(); })
+        .then(buf => {
+          const o = 501 * 501 * 2, n = 1000 * 1000;
+          detailTiles.set(name, { x0: tx * 500, z0: tz * 500, ter: new Uint16Array(buf, 0, 501 * 501),
+            top: new Uint8Array(buf, o, n), kind: new Uint8Array(buf, o + 2 * n, n) });
+          while (detailTiles.size > 16) detailTiles.delete(detailTiles.keys().next().value);
+          detailLoading.delete(name);
+          clearTimeout(detailRedraw);
+          detailRedraw = setTimeout(afterDetail, 50);
+        })
+        .catch(err => { detailLoading.delete(name); console.error(`Detail tile ${name}`, err); });
+    }
+    return undefined;
+  }
+  function afterDetail() {
+    lzCache.clear();
+    rerenderMortars();
+    state.players.forEach(p => p.items.forEach(it => { if (isMarker(it, 'lz') || airKey(it) || isFireReq(it)) renderItem(p, it); }));
+    refreshLists();
+    if (state.tool === 'lz' || state.tool === 'mortar') updateLive();
+  }
+  // Ground height (m) from the engine's 1 m terrain, or the 10 m heights while the tile loads.
+  function groundFine([x, z]) {
+    const t = detailTile(x, z);
+    if (t === SEA) return 0;
+    if (!t) return heightAt([x, z]);
+    const lx = Math.min(Math.max(x - t.x0, 0), 499.999), lz = Math.min(Math.max(z - t.z0, 0), 499.999);
+    const c = Math.floor(lx), r = Math.floor(lz), fx = lx - c, fz = lz - r, T = t.ter;
+    const a = T[r * 501 + c], b = T[r * 501 + c + 1], d = T[(r + 1) * 501 + c], e = T[(r + 1) * 501 + c + 1];
+    return ((a + (b - a) * fx) * (1 - fz) + (d + (e - d) * fx) * fz) / 100;
+  }
+  // What stands on the 0.5 m spot: {kind: 1 building, 2 wall/rock/pole/prop, 3 tree, 4 see-through fence, 5 bush, top: m}.
+  function objectAt([x, z]) {
+    const t = detailTile(x, z);
+    if (!t || t === SEA) return null;
+    const c = Math.min(999, Math.floor((x - t.x0) * 2)), r = Math.min(999, Math.floor((z - t.z0) * 2)), k = r * 1000 + c;
+    return t.kind[k] ? { kind: t.kind[k], top: t.top[k] / 4 } : null;
+  }
+  // Loaded for every tile a box touches? (Starts the missing ones loading.)
+  function detailReady(x0, z0, x1, z1) {
+    let ok = !!detailIndex;
+    for (let x = Math.floor(x0 / 500) * 500; x <= x1; x += 500) for (let z = Math.floor(z0 / 500) * 500; z <= z1; z += 500) {
+      if (detailTile(Math.max(x, x0), Math.max(z, z0)) === undefined) ok = false;
+    }
+    return ok;
+  }
+  // Where a round aimed at xz lands: the roof if it's on a building, else the ground.
+  function impactHeight(xz) {
+    const g = groundFine(xz), o = objectAt(xz);
+    return o && o.kind === 1 ? { h: g + o.top, roof: o.top } : { h: g, roof: 0 };
+  }
+
   const weaponDef = w => TABLES && TABLES.weapons[w];
   const shellDef = (w, s) => weaponDef(w) && weaponDef(w).shells[s];
 
@@ -1899,10 +1962,11 @@
   function solve(w, s, from, to) {
     const W = weaponDef(w), rings = shellDef(w, s);
     const d = dist(from, to);
-    const hFrom = heightAt(from), hTo = heightAt(to);
+    // Exact ground at the mortar; at the target, the roof if it's on a building (that's where the rounds land).
+    const hFrom = groundFine(from), imp = impactHeight(to), hTo = imp.h;
     const dh = hFrom != null && hTo != null ? hTo - hFrom : 0;   // + means target is higher
     const az = bearing(from, to);
-    const out = { d, az, azMil: az * (W ? W.milsPerCircle : 6400) / 360, hFrom, hTo, dh, rings: [] };
+    const out = { d, az, azMil: az * (W ? W.milsPerCircle : 6400) / 360, hFrom, hTo, dh, roof: imp.roof, rings: [] };
     if (!rings) return out;
     for (const [ring, def] of Object.entries(rings)) {
       const t = def.table;
@@ -1938,7 +2002,7 @@
     const b = sol.best;
     return short
       ? `Ring ${b.ring} · ${Math.round(b.elev)} mil · Az ${Math.round(sol.azMil)}`
-      : `Ring ${b.ring} · Elev ${Math.round(b.elev)} mil · Az ${az} · ${fmtDist(sol.d)} · Δh ${dh} · ${b.tof.toFixed(1)} s`;
+      : `Ring ${b.ring} · Elev ${Math.round(b.elev)} mil · Az ${az} · ${fmtDist(sol.d)} · Δh ${dh}${sol.roof ? ` (a roof, ${Math.round(sol.roof)} m up)` : ''} · ${b.tof.toFixed(1)} s`;
   }
 
   function solutionTable(sol) {
@@ -2276,37 +2340,38 @@
     state.emplHeight = Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 0;
     updateEmplDraft();
   });
-  // Trees: forest squares (the Forest estimate layer) are TREE_H tall. What matters is how far a sight line runs
-  // through canopy (below the treetops): up to TREE_BLOCK of it and the target is seen only "through trees", more
-  // and it is hidden, as a belt of woods that deep blocks the view. Trees within TREE_CLEAR (TREE_CLEAR_VEHICLE) of a
-  // soldier (vehicle) don't count, so someone in or at the edge of a wood can still see out; AA guns get no such
-  // allowance, since they can't see up through the canopy they sit under.
+  // Trees thin the view rather than cutting it off, and are their real heights (tools/bake_los.py, from the game's own
+  // trees). Below the crowns a cell thins the view by (its head-height share of trunks, bushes and low branches) /
+  // S_EFF per metre; inside the crowns (crown base to canopy top) by CROWN_K x -ln(1 - crown cover) / crown depth per
+  // metre, so the view is thinnest at a slant down into a wood: someone on a hill can't see a soldier under the trees.
+  // What a sight line keeps is T = exp(-sum): at least SEE_CLEAR counts as seen, SEE_TREES..SEE_CLEAR as seen through
+  // trees, less as hidden. S_EFF and CROWN_K were fitted to 20,000 of the game's own sight rays across the island
+  // (tools/workbench, "Check: sight lines"): this model agrees with the engine on 87% of them; where it says clear the
+  // game sees 77% of the time, through trees 34%, hidden 2%.
+  // Buildings (where they fill a 10 m cell) block like the ground, except right beside the eye (it's standing there).
   // The mortar calculator never uses this; it reads the bare terrain.
-  const TREE_H = 8, TREE_BLOCK = 50, TREE_CLEAR = 35, TREE_CLEAR_VEHICLE = 15; // metres
+  const S_EFF = 0.8, CROWN_K = 2.5, SEE_CLEAR = 0.75, SEE_TREES = 0.1, BUILDING_NEAR = 10;
+  const TREES_NOTE = "Woods thin the view the further it runs through them, faster in thick undergrowth, and tree crowns hide what's under them from above. Trees are their real heights from the game, and large buildings block too; checked against 20,000 of the game's own sight lines, this agrees with the game 87% of the time.";
+  const TAU_CLEAR = -Math.log(SEE_CLEAR), TAU_TREES = -Math.log(SEE_TREES);
   const LOS_HIDDEN = 1, LOS_CLEAR = 2, LOS_TREES = 3;
   const LOS_RANK = [0, 1, 3, 2]; // when samples disagree about a cell: clear beats through trees beats hidden
   const losCache = new Map();
   const ground = p => Math.max(heightAt(p), 0); // the sea surface blocks nothing
-  function fieldOfFireLos(xz, dir, arc, range, cache = true, eyeH = GUN_EYE, treeClear = TREE_CLEAR) {
-    return losGrid(xz, dir, arc, range, cache, eyeH, TARGET_H, treeClear, false);
+  function fieldOfFireLos(xz, dir, arc, range, cache = true, eyeH = GUN_EYE) {
+    return losGrid(xz, dir, arc, range, cache, eyeH, TARGET_H, false);
   }
   // Overwatch: from where around xz can a crouched observer see a standing soldier at xz? Sight lines work both
-  // ways, so this is the same march run outward from the objective with the two heights swapped. The trees an
-  // observer can see through are the ones near the observer, so in this reverse march the tree allowance applies at
-  // the far end of each sight line instead of the near end.
-  const overwatchLos = (xz, range) => losGrid(xz, 0, 360, range, true, TARGET_H, POST_KIND.f.eye, TREE_CLEAR, true);
-  // Sorted-array searches: the first index whose value is >= v (lowerBound) or > v (upperBound).
-  function lowerBound(a, v) { let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < v) lo = m + 1; else hi = m; } return lo; }
-  function upperBound(a, v) { let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] <= v) lo = m + 1; else hi = m; } return lo; }
+  // ways, so this is the same march run outward from the objective with the two heights swapped.
+  const overwatchLos = (xz, range) => losGrid(xz, 0, 360, range, true, TARGET_H, POST_KIND.f.eye, true);
   // Rays are cast across the arc and marched outward in 5 m steps. For a target at distance r with sight-line slope t
-  // (target height minus eye height, over r): the terrain hides it if any nearer ground has a steeper slope from the
-  // eye (a running maximum). The sight line is inside the canopy at a nearer forest sample exactly when that sample's
-  // treetop slope is steeper than t, so the depth of trees it passes through is 5 m x the number of such samples.
-  // Counting them with a Fenwick tree over the ray's sorted treetop slopes keeps each ray O(n log n).
+  // (target height minus eye height, over r) the ground and buildings hide it if any nearer one has a steeper slope
+  // from the eye (a running maximum). Otherwise the trees it passes add up along the line: every wooded sample before
+  // the target (and half of the target's own) thins it at the height the line crosses there, until it's hidden.
+  // reverse: marching out from the target (overwatch), the heights swapped; sight lines work both ways.
   // elev: [lowest, highest] angle in degrees a gun can aim (null = any).
-  function losGrid(xz, dir, arc, range, cache, eyeH, targetH, treeClear, reverse, elev = null) {
+  function lightLos(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
     if (!HEIGHT || range < 1) return null;
-    const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${treeClear}|${reverse}|${elev}|${!!FOREST}`;
+    const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}|${!!CANOPY}`;
     if (cache && losCache.has(key)) return losCache.get(key);
     const pts = arc >= 360 ? [[xz[0] - range, xz[1] - range], [xz[0] + range, xz[1] + range]] : sectorLatLngs(xz, dir, arc, range).map(toXZ);
     // The box is snapped to the 10 m grid so results from different spots line up cell for cell.
@@ -2316,42 +2381,48 @@
     const cells = new Uint8Array(W * H); // 0 outside the arc, else LOS_HIDDEN / LOS_CLEAR / LOS_TREES
     const eye = ground(xz) + eyeH, step = LOS_CELL / 2;
     const rays = Math.ceil(arc * Math.PI / 180 * range / (LOS_CELL * 0.7)) + 1;
-    // Forward: trees within treeClear of the eye don't count. Reverse (overwatch, marching out from the target):
-    // trees within treeClear of the far end don't count, so a sample's canopy is added `lag` steps later.
-    const lag = Math.floor(treeClear / step) + 1;
     const [lo, hi] = elev ? elev.map(d => Math.tan(d * Math.PI / 180)) : [-Infinity, Infinity];
-    const maxN = Math.ceil(range / step) + 1;
-    const hs = new Float64Array(maxN), tops = new Float64Array(maxN), fs = new Uint8Array(maxN), sorted = new Float64Array(maxN), bit = new Int32Array(maxN + 1);
+    const maxN = Math.ceil(range / step) + 1, NN = HN * HN;
+    const hs = new Float64Array(maxN), blk = new Float64Array(maxN); // ground; ground plus any building
+    const top = new Float64Array(maxN), base = new Float64Array(maxN), muLow = new Float64Array(maxN), muCrown = new Float64Array(maxN);
+    const wooded = new Int32Array(maxN); // indices of the samples with trees, in order
     for (let i = 0; i <= rays; i++) {
       const b = (dir - arc / 2 + arc * i / rays) * Math.PI / 180, sx = Math.sin(b), sz = Math.cos(b);
-      // Heights and treetop slopes along the ray
       let n = 0, m = 0;
       for (let r = step; r <= range; r += step) {
         const x = xz[0] + r * sx, z = xz[1] + r * sz;
         if (x < 0 || z < 0 || x > WORLD || z > WORLD) break;
+        const k = cellOf([x, z]);
         hs[n] = ground([x, z]);
-        fs[n] = isForest([x, z]);
-        if (fs[n]) sorted[m++] = tops[n] = (hs[n] + TREE_H - eye) / r;
+        blk[n] = hs[n] + (BUILDINGS && k >= 0 && r > BUILDING_NEAR ? BUILDINGS[k] : 0);
+        if (CANOPY && k >= 0 && CANOPY[k] > 0) {
+          const t = CANOPY[k], bs = CANOPY[NN + k], cover = Math.min(CANOPY[3 * NN + k] / 255, 0.97);
+          top[n] = hs[n] + t; base[n] = hs[n] + bs;
+          muLow[n] = CANOPY[2 * NN + k] / 255 / S_EFF;
+          muCrown[n] = CROWN_K * -Math.log(1 - cover) / Math.max(t - bs, 2);
+          wooded[m++] = n;
+        }
         n++;
       }
-      const srt = sorted.subarray(0, m).sort();
-      bit.fill(0, 0, m + 1);
-      let inCanopy = 0; // forest samples counted so far
-      const addTree = k => { inCanopy++; for (let p = lowerBound(srt, tops[k]) + 1; p <= m; p += p & -p) bit[p]++; };
-      const treesBelow = t => { let c = 0; for (let p = upperBound(srt, t); p > 0; p -= p & -p) c += bit[p]; return c; };
-      let maxTerrain = -Infinity; // steepest slope from the eye to any nearer ground
+      let maxTerrain = -Infinity; // steepest slope from the eye to any nearer ground or building
       for (let j = 0; j < n; j++) {
         const r = (j + 1) * step;
-        if (reverse && j >= lag && fs[j - lag]) addTree(j - lag);
         const t = (hs[j] + targetH - eye) / r;
         let v;
         if (t < maxTerrain || t < lo || t > hi) v = LOS_HIDDEN;
         else {
-          const depth = (inCanopy - treesBelow(t)) * step; // canopy samples whose treetops the sight line passes under
-          v = depth > TREE_BLOCK ? LOS_HIDDEN : depth > 0 ? LOS_TREES : LOS_CLEAR;
+          const len = step * Math.sqrt(1 + t * t); // metres of sight line per sample
+          let tau = 0;
+          for (let q = 0; q < m && tau <= TAU_TREES; q++) {
+            const w = wooded[q];
+            if (w > j) break;
+            const y = eye + t * (w + 1) * step; // the sight line's height over that sample
+            if (y >= top[w]) continue;
+            tau += (y >= base[w] ? muCrown[w] : muLow[w]) * len * (w === j ? 0.5 : 1);
+          }
+          v = tau > TAU_TREES ? LOS_HIDDEN : tau > TAU_CLEAR ? LOS_TREES : LOS_CLEAR;
         }
-        maxTerrain = Math.max(maxTerrain, (hs[j] - eye) / r);
-        if (!reverse && fs[j] && r > treeClear) addTree(j);
+        maxTerrain = Math.max(maxTerrain, (blk[j] - eye) / r);
         const x = xz[0] + r * sx, z = xz[1] + r * sz;
         const cx = Math.floor((x - minX) / LOS_CELL), cz = Math.floor((maxZ - z) / LOS_CELL);
         if (cx < 0 || cx >= W || cz < 0 || cz >= H) continue;
@@ -2361,7 +2432,7 @@
     }
     let clear = 0, trees = 0, total = 0;
     for (const v of cells) if (v) { total++; if (v === LOS_CLEAR) clear++; else if (v === LOS_TREES) trees++; }
-    const res = { cells, W, H, minX, maxZ, pct: total ? Math.round(clear / total * 100) : 100, treePct: total ? Math.round(trees / total * 100) : 0,
+    const res = { cells, W, H, minX, maxZ, cell: LOS_CELL, pct: total ? Math.round(clear / total * 100) : 100, treePct: total ? Math.round(trees / total * 100) : 0,
       bounds: L.latLngBounds(toLL([minX, maxZ - H * LOS_CELL]), toLL([minX + W * LOS_CELL, maxZ])) };
     if (cache) {
       if (losCache.size > 60) losCache.clear();
@@ -2369,6 +2440,93 @@
     }
     return res;
   }
+  // Line of sight in the viewer's chosen detail. Full: every building, wall, rock, tree and bush from the game at
+  // 0.5 m (static/los-worker.js, in a background thread; agrees with the game's own sight lines 95% of the time).
+  // Light: the 10 m model above (87%), instant and small. A full result arrives a moment after it's asked for: until
+  // then the light one stands in, and everything that shows line of sight redraws when it lands. Drafts still being
+  // aimed (cache = false) stay light so they keep up with the mouse.
+  const FULL_CELL = 2.5; // metres per cell of a full result's shading
+  const LOS_MODE_KEY = 'everon-map-los-detail';
+  const fullCache = new Map(), fullWanted = new Map(); // key -> result, key -> request id
+  let losWorker = null, fullSeq = 0, fullRedraw = 0, fullError = null;
+  const fullSupported = () => typeof Worker !== 'undefined' && typeof DecompressionStream !== 'undefined';
+  function defaultLosMode() {
+    const weak = (navigator.deviceMemory && navigator.deviceMemory < 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4)
+      || matchMedia('(pointer: coarse)').matches; // phones and tablets
+    return fullSupported() && !weak ? 'full' : 'light';
+  }
+  state.losMode = (() => {
+    try { const v = localStorage.getItem(LOS_MODE_KEY); if ((v === 'full' && fullSupported()) || v === 'light') return v; } catch { /* storage unavailable */ }
+    return defaultLosMode();
+  })();
+  function losGrid(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
+    if (cache && state.losMode === 'full' && fullSupported() && HEIGHT && range >= 1) {
+      const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}`;
+      const hit = fullCache.get(key);
+      if (hit) return hit;
+      if (!fullWanted.has(key)) requestFull(key, { xz, dir, arc, range, eyeH, targetH, reverse, elev, cell: FULL_CELL });
+    }
+    return lightLos(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev);
+  }
+  function requestFull(key, req) {
+    if (!losWorker) {
+      losWorker = new Worker('los-worker.js');
+      losWorker.onmessage = e => {
+        const d = e.data;
+        const entry = [...fullWanted].find(([, id]) => id === d.id);
+        if (!entry) return;
+        fullWanted.delete(entry[0]);
+        if (d.error) {
+          console.error('Full line of sight:', d.error);
+          if (!fullError) { fullError = d.error; toast('Full line-of-sight detail could not load; showing Light instead.', 6000); }
+        } else {
+          fullCache.set(entry[0], { ...d, bounds: L.latLngBounds(toLL([d.minX, d.maxZ - d.H * d.cell]), toLL([d.minX + d.W * d.cell, d.maxZ])) });
+          while (fullCache.size > 40) fullCache.delete(fullCache.keys().next().value);
+          clearTimeout(fullRedraw);
+          fullRedraw = setTimeout(redrawLos, 60);
+        }
+        renderLosDetail();
+      };
+    }
+    if (fullError) return;
+    const id = ++fullSeq;
+    fullWanted.set(key, id);
+    losWorker.postMessage({ id, ...req });
+    renderLosDetail();
+  }
+  // Redraw everything that shows line of sight (range cards, MG nests, AA guns, overwatch, TRPs, route exposure).
+  function redrawLos() {
+    state.players.forEach(p => p.items.forEach(it => renderItem(p, it)));
+    refreshCoverage(true);
+    refreshThreats(true);
+  }
+  // The popups' explanation, for whichever detail produced the result.
+  const losNote = los => (los && los.cell < LOS_CELL
+    ? 'Full detail: every building, wall, rock, tree and bush from the game at 0.5 m, with the open space under tree crowns; yellow is ground behind no more than 2 m of foliage. Checked against 20,000 of the game\'s own sight lines, it agrees 95% of the time.'
+    : TREES_NOTE);
+  function renderLosDetail() {
+    const box = $('#los-detail');
+    if (!box) return;
+    box.querySelectorAll('[data-los-mode]').forEach(b => {
+      const on = b.dataset.losMode === state.losMode;
+      b.classList.toggle('sel', on);
+      b.setAttribute('aria-checked', on);
+      b.disabled = b.dataset.losMode === 'full' && !fullSupported();
+    });
+    $('#los-note').textContent = state.losMode === 'full'
+      ? (fullError ? 'Full detail could not load, so Light is shown.' : fullWanted.size ? 'Working out full detail…'
+        : '0.5 m: every building, wall and tree from the game (95% match). Downloads the area you look at, a few MB at a time.')
+      : '10 m: quick and small (87% match). Best for phones and slow connections.';
+  }
+  $('#los-detail').addEventListener('click', e => {
+    const b = e.target.closest('[data-los-mode]');
+    if (!b || b.disabled || b.dataset.losMode === state.losMode) return;
+    state.losMode = b.dataset.losMode;
+    try { localStorage.setItem(LOS_MODE_KEY, state.losMode); } catch { /* storage unavailable */ }
+    renderLosDetail();
+    redrawLos();
+  });
+  renderLosDetail();
   // Paint a LOS result: clear ground lightly tinted in the owner's colour, ground seen only through trees yellow,
   // dead ground dark.
   function losImage(los, color, darkHidden = true, clearAlpha = 62) {
@@ -2472,12 +2630,11 @@
   const visiblePlayers = () => [...state.players.values()].filter(p => isMine(p.name) || state.showOthers);
   const allVisibleItems = test => visiblePlayers().flatMap(p => [...p.items.values()].filter(test).map(it => ({ p, it })));
   const isVehicleView = it => it.side === 'v' || it.side === 'fv' || (it.type === 'marker' && it.unit === 'arm');
-  const postLos = it => fieldOfFireLos(it.xz, 0, 360, it.range, true,
-    (isVehicleView(it) ? POST_KIND.fv : POST_KIND[it.side] || POST_KIND.f).eye, isVehicleView(it) ? TREE_CLEAR_VEHICLE : TREE_CLEAR);
+  const postLos = it => fieldOfFireLos(it.xz, 0, 360, it.range, true, (isVehicleView(it) ? POST_KIND.fv : POST_KIND[it.side] || POST_KIND.f).eye);
   // The line-of-sight marking a tool places: the enemy's (soldier or vehicle, picked in its options) or our armour's.
   const postSideOf = tool => (tool === 'enemy-view' ? state.enemyView : tool === 'vehicle-view-f' ? 'fv' : null);
   function losAt(los, xz) { // LOS_CLEAR / LOS_TREES / LOS_HIDDEN, or null outside the result
-    const cx = Math.floor((xz[0] - los.minX) / LOS_CELL), cz = Math.floor((los.maxZ - xz[1]) / LOS_CELL);
+    const cx = Math.floor((xz[0] - los.minX) / los.cell), cz = Math.floor((los.maxZ - xz[1]) / los.cell);
     if (cx < 0 || cz < 0 || cx >= los.W || cz >= los.H) return null;
     return los.cells[cz * los.W + cx] || null;
   }
@@ -2557,6 +2714,27 @@
     updateShapeDraft();
     updateLive();
   }
+  // The toolbar stays on one row: in a narrow window it drops the key hints, then the names (icons only). The
+  // options bar, hint and aim picker sit just under it, wherever it ends. Phones have their own layout.
+  const toolbarEl = $('#toolbar');
+  function fitToolbar() {
+    toolbarEl.classList.remove('no-keys', 'icons-only');
+    if (innerWidth > 720) {
+      // the buttons' own widths (an open menu hangs outside the toolbar, so its scroll width can't be used)
+      // (padding and border 12 px, 2 px gaps between buttons)
+      const tight = () => [...toolbarEl.children].reduce((w, el) => w + el.getBoundingClientRect().width + 2, 10) >
+        toolbarEl.getBoundingClientRect().width + 0.5;
+      if (tight()) toolbarEl.classList.add('no-keys');
+      if (tight()) { toolbarEl.classList.remove('no-keys'); toolbarEl.classList.add('icons-only'); }
+    }
+    document.documentElement.style.setProperty('--below-toolbar', `${Math.round(toolbarEl.getBoundingClientRect().bottom + 8)}px`);
+  }
+  let fitQueued = false;
+  const queueFit = () => { if (!fitQueued) { fitQueued = true; setTimeout(() => { fitQueued = false; fitToolbar(); }); } };
+  new ResizeObserver(queueFit).observe(toolbarEl);
+  new MutationObserver(queueFit).observe(toolbarEl, { subtree: true, childList: true, characterData: true }); // menu names change with the tool
+  addEventListener('resize', queueFit);
+  fitToolbar();
   $('#opt-picker').addEventListener('click', e => {
     const b = e.target.closest('[data-v]'), pk = b && pickersFor(state.tool)[+b.dataset.g];
     const opt = b && pk && pk.options.find(([v]) => String(v) === b.dataset.v);
@@ -2585,17 +2763,22 @@
     coverageLayer.clearLayers();
     if (!HEIGHT || !state.showLos || !posts.length) return;
     const all = posts.map(({ it }) => ({ side: it.side || 'f', los: postLos(it) })).filter(x => x.los);
+    if (!all.length) return;
+    // Results can be full (fine cells) or light (10 m); they're merged on the finest cell among them.
+    const C = Math.min(...all.map(x => x.los.cell));
     const minX = Math.min(...all.map(x => x.los.minX)), maxZ = Math.max(...all.map(x => x.los.maxZ));
-    const W = Math.round((Math.max(...all.map(x => x.los.minX + x.los.W * LOS_CELL)) - minX) / LOS_CELL);
-    const H = Math.round((maxZ - Math.min(...all.map(x => x.los.maxZ - x.los.H * LOS_CELL))) / LOS_CELL);
+    const W = Math.round((Math.max(...all.map(x => x.los.minX + x.los.W * x.los.cell)) - minX) / C);
+    const H = Math.round((maxZ - Math.min(...all.map(x => x.los.maxZ - x.los.H * x.los.cell))) / C);
     const ours = new Uint8Array(W * H), theirs = new Uint8Array(W * H);
     for (const { side, los } of all) {
-      const ox = Math.round((los.minX - minX) / LOS_CELL), oz = Math.round((maxZ - los.maxZ) / LOS_CELL);
+      const f = Math.round(los.cell / C); // fine cells per result cell
+      const ox = Math.round((los.minX - minX) / C), oz = Math.round((maxZ - los.maxZ) / C);
       const dst = OUR_SIDES.has(side) ? ours : theirs;
-      for (let y = 0; y < los.H; y++) {
-        const row = (y + oz) * W + ox;
-        for (let x = 0; x < los.W; x++) {
-          const v = los.cells[y * los.W + x];
+      for (let y = 0; y < los.H * f; y++) {
+        const row = (y + oz) * W + ox, src = Math.floor(y / f) * los.W;
+        if (y + oz >= H) break;
+        for (let x = 0; x < los.W * f && x + ox < W; x++) {
+          const v = los.cells[src + Math.floor(x / f)];
           if (LOS_RANK[v] > LOS_RANK[dst[row + x]]) dst[row + x] = v; // clear beats through trees beats hidden
         }
       }
@@ -2612,7 +2795,7 @@
       else if (ours[k] === LOS_HIDDEN) { px[i] = 6; px[i + 1] = 8; px[i + 2] = 12; px[i + 3] = 155; }
     }
     ctx.putImageData(img, 0, 0);
-    const bounds = L.latLngBounds(toLL([minX, maxZ - H * LOS_CELL]), toLL([minX + W * LOS_CELL, maxZ]));
+    const bounds = L.latLngBounds(toLL([minX, maxZ - H * C]), toLL([minX + W * C, maxZ]));
     coverageLayer.addLayer(L.imageOverlay(c.toDataURL(), bounds, { interactive: false, className: 'los-overlay' }));
   }
 
@@ -2892,7 +3075,7 @@
   function watcherLos(it) {
     if (it.type === 'post') return postLos(it);
     const w = ENEMY_WATCH[it.icon];
-    return fieldOfFireLos(it.xz, 0, 360, w.reach, true, w.eye, w.vehicle ? TREE_CLEAR_VEHICLE : TREE_CLEAR);
+    return fieldOfFireLos(it.xz, 0, 360, w.reach, true, w.eye);
   }
   const watchers = () => allVisibleItems(isWatcher).map(({ it }) => ({ name: it.label || typeLabel(it), los: watcherLos(it) })).filter(w => w.los);
   // The best view any watcher has of a spot (LOS_CLEAR, LOS_TREES or 0) and who has it.
@@ -2909,7 +3092,7 @@
   const MINE_KEEP_OUT = { 'mine-at': 15, 'mine-ap': 25 }; // metres the covered route finder keeps from minefields
   // Everything that changes a route check; routes are redrawn when it does.
   const threatSig = () => allVisibleItems(it => isWatcher(it) || isEnemyArea(it) || isRouteHazard(it) || it.type === 'aa')
-    .map(({ it }) => `${it.id}:${it.xz || it.points}:${it.range || ''}`).join('|') + `|${!!HEIGHT}|${!!FOREST}`;
+    .map(({ it }) => `${it.id}:${it.xz || it.points}:${it.range || ''}`).join('|') + `|${!!HEIGHT}|${!!CANOPY}`;
 
   function inPoly(pts, [x, z]) {
     let inside = false;
@@ -3064,7 +3247,7 @@
     let near = null, high = null;
     for (let cz = 0; cz < los.H; cz++) for (let cx = 0; cx < los.W; cx++) {
       if (los.cells[cz * los.W + cx] !== LOS_CLEAR) continue;
-      const c = [los.minX + (cx + 0.5) * LOS_CELL, los.maxZ - (cz + 0.5) * LOS_CELL], d = dist(xz, c);
+      const c = [los.minX + (cx + 0.5) * los.cell, los.maxZ - (cz + 0.5) * los.cell], d = dist(xz, c);
       if (d < OW_MIN) continue;
       const h = heightAt(c);
       if (!near || d < near.d) near = { xz: c, d, h };
@@ -3085,7 +3268,7 @@
           (high !== near && high.h - near.h >= 5 ? `<p>Highest clear view: ${spot(high)}</p>` : '')
         : `<p><b class="rc-no">Nowhere ${OW_MIN} m to ${fmtDist(it.range)} out</b> has a clear view of it.</p>`) +
       `<p class="sub">Tinted ground is where a crouched observer (${POST_KIND.f.eye} m) can see a standing soldier (${TARGET_H} m) here; ` +
-      `yellow sees it only through up to ${TREE_BLOCK} m of trees; unshaded ground can't see it. Trees are ${TREE_H} m tall; buildings aren't included.</p>`;
+      `yellow sees it only partly, through trees; unshaded ground can't see it. ${losNote(los)}</p>`;
   }
 
   // --- Route planner (foot): the quickest way on foot around marked enemies ---------------------------------------
@@ -3262,55 +3445,118 @@
   });
 
   // --- Landing zone check -------------------------------------------------------------------------------------
-  // A spot passes if a 40 m circle is free of trees and gentle enough, and a helicopter can come in over trees and
-  // high ground on a 10° descent from at least a few directions. Heights come from the 10 m heightmap and trees from
-  // the Forest estimate; buildings, fences, power lines and wrecks aren't in either.
-  const LZ_R = 20, LZ_NEAR = 40, LZ_APPROACH = 150, LZ_GLIDE = Math.tan(10 * Math.PI / 180), LZ_OK_DEG = 12, LZ_MAX_DEG = 17;
+  // Sized for the game's helicopters (the UH-1H's rotor reaches ~7.3 m from its mast, the Mi-8's ~10.7 m and its tail
+  // rotor ~13 m), on the engine's own terrain (1 m) and objects (0.5 m). tools/bake_los.py uses the same rules for
+  // the landing shading, at every 10 m.
+  // - slope: the best-fit plane over LZ_SLOPE_R; over LZ_OK_DEG marginal, over LZ_MAX_DEG no-go
+  // - anything LZ_SPOT_H or taller within LZ_TOUCH (the touchdown spot), or LZ_ROTOR_H or taller within LZ_R (under
+  //   the rotor and tail), is no-go; trees or buildings LZ_NEAR_H or taller out to LZ_NEAR make it marginal
+  // - ground rising LZ_BUMP_MAX above the landing plane within LZ_R is no-go (LZ_BUMP_OK marginal)
+  // - ways in: 8 directions, each a corridor LZ_WIDE wide, clear of ground and objects on a 10 degree descent
+  // Until the detail tiles arrive, a rougher check on the 10 m data stands in.
+  const LZ_TOUCH = 6, LZ_SLOPE_R = 8, LZ_R = 15, LZ_NEAR = 40, LZ_APPROACH = 150, LZ_WIDE = 12;
+  const LZ_SPOT_H = 1, LZ_ROTOR_H = 2, LZ_NEAR_H = 6, LZ_BUMP_OK = 0.75, LZ_BUMP_MAX = 1.5;
+  const LZ_GLIDE = Math.tan(10 * Math.PI / 180), LZ_OK_DEG = 17, LZ_MAX_DEG = 22;
   const LZ_COLOR = { good: '#51cf66', marginal: '#ffc53d', nogo: '#ff5c5c' };
   const LZ_WORD = { good: 'Good', marginal: 'Marginal', nogo: 'No-go' };
+  const OBJ_WORD = { 1: 'a building', 2: 'a wall, rock, pole or wreck', 3: 'a tree', 4: 'a fence' };
+  function lzVerdict(h0, deg, bump, spot, rotor, near, open) {
+    const nogo = [], marginal = [];
+    if (h0 < 0.5) return { verdict: 'nogo', reasons: ['in the water'] };
+    if (spot) nogo.push(`${OBJ_WORD[spot.kind]} on the touchdown spot (${Math.round(spot.top)} m)`);
+    else if (rotor) nogo.push(`${OBJ_WORD[rotor.kind]} under the rotor (${Math.round(rotor.top)} m tall, ${Math.round(rotor.r)} m out)`);
+    if (deg > LZ_MAX_DEG) nogo.push(`too steep (${Math.round(deg)}°)`); else if (deg > LZ_OK_DEG) marginal.push(`sloping (${Math.round(deg)}°)`);
+    if (bump > LZ_BUMP_MAX) nogo.push(`uneven ground (${bump.toFixed(1)} m rise)`); else if (bump > LZ_BUMP_OK) marginal.push(`bumpy ground (${bump.toFixed(1)} m)`);
+    if (!open.length) nogo.push('no clear approach'); else if (open.length < 3) marginal.push('few clear approaches');
+    if (near && !spot && !rotor) marginal.push(`${OBJ_WORD[near.kind]} close by (${Math.round(near.top)} m tall, ${Math.round(near.r)} m out)`);
+    return { verdict: nogo.length ? 'nogo' : marginal.length ? 'marginal' : 'good', reasons: [...nogo, ...marginal] };
+  }
   function lzAssess(xz) {
     if (!HEIGHT) return null;
+    const reach = LZ_APPROACH + LZ_WIDE;
+    if (!detailReady(xz[0] - reach, xz[1] - reach, xz[0] + reach, xz[1] + reach)) return lzAssessRough(xz);
+    const h0 = groundFine(xz);
+    // slope: least-squares plane over the touchdown circle (1 m samples); unevenness: rise above the rotor-circle plane
+    let sx = 0, sz = 0, sxx = 0, bx = 0, bz = 0, bxx = 0, bs = 0, bn = 0;
+    const pts = [];
+    for (let dx = -LZ_R; dx <= LZ_R; dx++) for (let dz = -LZ_R; dz <= LZ_R; dz++) {
+      const r2 = dx * dx + dz * dz;
+      if (r2 > LZ_R * LZ_R) continue;
+      const h = groundFine([xz[0] + dx, xz[1] + dz]) - h0;
+      pts.push([dx, dz, h]);
+      bx += dx * h; bz += dz * h; bxx += dx * dx; bs += h; bn++;
+      if (r2 <= LZ_SLOPE_R * LZ_SLOPE_R) { sx += dx * h; sz += dz * h; sxx += dx * dx; }
+    }
+    const deg = Math.atan(Math.hypot(sx / sxx, sz / sxx)) * 180 / Math.PI;
+    const px = bx / bxx, pz = bz / bxx, p0 = bs / bn;
+    let bump = 0;
+    for (const [dx, dz, h] of pts) bump = Math.max(bump, h - (p0 + px * dx + pz * dz));
+    // objects around it, every 0.5 m (fences count: they catch rotors)
+    let spot = null, rotor = null, near = null;
+    for (let dx = -LZ_NEAR; dx <= LZ_NEAR; dx += 0.5) for (let dz = -LZ_NEAR; dz <= LZ_NEAR; dz += 0.5) {
+      const r = Math.hypot(dx, dz);
+      if (r > LZ_NEAR) continue;
+      const o = objectAt([xz[0] + dx, xz[1] + dz]);
+      if (!o || o.kind === 5) continue; // bushes and low plants don't harm a helicopter
+      if (r <= LZ_TOUCH && o.top >= LZ_SPOT_H && (!spot || o.top > spot.top)) spot = { ...o, r };
+      else if (r <= LZ_R && o.top >= LZ_ROTOR_H && (!rotor || o.top > rotor.top)) rotor = { ...o, r };
+      else if (r > LZ_R && o.top >= LZ_NEAR_H && o.kind !== 4 && (!near || r < near.r)) near = { ...o, r };
+    }
+    // ways in: a corridor LZ_WIDE wide in each of 8 directions, clear on a 10 degree descent
+    const open = COMPASS.filter((_, i) => {
+      const b = i * Math.PI / 4, sb = Math.sin(b), cb = Math.cos(b);
+      for (let r = LZ_R + 2; r <= LZ_APPROACH; r += 1) {
+        for (const w of [-LZ_WIDE / 2, 0, LZ_WIDE / 2]) {
+          const p = [xz[0] + r * sb + w * cb, xz[1] + r * cb - w * sb];
+          const o = objectAt(p);
+          if ((groundFine(p) + (o && o.kind !== 5 ? o.top : 0) - h0) / r > LZ_GLIDE) return false;
+        }
+      }
+      return true;
+    });
+    return { ...lzVerdict(h0, deg, bump, spot, rotor, near, open), deg, bump, spot, rotor, near, open, h0, exact: true };
+  }
+  // The rough stand-in on the 10 m data, while the detail loads.
+  function lzAssessRough(xz) {
     const h0 = heightAt(xz);
-    let slope = 0, treesIn = false, treesNear = false;
+    let sx = 0, sz = 0, sxx = 0, spot = null, near = null;
     for (let dx = -LZ_NEAR; dx <= LZ_NEAR; dx += 5) for (let dz = -LZ_NEAR; dz <= LZ_NEAR; dz += 5) {
       const r = Math.hypot(dx, dz), p = [xz[0] + dx, xz[1] + dz];
       if (r > LZ_NEAR) continue;
-      if (r <= LZ_R) {
-        slope = Math.max(slope, Math.hypot(heightAt([p[0] + 5, p[1]]) - heightAt([p[0] - 5, p[1]]), heightAt([p[0], p[1] + 5]) - heightAt([p[0], p[1] - 5])) / 10);
-        if (isForest(p)) treesIn = true;
-      } else if (isForest(p)) treesNear = true;
+      if (r <= LZ_SLOPE_R) { const h = heightAt(p) - h0; sx += dx * h; sz += dz * h; sxx += dx * dx; }
+      const tall = Math.max(canopyTop(p), buildingTop(p));
+      if (tall >= LZ_ROTOR_H && r <= LZ_R && !spot) spot = { kind: buildingTop(p) ? 1 : 3, top: tall, r };
+      else if (tall >= LZ_NEAR_H && r > LZ_R && !near) near = { kind: buildingTop(p) ? 1 : 3, top: tall, r };
     }
+    const deg = sxx ? Math.atan(Math.hypot(sx / sxx, sz / sxx)) * 180 / Math.PI : 0;
     const open = COMPASS.filter((_, i) => {
       const b = i * Math.PI / 4;
       for (let r = LZ_R + 5; r <= LZ_APPROACH; r += 10) {
         const p = [xz[0] + r * Math.sin(b), xz[1] + r * Math.cos(b)];
-        if ((heightAt(p) + (isForest(p) ? TREE_H : 0) - h0) / r > LZ_GLIDE) return false;
+        if ((heightAt(p) + Math.max(canopyTop(p), buildingTop(p)) - h0) / r > LZ_GLIDE) return false;
       }
       return true;
     });
-    const deg = Math.atan(slope) * 180 / Math.PI, nogo = [], marginal = [];
-    if (h0 < 0.5) return { verdict: 'nogo', reasons: ['in the water'], deg, treesIn, treesNear, open, h0 };
-    if (treesIn) nogo.push('trees on the spot');
-    if (deg > LZ_MAX_DEG) nogo.push(`too steep (${Math.round(deg)}°)`); else if (deg > LZ_OK_DEG) marginal.push(`sloping (${Math.round(deg)}°)`);
-    if (!open.length) nogo.push('no clear approach'); else if (open.length < 3) marginal.push('few clear approaches');
-    if (treesNear && !treesIn) marginal.push('trees close to the edge');
-    return { verdict: nogo.length ? 'nogo' : marginal.length ? 'marginal' : 'good', reasons: [...nogo, ...marginal], deg, treesIn, treesNear, open, h0 };
+    return { ...lzVerdict(h0, deg, 0, spot, null, near, open), deg, bump: 0, spot, rotor: null, near, open, h0, exact: false };
   }
   const lzCache = new Map();
   function lzCheck(xz) {
-    const key = `${xz}|${!!HEIGHT}|${!!FOREST}`;
-    if (!lzCache.has(key)) {
+    const key = `${xz}|${!!HEIGHT}|${!!CANOPY}`;
+    if (!lzCache.has(key) || !lzCache.get(key).exact) {
       if (lzCache.size > 200) lzCache.clear();
       lzCache.set(key, lzAssess(xz));
     }
     return lzCache.get(key);
   }
-  // The nearest good spot within 150 m, preferring flat ground with plenty of ways in.
+  // The nearest good spot within 150 m, preferring flat ground with plenty of ways in. Only spots the landing grid
+  // already rates good are checked in full.
   function betterLz(xz) {
     let best = null;
+    const g = lzGrid();
     for (let dx = -150; dx <= 150; dx += 10) for (let dz = -150; dz <= 150; dz += 10) {
       const r = Math.hypot(dx, dz), p = [xz[0] + dx, xz[1] + dz];
-      if (r > 150 || r < 10 || isForest(p) || heightAt(p) < 0.5) continue;
+      if (r > 150 || r < 10 || heightAt(p) < 0.5) continue;
+      if (g ? g[cellOf(p)] !== 1 : canopyTop(p) >= 3 || buildingTop(p)) continue;
       const c = lzAssess(p);
       if (c.verdict !== 'good') continue;
       const score = r + c.deg * 6 - c.open.length * 4;
@@ -3337,7 +3583,7 @@
     if (!c) return '<p class="sub">The landing zone check needs the terrain heights, which are still loading.</p>';
     let html = `<p class="lz-verdict" style="--c:${LZ_COLOR[c.verdict]}"><b>${LZ_WORD[c.verdict]}</b>${c.reasons.length ? `: ${c.reasons.join(', ')}` : ''}</p>` +
       `<div class="stats"><div><span class="k">Slope</span><span class="v">${Math.round(c.deg)}°</span></div>` +
-      `<div><span class="k">Trees</span><span class="v">${c.treesIn ? 'On the spot' : c.treesNear ? 'Near' : 'Clear'}</span></div>` +
+      `<div><span class="k">Obstacles</span><span class="v">${c.spot ? 'On the spot' : c.rotor ? 'Under the rotor' : c.near ? 'Close by' : 'Clear'}</span></div>` +
       `<div><span class="k">Height</span><span class="v">${Math.round(c.h0)} m</span></div></div>` +
       `<p>Clear approaches: <b>${c.open.length ? c.open.join(' ') : 'none'}</b></p>`;
     if (c.verdict !== 'good') {
@@ -3346,8 +3592,11 @@
           (isMine(owner) ? `<div class="row"><button data-lz-move="${esc(it.id)}" data-x="${b.xz[0]}" data-z="${b.xz[1]}">Move the LZ there</button></div>` : '')
         : '<p class="sub">No good spot within 150 m.</p>';
     }
-    return html + `<p class="sub">Checks a ${LZ_R * 2} m circle for slope and trees, and which directions a helicopter can come in on a 10° descent ` +
-      `over trees (${TREE_H} m) and high ground. Buildings, fences, power lines and wrecks aren't in the data, so look before you land.</p>`;
+    return html + (c.exact
+      ? `<p class="sub">From the game's own terrain (1 m) and objects (0.5 m): the slope of the ${LZ_SLOPE_R * 2} m touchdown area, anything ${LZ_SPOT_H} m+ on the ` +
+        `${LZ_TOUCH * 2} m touchdown spot or ${LZ_ROTOR_H} m+ within ${LZ_R} m (under a Mi-8's rotor and tail), uneven ground, trees and buildings ` +
+        `${LZ_NEAR_H} m+ within ${LZ_NEAR} m, and which directions a helicopter can come in on a 10° descent. Power lines and grass aren't in the data.</p>`
+      : '<p class="sub">Rough check on the 10 m data while the detail loads.</p>');
   }
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-lz-move]');
@@ -3537,7 +3786,7 @@
   // The stock game's threat to helicopters is its mounted heavy machine guns (M2 Browning, DShKM). AA_ELEV is how far
   // they can aim down and up: -10° to +70°, the DShKM tripod's limit in earlier Arma games (not confirmed for Reforger).
   const AA_ARC = 160, AA_RANGE = 1500, AA_EYE = 2, AA_ELEV = [-10, 70];
-  const aaLos = it => losGrid(it.xz, it.dir, it.arc, it.range, true, AA_EYE + (it.height || 0), state.heliAlt, 0, false, AA_ELEV);
+  const aaLos = it => losGrid(it.xz, it.dir, it.arc, it.range, true, AA_EYE + (it.height || 0), state.heliAlt, false, AA_ELEV);
   const aaIcon = draft => L.divIcon({ className: `empl-glyph aa-glyph${draft ? ' draft' : ''}`, iconSize: [0, 0], html: '<div style="--c:#ff5c5c">AA</div>' });
   function renderAa(p, it, layer, html) {
     const los = state.showLos ? aaLos(it) : null;
@@ -3555,8 +3804,8 @@
       `<div><span class="k">Arc</span><span class="v">${it.arc}°</span></div><div><span class="k">Range</span><span class="v">${fmtDist(it.range)}</span></div></div>` +
       (los ? `<p><b class="rc-no">Sees a helicopter over ${los.pct}%</b> of its arc${los.treePct ? `, ${los.treePct}% more only through trees` : ''}</p>` : '') +
       `<p class="sub">For a helicopter ${state.heliAlt} m above the ground (change it in the options of Enemy ▾ → AA gun or Plan ▾ → Route planner, Air). ` +
-      `Unshaded ground inside the arc is hidden from the gun by terrain or more than ${TREE_BLOCK} m of trees; fly low through it. ` +
-      `The gun can aim from ${AA_ELEV[0]}° to +${AA_ELEV[1]}°, and a gun inside a wood can't see up through the canopy over it.</p>`;
+      `Unshaded ground inside the arc is hidden from the gun by terrain, buildings or trees; fly low through it. ` +
+      `The gun can aim from ${AA_ELEV[0]}° to +${AA_ELEV[1]}°, and a gun inside a wood sees up only through the gaps in the crowns over it.</p>`;
   }
   let aaDraft = null; // {xz, layer, sector, los, raf}
   function aaClick(xz) {
@@ -3584,7 +3833,7 @@
     d.raf = requestAnimationFrame(() => {
       if (aaDraft !== d) return;
       if (d.los) d.los.remove();
-      const los = losGrid(d.xz, dir, AA_ARC, AA_RANGE, false, AA_EYE, state.heliAlt, 0, false, AA_ELEV);
+      const los = losGrid(d.xz, dir, AA_ARC, AA_RANGE, false, AA_EYE, state.heliAlt, false, AA_ELEV);
       d.los = los ? losOverlay(los, ENEMY, false, 70).addTo(d.layer) : null;
     });
   }
@@ -3849,7 +4098,7 @@
       }
       html += `<p class="sub">${enemy ? `Red shading is ground ${kind.who} here can see clearly; yellow only through trees. Keep out of both.`
         : 'Tinted ground is seen from here, yellow only through trees; dark ground is hidden from every range card.'} ` +
-        `Seen from ${kind.eye} m up (${kind.who}), looking for a standing soldier's chest (${TARGET_H} m). Trees are ${TREE_H} m tall; more than ${TREE_BLOCK} m of woods in the way hides the ground completely. Buildings aren't included.</p>`;
+        `Seen from ${kind.eye} m up (${kind.who}), looking for a standing soldier's chest (${TARGET_H} m). ${losNote(los)}</p>`;
       return html;
     }
     if (it.type === 'marker' && it.icon === 'trp') {
@@ -4390,20 +4639,29 @@
     .then(r => r.json())
     .then(t => { TABLES = t; fillMortarSelects(); rerenderMortars(); refreshLists(); updateHint(); })
     .catch(err => { console.error(err); toast('Could not load mortar firing tables.', 6000); });
-  fetch('data/everon-forest.bin')
-    .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
-    .then(buf => {
-      FOREST = new Uint8Array(buf);
+  // Map data is cached by browsers for a week: bump DATA_V whenever tools/bake_los.py is run again.
+  const DATA_V = 4;
+  // The 10 m data files are gzipped (about a seventh of the download) and unpacked here.
+  function lightBin(name) {
+    return fetch(`data/light/${name}.gz?v=${DATA_V}`).then(r => {
+      if (!r.ok) throw new Error(`${name}: ${r.status}`);
+      return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    });
+  }
+  // Trees and buildings: line of sight worked out before they arrived is redone with them.
+  Promise.all(['everon-forest.bin', 'everon-canopy.bin', 'everon-buildings.bin'].map(lightBin))
+    .then(([forest, canopy, buildings]) => {
+      FOREST = new Uint8Array(forest); CANOPY = new Uint8Array(canopy); BUILDINGS = new Uint8Array(buildings);
       forestLayer.redraw();
-      LZ_GRID = null; lzShadeLayer.redraw();
-      losCache.clear(); // line of sight worked out before the trees arrived is redone with them
-      rerenderMortars();
+      lzCache.clear();
+      losCache.clear();
+      state.players.forEach(p => p.items.forEach(it => renderItem(p, it)));
       refreshCoverage(true);
+      refreshThreats(true);
     })
-    .catch(err => console.error('Forest estimate not loaded', err));
-  fetch('data/everon-height.bin')
-    .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
-    .then(buf => { HEIGHT = new Int16Array(buf); LZ_GRID = null; rerenderMortars(); refreshLists(); contourLayer.redraw(); hillshadeLayer.redraw(); lzShadeLayer.redraw(); })
+    .catch(err => { console.error('Trees and buildings not loaded', err); toast('Could not load trees and buildings - line of sight uses the bare terrain.', 6000); });
+  lightBin('everon-height.bin')
+    .then(buf => { HEIGHT = new Int16Array(buf); rerenderMortars(); refreshLists(); contourLayer.redraw(); hillshadeLayer.redraw(); lzShadeLayer.redraw(); })
     .catch(err => { console.error(err); toast('Could not load terrain heights - mortar solutions ignore elevation.', 6000); });
   $('#join-name').focus();
 })();

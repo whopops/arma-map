@@ -148,6 +148,14 @@
       <section class="acc" data-sec="layers">
         <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-layers"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/></svg><span class="acc-title">Map layers</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
         <div class="acc-body" id="sec-layers">
+          <div id="los-detail" class="los-detail" role="radiogroup" aria-label="Line-of-sight detail">
+            <span class="ld-label">Line-of-sight detail</span>
+            <span class="ld-opts">
+              <button type="button" data-los-mode="full" role="radio" title="Every building, wall and tree from the game, at 0.5 m">Full</button>
+              <button type="button" data-los-mode="light" role="radio" title="10 m squares: quick and small, for phones and slow connections">Light</button>
+            </span>
+            <div id="los-note" class="ld-note"></div>
+          </div>
           <div id="layers"></div>
           <label class="switch"><input type="checkbox" id="show-grid" checked><span>Grid lines</span></label>
         </div>

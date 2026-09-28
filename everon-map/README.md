@@ -92,12 +92,12 @@ its window. Only a hash of the password is kept in memory.
 - **Radio network** layer: lines between every pair of Conflict points that can reach each other by radio. Solid white
   means both are in range of each other; dashed cyan means only the radio tower's longer 3 km range reaches. In Conflict
   you can only capture points connected to your radio network, so this shows how you can advance.
-- **Forest (estimate)** layer: where the trees are, worked out from the satellite imagery (dark or dark-and-textured
-  10 m squares on land), outlined in green with a light hatch. About 23% of the land. Tree shadows on grass can count as
-  forest and single trees or thin hedgerows are usually missed, so check it against the map. Line of sight treats it
-  as 8 m tall trees. Rebuild it with `python tools/build_forest.py` (server running; needs Pillow and numpy).
-- **Helicopter landing** layer: shades the map green (good), amber (marginal) and red (no-go) for landing, from the
-  slope and tree cover around each 10 m spot. It also shows whenever the Landing zone check tool is active.
+- **Forest** layer: the woods, from the game's own trees: every 10 m square where trees or bushes 3 m or taller
+  cover a third or more of the ground, outlined in green with a light hatch. Line of sight doesn't rely on this
+  outline; it uses the real height of every tree.
+- **Helicopter landing** layer: shades the map green (good), amber (marginal) and red (no-go) for landing at every
+  10 m, with the same rules as the Landing zone check (worked out ahead from the game's own terrain and objects). It
+  also shows whenever the Landing zone check tool is active.
 - **Hill shading** layer: lights the terrain from the north-west so ridges, valleys and dead ground stand out.
 - **Contour lines** layer: elevation lines drawn from the terrain heightmap (every 50 m zoomed out, 20 m mid-zoom, 10 m
   zoomed in, with every fifth line brighter). While it's on, the grid readout also shows the ground height under the cursor.
@@ -147,7 +147,7 @@ Esc, double-click or right-click finishes.
 - Mortar (F then 9): click to place your mortar (M252 US or 2B14 Soviet, any shell type); the Mortar section opens. Dashed circles
   show each ring's maximum reach and a red circle the minimum range. Move the mouse for a live firing solution and click
   to add targets (up to 30). Each target shows the recommended ring (the lowest that reaches, with the tightest spread),
-  elevation in mils corrected for the height difference, azimuth in degrees and mils (6400 for M252, 6000 for 2B14) and
+  elevation in mils corrected for the height difference (from the game's own 1 m terrain; a target on a building is aimed at its roof, where the rounds land), azimuth in degrees and mils (6400 for M252, 6000 for 2B14) and
   flight time; its details list every ring that can reach it.
   Each target also shows where the rounds will land, the same way as a fire support pin: with an HE shell, a shaded
   red kill zone the size of the ring's spread and a dashed danger zone 20 m further out; with smoke, illumination or
@@ -211,11 +211,20 @@ Esc, double-click or right-click finishes.
     the AA could see it and how close it passes each enemy, compared with flying straight. "Save as flight route" shares
     it as a dashed sky-blue arrow.
 
-- Landing zone check: move over the map for a live verdict under the toolbar, and click to mark an LZ. It is Good,
-  Marginal or No-go from the slope of a 40 m circle (over 12° marginal, over 17° no-go), trees on or near it, and which
-  of eight directions a helicopter can come in from on a 10° descent over trees and high ground (drawn as ticks).
-  If it isn't good, its popup suggests the nearest good spot within 150 m and can move it there. Buildings, fences,
-  power lines and wrecks aren't in the data.
+- Landing zone check: move over the map for a live verdict under the toolbar, and click to mark an LZ. It uses the
+  game's own terrain (1 m) and objects (0.5 m), sized for the game's helicopters (the Mi-8's rotor reaches ~10.7 m
+  from its mast, its tail rotor ~13 m):
+  - **Slope**: the best-fit slope of the 16 m touchdown area; over 17° marginal, over 22° no-go.
+  - **Obstacles**: anything 1 m or taller on the 12 m touchdown spot, or 2 m or taller within 15 m (under the rotor
+    and tail), is no-go: buildings, walls, rocks, power poles, lamp posts, wrecks, trees and fences. Trees or
+    buildings 6 m or taller within 40 m make it marginal. **Bushes and low plants don't count**; they can't harm a
+    helicopter.
+  - **Uneven ground**: ground rising 1.5 m above the landing plane within 15 m is no-go (0.75 m marginal).
+  - **Ways in**: which of eight directions a helicopter can come in from on a 10° descent, along a 12 m wide
+    corridor clear of ground, trees, buildings and poles (drawn as ticks).
+  The popup names what's in the way and how far out. If it isn't good, it suggests the nearest good spot within 150 m
+  and can move it there. Power lines (the wires) and grass aren't in the data. Until the detail for that area has
+  loaded (a moment, the first time), a rougher check on the 10 m data stands in.
   The Helicopter landing shading shows the whole map's good, marginal and no-go ground while this tool is active.
 
 **Support**
@@ -258,12 +267,27 @@ Esc, double-click or right-click finishes.
 - AT minefield (red, with a 10 m kill radius) and AP minefield (amber).
 - Blocked or mined road, Bridge out: one click drops the symbol.
 
-All line of sight uses the terrain heightmap plus the Forest estimate, with trees 8 m tall. What counts is how far a
-sight line runs through the woods (below the treetops): up to 50 m of trees and the ground is shaded **yellow**
-("through trees", since you can often still see through a thin belt); more than 50 m hides it completely, like
-the land does. Trees within 35 m of a soldier (15 m of a vehicle) don't count, so someone inside or at the edge of
-a wood can see out; AA guns get no such allowance. TRP tables say Yes, Trees or No. Buildings aren't included. The mortar calculator uses the bare terrain and is
-not affected. "Line-of-sight shading" under Map layers turns the shading on or off.
+### How line of sight is worked out
+
+All line of sight comes from the game itself: terrain, buildings, walls, rocks, trees and bushes were measured in
+Arma Reforger Tools with the engine's own rays (`tools/workbench`, baked by `tools/bake_los.py`). Pick the detail
+under **Map layers → Line-of-sight detail**:
+
+- **Full** (the default on computers): every object at 0.5 m, worked out in a background thread so the map never
+  freezes. Buildings, walls, rocks and trunks block; foliage blocks too, but there's open space under tree crowns, so
+  you can see beneath a forest canopy but not down into it from a hill. **Yellow** is ground behind no more than 2 m
+  of leaves. It downloads the part of the map you're looking at (500 m squares, about 0.5 MB each; a 1.5 km card
+  needs up to ~50 of them the first time) and keeps them. The shading appears in its Light form at once and
+  sharpens a moment later.
+- **Light** (the default on phones and tablets): 10 m squares, under 2 MB for the whole island, instant. Trees are
+  their real heights; woods thin the view the further it runs through them (faster in thick undergrowth), crowns
+  hide what's under them from above, and large buildings block. **Yellow** is ground seen only partly, through trees.
+
+Both were scored against 20,000 of the game's own sight lines across the island (the Workbench tool's "Check: sight
+lines"): Full agrees with the game on **95%** of them, Light on **87%** (where Light says clear the game sees 77% of
+the time, through trees 34%, hidden 2%). The terrain alone would agree on 66%. Grass, small clutter and see-through
+fences (poles, nets, railings) don't block. TRP tables say Yes, Trees or No. The mortar calculator doesn't depend on
+this setting. "Line-of-sight shading" under Map layers turns the shading on or off.
 
 ## Sidebar
 
@@ -312,8 +336,9 @@ in your browser. Mortar and FIA caches start closed; the Mortar section opens by
   via [reforger.recoil.org](https://reforger.recoil.org/everon/) / [EnfusionMapMaker](https://github.com/nickludlam/EnfusionMapMaker)
 - Place names come from [iZurvive](https://www.izurvive.com/reforger_everon/), fitted to game coordinates (typically within ~100 m)
 - Caves and hideouts come from a community Game Master camp-location guide, so they're approximate
-- Terrain heights: Everon heightmap (10 m grid) from [mortards.net](https://mortards.net/), checked against the game's
-  radio-tower positions to within 1.5 m
+- Terrain, trees, buildings, walls and other objects: measured in Arma Reforger Tools (Workbench) with the
+  `tools/workbench` add-on and baked into `static/data` by `tools/bake_los.py` (see the top of that file to redo
+  it). This is derived from Bohemia Interactive's game data: check their content rules before hosting it publicly.
 - Mortar firing tables: in-game M252 / 2B14 tables from
   [147888sf/ArmA-Reforger-mortar-calculator](https://github.com/147888sf/ArmA-Reforger-mortar-calculator)
 - Map tiles are fetched from reforger.recoil.org and cached locally. If you host this publicly, consider

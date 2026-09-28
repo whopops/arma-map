@@ -887,7 +887,9 @@ class Handler(BaseHTTPRequestHandler):
         with open(full, "rb") as f:
             body = f.read()
         ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
-        self.send_bytes(200, body, ctype, "no-store" if path in ADMIN_PAGES else "no-cache")
+        # Map data changes only when it is re-baked (tile URLs carry a version), so browsers keep it for a week.
+        cache = "no-store" if path in ADMIN_PAGES else "public, max-age=604800" if path.startswith("/data/") else "no-cache"
+        self.send_bytes(200, body, ctype, cache)
 
     def tile(self, z, x, y):
         n = 2 ** (7 - int(z))  # tiles per side at this zoom

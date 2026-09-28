@@ -79,21 +79,25 @@ input[type=checkbox] { width: 15px; height: 15px; margin: 0; accent-color: var(-
 #map.mid-panning, #map.mid-panning * { cursor: grabbing !important; }
 
 /* Toolbar */
-#toolbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; gap: 2px; padding: 5px; }
-.tool { display: flex; align-items: center; gap: 7px; background: transparent; border: 1px solid transparent; padding: 7px 11px 7px 9px; color: var(--muted); font-weight: 550; }
+#toolbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; gap: 2px; padding: 5px;
+  max-width: calc(100% - 24px); }
+/* When the window is too narrow for one row, app.js drops the key hints, then the names (icons only) */
+#toolbar.no-keys .tool kbd, #toolbar.icons-only .tool kbd, #toolbar.icons-only .tool .name { display: none; }
+#toolbar.icons-only .tool { padding: 7px 9px; }
+.tool { display: flex; align-items: center; gap: 7px; white-space: nowrap; background: transparent; border: 1px solid transparent; padding: 7px 11px 7px 9px; color: var(--muted); font-weight: 550; }
 .tool svg { width: 18px; height: 18px; }
 .tool:hover { color: var(--text); background: var(--raise); border-color: transparent; }
 .tool.active { background: var(--accent); color: var(--accent-ink); }
 .tool.active kbd { color: var(--accent-ink); border-color: rgba(0, 0, 0, .25); opacity: .7; }
 #hint {
-  position: absolute; top: 66px; left: 50%; transform: translateX(-50%); z-index: 999; white-space: nowrap;
+  position: absolute; top: var(--below-toolbar, 66px); left: 50%; transform: translateX(-50%); z-index: 999; white-space: nowrap;
   padding: 5px 12px; font-size: 12.5px; color: var(--text); background: rgba(12, 16, 20, .82); border: 1px solid var(--line);
   border-radius: 999px; pointer-events: none;
 }
 @media (min-width: 721px) {
   body:has(#sidebar:not(.collapsed)) #toolbar {
     left: 344px; right: 12px; transform: none; margin: 0 auto; width: max-content; max-width: calc(100% - 356px);
-    flex-wrap: wrap; justify-content: center;
+    justify-content: center;
   }
   body:has(#sidebar:not(.collapsed)) #hint { left: calc(344px + (100% - 344px) / 2); }
 }
@@ -230,6 +234,16 @@ ul { list-style: none; margin: 0; padding: 0; }
 #players .c { color: var(--faint); font-size: 12px; }
 .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
 
+/* Line-of-sight detail switch (Full / Light) */
+.los-detail { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #10161b; }
+.los-detail .ld-label { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--text); }
+.los-detail .ld-opts { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }
+.los-detail .ld-opts button { border: none; border-radius: 0; padding: 3px 12px; font-size: 12.5px; background: transparent; color: var(--muted); }
+.los-detail .ld-opts button + button { border-left: 1px solid var(--line-strong); }
+.los-detail .ld-opts button.sel { background: var(--accent); color: var(--accent-ink); font-weight: 650; }
+.los-detail .ld-opts button:disabled { opacity: .4; cursor: not-allowed; }
+.los-detail .ld-note { flex-basis: 100%; font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+
 /* Layers + legend */
 .fia-layers { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .layer-group-title { font-size: 11px; color: var(--faint); margin: 8px 0 3px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
@@ -299,11 +313,17 @@ ul { list-style: none; margin: 0; padding: 0; }
 .mine-glyph.mini > div { width: 22px; height: 19px; margin: 0; filter: none; }
 .mine-glyph.mini > div::before { inset: 2px 2.5px 1.5px; }
 .mine-glyph.mini > div > span { font-size: 7px; bottom: 2px; }
+/* Sits under the toolbar, however many rows the toolbar has wrapped onto (--below-toolbar is set by app.js), and
+   wraps itself rather than running off the screen. */
 #arc-picker, #opt-picker {
-  position: absolute; top: 66px; left: 50%; transform: translateX(-50%); z-index: 999; display: flex; align-items: center; gap: 4px;
-  padding: 4px; background: rgba(12, 16, 20, .9); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow); white-space: nowrap;
+  position: absolute; top: var(--below-toolbar, 66px); left: 50%; transform: translateX(-50%); z-index: 999; display: flex;
+  flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; width: max-content; max-width: calc(100% - 24px);
+  padding: 4px; background: rgba(12, 16, 20, .9); border: 1px solid var(--line); border-radius: 19px; box-shadow: var(--shadow); white-space: nowrap;
 }
-@media (min-width: 721px) { body:has(#sidebar:not(.collapsed)) :is(#arc-picker, #opt-picker) { left: calc(344px + (100% - 344px) / 2); } }
+@media (min-width: 721px) {
+  body:has(#sidebar:not(.collapsed)) :is(#arc-picker, #opt-picker) { left: calc(344px + (100% - 344px) / 2); max-width: calc(100% - 368px); }
+  body:has(#sidebar:not(.collapsed)) #hint { width: max-content; max-width: calc(100% - 368px); white-space: normal; text-align: center; }
+}
 :is(#arc-picker, #opt-picker) button { display: flex; align-items: center; gap: 7px; border-radius: 999px; border-color: transparent; background: transparent; padding: 4px 12px 4px 8px; font-size: 13px; color: var(--muted); }
 :is(#arc-picker, #opt-picker) button:hover { color: var(--text); background: var(--raise); }
 :is(#arc-picker, #opt-picker) button.sel { background: var(--raise-2); color: var(--text); border-color: var(--line-strong); }
@@ -675,9 +695,8 @@ table.fire tr.best td:last-child { border-radius: 0 5px 5px 0; }
   #toolbar { top: 8px; left: 8px; right: 8px; transform: none; justify-content: space-between; }
   .tool { padding: 8px; }
   .tool .name, .tool kbd { display: none; }
-  #hint { top: 62px; white-space: normal; width: calc(100% - 16px); text-align: center; border-radius: 10px; }
-  #readout { bottom: auto; top: 108px; }
-  #arc-picker, #opt-picker { top: 62px; }
+  #hint { white-space: normal; width: calc(100% - 16px); text-align: center; border-radius: 10px; }
+  #readout { bottom: auto; top: calc(var(--below-toolbar, 62px) + 46px); }
   #tool-menus { display: contents; }
   .tool-group { position: static; }
   .dropdown, .tool-group.end .dropdown { position: fixed; top: 58px; left: 8px; right: 8px; min-width: 0; max-height: calc(100vh - 80px); overflow-y: auto; }
