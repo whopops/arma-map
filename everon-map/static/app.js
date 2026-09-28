@@ -3188,7 +3188,7 @@
   // SWIM: Camurac's shore to Seagull Point, 508 m of water, takes 6 min 56 s in game.
   const JOG = 3.33, UPHILL_COST = 1.5, DOWNHILL_FREE = 0.3, SWIM = 508 / 416;
   const FOOT_MAX_DEG = 80, FOOT_MAX_GRADE = Math.tan(FOOT_MAX_DEG * Math.PI / 180);
-  const isWater = h => h < 0.5;
+  const isWater = h => h < 0.5, SWIM_MIN = 25;
   const walkSpeed = grade => JOG / (1 + UPHILL_COST * (grade > 0 ? grade : Math.max(0, -grade - DOWNHILL_FREE)));
   const DRIVE_KMH = 40;
   const fmtTime = s => s < 90 ? `${Math.max(1, Math.round(s))} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round(s / 60) % 60} min`;
@@ -3210,21 +3210,25 @@
       const xz = pointAlong(pts, d), [seen, by] = watchedAt(ws, xz);
       return { d, xz, h: heightAt(xz), seen, by };
     });
-    let climb = 0, descent = 0, walk = 0, steep = 0, seenClear = 0, seenTrees = 0, swim = 0;
+    let climb = 0, descent = 0, walk = 0, steep = 0, seenClear = 0, seenTrees = 0, swim = 0, wet = 0;
+    // Swimming: runs of water at least SWIM_MIN long (shorter dips are the shoreline, walked like flat ground).
+    const endWet = () => { if (wet) { walk += wet >= SWIM_MIN ? wet / SWIM : wet / JOG; if (wet >= SWIM_MIN) swim += wet; wet = 0; } };
     for (let i = 1; i < S.length; i++) {
       const a = S[i - 1], b = S[i], len = b.d - a.d;
       if (len <= 0) continue;
-      if (isWater(a.h) || isWater(b.h)) { // swimming
-        swim += len; walk += len / SWIM;
+      if (isWater(a.h) && isWater(b.h)) {
+        wet += len;
         if (b.seen === LOS_CLEAR) seenClear += len; else if (b.seen === LOS_TREES) seenTrees += len;
         continue;
       }
+      endWet();
       const dh = b.h - a.h, g = dh / len;
       if (dh > 0) climb += dh; else descent -= dh;
       steep = Math.max(steep, Math.abs(g));
       walk += len / walkSpeed(g);
       if (b.seen === LOS_CLEAR) seenClear += len; else if (b.seen === LOS_TREES) seenTrees += len;
     }
+    endWet();
     // Exposed stretches: runs of samples with the same view, widened by half a step at each end.
     const stretches = [];
     for (let i = 0; i < S.length; i++) {
@@ -3451,8 +3455,18 @@
     for (let k = g; k >= 0; k = came[k]) path.push(k);
     return path.reverse();
   }
+  // Searched in a box around the start and end; if nothing is found (a bay or a ridge in the way needs a long way
+  // round), again in bigger boxes, up to the whole island.
   function findCoveredRoute(from, to, ws, swim = false) {
-    const C = LOS_CELL, pad = Math.min(800, Math.max(250, dist(from, to) * 0.4));
+    const first = Math.min(800, Math.max(250, dist(from, to) * 0.4));
+    for (const pad of [first, 2000, WORLD]) {
+      const pts = routeInBox(from, to, ws, swim, pad);
+      if (pts || pad >= WORLD) return pts;
+    }
+    return null;
+  }
+  function routeInBox(from, to, ws, swim, pad) {
+    const C = LOS_CELL;
     const x0 = Math.max(0, Math.floor((Math.min(from[0], to[0]) - pad) / C) * C), x1 = Math.min(WORLD, Math.ceil((Math.max(from[0], to[0]) + pad) / C) * C);
     const z0 = Math.max(0, Math.floor((Math.min(from[1], to[1]) - pad) / C) * C), z1 = Math.min(WORLD, Math.ceil((Math.max(from[1], to[1]) + pad) / C) * C);
     const W = Math.round((x1 - x0) / C), H = Math.round((z1 - z0) / C), N = W * H;
