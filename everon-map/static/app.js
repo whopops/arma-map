@@ -3795,17 +3795,33 @@
       return { dir, elev: r ? r.elev - sol.best.elev : null, az: daz };
     });
   }
-  const nudgeTable = (rows, title) => `<h4 class="pop-h">${title}</h4><table class="fire trp-table"><tr><th>Move</th><th>Elevation</th><th>Azimuth</th></tr>` +
-    rows.map(r => `<tr><td>10 m ${r.dir}</td><td>${signedMil(r.elev)} mil</td><td>${signedMil(r.az)} mil</td></tr>`).join('') + '</table>';
+  // Two rows, N / S and E / W, each cell "first / second" (e.g. elevation −6.4 / +6.4 mil).
+  const nudgeTable = (rows, title) => {
+    const [n, s, e, w] = rows, pair = (a, b, k) => `${signedMil(a[k])} / ${signedMil(b[k])}`;
+    return `<h4 class="pop-h">${title}</h4><table class="fire trp-table"><tr><th>10 m</th><th>Elevation (mil)</th><th>Azimuth (mil)</th></tr>` +
+      `<tr><td>N / S</td><td>${pair(n, s, 'elev')}</td><td>${pair(n, s, 'az')}</td></tr>` +
+      `<tr><td>E / W</td><td>${pair(e, w, 'elev')}</td><td>${pair(e, w, 'az')}</td></tr></table>`;
+  };
   const signedMil = v => (v == null ? '—' : `${v >= 0.05 ? '+' : v <= -0.05 ? '−' : '±'}${Math.abs(v).toFixed(1)}`);
-  // The two ends of an area's longest stretch (its farthest-apart corners).
-  function areaEnds(pts) {
-    let best = [pts[0], pts[0]], d = -1;
-    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
-      const dd = dist(pts[i], pts[j]);
-      if (dd > d) { d = dd; best = [pts[i], pts[j]]; }
+  // An area's north, south, east and west ends: where a north-south and an east-west line through its middle leave it
+  // (the farthest crossing, for odd shapes), or its farthest corner that way if a line misses.
+  function areaEnds(pts, c) {
+    const out = {};
+    for (const [name, axis, sign] of [['North', 1, 1], ['South', 1, -1], ['East', 0, 1], ['West', 0, -1]]) {
+      const other = 1 - axis;
+      let best = null;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        if ((a[other] - c[other]) * (b[other] - c[other]) > 0 || a[other] === b[other]) continue;
+        const k = (c[other] - a[other]) / (b[other] - a[other]), v = a[axis] + (b[axis] - a[axis]) * k;
+        if (best == null || v * sign > best * sign) best = v;
+      }
+      const p = [0, 0];
+      p[other] = c[other];
+      p[axis] = best;
+      out[name] = best != null ? p : pts.reduce((q, r) => (r[axis] * sign > q[axis] * sign ? r : q));
     }
-    return best;
+    return out;
   }
   // Aiming details for one request, from the mortar that sizes it (the one you follow or your own if it can reach):
   // a point gets the 10 m adjustments, an area a solution for its middle and for each end.
@@ -3816,14 +3832,14 @@
     if (!it.points) {
       return nudgeTable(nudges(s.m, s.shell, it.xz, s.sol), `Adjust 10 m · ${who}, ring ${s.sol.best.ring}`);
     }
-    const c = fireAim(it), [a, b] = areaEnds(it.points);
+    const c = fireAim(it), ends = areaEnds(it.points, c);
     const row = (name, xz) => {
       const sol = solve(s.m.weapon, s.shell, s.m.xz, xz);
       return `<tr><td>${name}<div class="sub">${grid(xz, 4)} · ${fmtDist(sol.d)}</div></td><td>${fmtSolution(sol, true)}</td></tr>`;
     };
     return `<h4 class="pop-h">Across the area · ${who}, ${esc(s.shell)}</h4><table class="fire trp-table"><tr><th>Aim</th><th>Solution</th></tr>` +
-      row(`${compass(bearing(c, a))} end`, a) + row('Middle', c) + row(`${compass(bearing(c, b))} end`, b) + '</table>' +
-      `<p class="sub">The ends are the area's farthest-apart corners (${fmtDist(dist(a, b))} apart); walk the rounds from one to the other.</p>`;
+      row('Middle', c) + Object.entries(ends).map(([name, xz]) => row(`${name} end`, xz)).join('') + '</table>' +
+      `<p class="sub">Each end is where a north–south or east–west line through the middle leaves the area.</p>`;
   }
   function fireHtml(it, owner) {
     const f = FIRE[it.fire] || FIRE.he, c = fireAim(it), he = f === FIRE.he, z = it.points ? null : fireZones(it);

@@ -246,8 +246,8 @@ Esc, double-click or right-click finishes.
   message) carries that mortar's solution instead of their own. It's remembered in their browser until they click
   "Stop showing its solutions".
   Clicking a request also gives aiming details from that mortar: for a point, how many mils of elevation and azimuth
-  move the rounds 10 m north, south, east or west (on the same ring); for an area, a solution for each end of its
-  longest stretch and its middle. Once a mission is done, anyone crewing a mortar that can reach a request (its owner
+  move the rounds 10 m north / south and east / west (on the same ring, two rows); for an area, a solution for its
+  middle and its north, south, east and west ends. Once a mission is done, anyone crewing a mortar that can reach a request (its owner
   or someone showing its solutions) can clear it with "Mission complete: clear" in its popup or ✓ in the Mortar
   panel, one request at a time; whoever asked for it is told who cleared it.
 
