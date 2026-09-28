@@ -10,7 +10,8 @@ Double-click **Start Everon Map.cmd**, or run:
 python server.py
 ```
 
-Then open http://localhost:8765/. Needs Python 3.9+ and nothing else, and works offline.
+Then open http://localhost:8765/. Needs Python 3.9+ and nothing else. Map imagery is downloaded
+the first time you view an area and cached in `tile_cache/`, so it works offline for areas you've already seen.
 
 To let friends on your network join, run `python server.py --host 0.0.0.0` and give them
 `http://<your-PC's-IP>:8765/`. For internet hosting, put it behind any host that supports long-lived
@@ -76,7 +77,7 @@ its window. Only a hash of the password is kept in memory.
 
 ## Map
 
-- Map of Everon with a 1 km / 100 m grid and grid labels
+- Everon satellite map with a 1 km / 100 m grid and grid labels
 - Live cursor readout: 6- and 8-digit grid plus exact X/Z metres
 - Right-click anywhere for that spot's grid reference
 
@@ -340,3 +341,5 @@ in your browser. Mortar and FIA caches start closed; the Mortar section opens by
   it). This is derived from Bohemia Interactive's game data: check their content rules before hosting it publicly.
 - Mortar firing tables: in-game M252 / 2B14 tables from
   [147888sf/ArmA-Reforger-mortar-calculator](https://github.com/147888sf/ArmA-Reforger-mortar-calculator)
+- Map tiles are fetched from reforger.recoil.org and cached locally. If you host this publicly, consider
+  pre-caching or self-hosting tiles instead of relying on their server.
