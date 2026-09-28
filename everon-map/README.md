@@ -148,7 +148,8 @@ Esc, double-click or right-click finishes.
   show each ring's maximum reach and a red circle the minimum range. Move the mouse for a live firing solution and click
   to add targets (up to 30). Each target shows the recommended ring (the lowest that reaches, with the tightest spread),
   elevation in mils corrected for the height difference (from the game's own 1 m terrain; a target on a building is aimed at its roof, where the rounds land), azimuth in degrees and mils (6400 for M252, 6000 for 2B14) and
-  flight time; its details list every ring that can reach it.
+  flight time; its details list every ring that can reach it, and how many mils of elevation and azimuth move the rounds
+  10 m north, south, east or west on the recommended ring.
   Each target also shows where the rounds will land, the same way as a fire support pin: with an HE shell, a shaded
   red kill zone the size of the ring's spread and a dashed danger zone 20 m further out; with smoke, illumination or
   practice rounds, just the spread. The circles show while you aim too. A target's popup and its entry in the Mortar

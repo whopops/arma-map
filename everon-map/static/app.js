@@ -2100,6 +2100,7 @@
       extra += `<p>${z.zone}</p>${friendlyWarning(z.near)}`;
     }
     extra += sol.rings.length ? solutionTable(sol) : `<p style="color:var(--danger)">Out of range for ${esc(m.shell)}</p>`;
+    if (sol.best) extra += nudgeTable(nudges(m, m.shell, t, sol), `Adjust 10 m · ring ${sol.best.ring}`);
     if (isMine(owner)) extra += `<div class="row"><button class="danger" data-act="del-target" data-idx="${idx}">Remove target</button></div>`;
     return popupHtml(`Target ${idx + 1}`, `${m.weapon} ${m.shell} · by ${owner}${isMine(owner) ? ' (you)' : ''}`, t, extra);
   }
@@ -3794,6 +3795,8 @@
       return { dir, elev: r ? r.elev - sol.best.elev : null, az: daz };
     });
   }
+  const nudgeTable = (rows, title) => `<h4 class="pop-h">${title}</h4><table class="fire trp-table"><tr><th>Move</th><th>Elevation</th><th>Azimuth</th></tr>` +
+    rows.map(r => `<tr><td>10 m ${r.dir}</td><td>${signedMil(r.elev)} mil</td><td>${signedMil(r.az)} mil</td></tr>`).join('') + '</table>';
   const signedMil = v => (v == null ? '—' : `${v >= 0.05 ? '+' : v <= -0.05 ? '−' : '±'}${Math.abs(v).toFixed(1)}`);
   // The two ends of an area's longest stretch (its farthest-apart corners).
   function areaEnds(pts) {
@@ -3811,9 +3814,7 @@
     if (!s) return '';
     const who = `${esc(s.m.label || 'Mortar')}${isMine(s.p.name) ? '' : ` (${esc(s.p.name)})`}`;
     if (!it.points) {
-      const rows = nudges(s.m, s.shell, it.xz, s.sol);
-      return `<h4 class="pop-h">Adjust 10 m · ${who}, ring ${s.sol.best.ring}</h4><table class="fire trp-table"><tr><th>Move</th><th>Elevation</th><th>Azimuth</th></tr>` +
-        rows.map(r => `<tr><td>10 m ${r.dir}</td><td>${signedMil(r.elev)} mil</td><td>${signedMil(r.az)} mil</td></tr>`).join('') + '</table>';
+      return nudgeTable(nudges(s.m, s.shell, it.xz, s.sol), `Adjust 10 m · ${who}, ring ${s.sol.best.ring}`);
     }
     const c = fireAim(it), [a, b] = areaEnds(it.points);
     const row = (name, xz) => {
