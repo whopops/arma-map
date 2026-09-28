@@ -2445,26 +2445,30 @@
   // Light: the 10 m model above (87%), instant and small. A full result arrives a moment after it's asked for: until
   // then the light one stands in, and everything that shows line of sight redraws when it lands. Drafts still being
   // aimed (cache = false) stay light so they keep up with the mouse.
+  // Visual (on trial, to compare with Full): the same 0.5 m data, but trees and bushes let sight through as much as
+  // they do on screen, measured from the game's pictures of every kind of plant (see static/los-worker.js).
   const FULL_CELL = 2.5; // metres per cell of a full result's shading
   const LOS_MODE_KEY = 'everon-map-los-detail';
   const fullCache = new Map(), fullWanted = new Map(); // key -> result, key -> request id
   let losWorker = null, fullSeq = 0, fullRedraw = 0, fullError = null;
   const fullSupported = () => typeof Worker !== 'undefined' && typeof DecompressionStream !== 'undefined';
+  const WORKER_MODES = ['full', 'visual'];
   function defaultLosMode() {
     const weak = (navigator.deviceMemory && navigator.deviceMemory < 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4)
       || matchMedia('(pointer: coarse)').matches; // phones and tablets
     return fullSupported() && !weak ? 'full' : 'light';
   }
   state.losMode = (() => {
-    try { const v = localStorage.getItem(LOS_MODE_KEY); if ((v === 'full' && fullSupported()) || v === 'light') return v; } catch { /* storage unavailable */ }
+    try { const v = localStorage.getItem(LOS_MODE_KEY); if ((WORKER_MODES.includes(v) && fullSupported()) || v === 'light') return v; } catch { /* storage unavailable */ }
     return defaultLosMode();
   })();
   function losGrid(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
-    if (cache && state.losMode === 'full' && fullSupported() && HEIGHT && range >= 1) {
-      const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}`;
+    if (cache && WORKER_MODES.includes(state.losMode) && fullSupported() && HEIGHT && range >= 1) {
+      const model = state.losMode;
+      const key = `${model}|${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}`;
       const hit = fullCache.get(key);
       if (hit) return hit;
-      if (!fullWanted.has(key)) requestFull(key, { xz, dir, arc, range, eyeH, targetH, reverse, elev, cell: FULL_CELL });
+      if (!fullWanted.has(key)) requestFull(key, { xz, dir, arc, range, eyeH, targetH, reverse, elev, cell: FULL_CELL, model });
     }
     return lightLos(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev);
   }
@@ -2501,7 +2505,9 @@
     refreshThreats(true);
   }
   // The popups' explanation, for whichever detail produced the result.
-  const losNote = los => (los && los.cell < LOS_CELL
+  const losNote = los => (los && los.model === 'visual'
+    ? 'Visual (on trial): every building, wall and rock from the game at 0.5 m, with trees and bushes letting sight through as much as they do on screen, measured from the game\'s pictures of every kind of plant. Yellow is a soldier seen at least 20% through foliage; more foliage than that hides them.'
+    : los && los.cell < LOS_CELL
     ? 'Full detail: every building, wall, rock, tree and bush from the game at 0.5 m, with the open space under tree crowns; yellow is ground behind no more than 2 m of foliage. Checked against 20,000 of the game\'s own sight lines, it agrees 95% of the time.'
     : TREES_NOTE);
   function renderLosDetail() {
@@ -2511,11 +2517,12 @@
       const on = b.dataset.losMode === state.losMode;
       b.classList.toggle('sel', on);
       b.setAttribute('aria-checked', on);
-      b.disabled = b.dataset.losMode === 'full' && !fullSupported();
+      b.disabled = WORKER_MODES.includes(b.dataset.losMode) && !fullSupported();
     });
-    $('#los-note').textContent = state.losMode === 'full'
-      ? (fullError ? 'Full detail could not load, so Light is shown.' : fullWanted.size ? 'Working out full detail…'
-        : '0.5 m: every building, wall and tree from the game (95% match). Downloads the area you look at, a few MB at a time.')
+    $('#los-note').textContent = WORKER_MODES.includes(state.losMode) && fullError ? 'Full detail could not load, so Light is shown.'
+      : WORKER_MODES.includes(state.losMode) && fullWanted.size ? 'Working out full detail…'
+      : state.losMode === 'full' ? '0.5 m: every building, wall and tree from the game (95% match). Downloads the area you look at, a few MB at a time.'
+      : state.losMode === 'visual' ? 'On trial: Full, but trees and bushes are as see-through as they look in game (measured from its pictures). Switch between this and Full to compare.'
       : '10 m: quick and small (87% match). Best for phones and slow connections.';
   }
   $('#los-detail').addEventListener('click', e => {

@@ -5,9 +5,9 @@
 // measured by the game engine's own rays. Scored against 20,000 of the game's sight lines, this geometry agrees with
 // the engine 95% of the time.
 //
-// Message in:  { id, xz, dir, arc, range, eyeH, targetH, reverse, elev, cell }
-// Message out: { id, cells, W, H, minX, maxZ, cell, pct, treePct } (cells: 0 outside the arc, 1 hidden, 2 clear,
-//              3 seen only through thin foliage) or { id, error }. Tile kinds: 1 building, 2 wall/rock/pole, 3 tree,
+// Message in:  { id, xz, dir, arc, range, eyeH, targetH, reverse, elev, cell, model }
+// Message out: { id, model, cells, W, H, minX, maxZ, cell, pct, treePct } (cells: 0 outside the arc, 1 hidden, 2 clear,
+//              3 seen only through foliage) or { id, error }. Tile kinds: 1 building, 2 wall/rock/pole, 3 tree,
 //              4 see-through fence, 5 bush.
 //
 // How: rays are cast across the arc and marched outward every 0.5 m. Ground, buildings, walls and rocks block from
@@ -16,6 +16,13 @@
 // its top; a target's sight line is blocked by every band containing its slope. The bands are counted in a Fenwick
 // tree over slope, so each step costs a couple of log-time updates. Up to THIN metres of foliage in the way counts
 // as "through thin foliage"; more hides it.
+//
+// model 'visual' (being compared with the above): trees and bushes let sight through as much as they do on screen,
+// measured from the game's own pictures of every kind of plant (tools/foliage, made into data/foliage.json by
+// tools/foliage_model.py). Each foliage spot is a column from the ground to its top, and each tenth of that column
+// blocks sight at its measured rate k per metre crossed, for plants of that kind and about that height. The bands carry those rates instead of counts, so the tree
+// sums the k x metres a sight line crosses, and e^(-sum) is the share of the target left visible: at least SEE_CLEAR
+// counts as clear, at least SEE_MIN as seen through foliage, less as hidden.
 'use strict';
 
 const TILE = 500, TN = 501, SN = 1000, SC = 0.5, Q = 0.25;
@@ -23,8 +30,9 @@ const STEP = 0.5, THIN = 2, NEAR = 1;      // metres
 const BINS = 8192;                          // slope resolution: angles from -90 to +90 degrees
 const HIDDEN = 1, CLEAR = 2, TREES = 3, RANK = [0, 1, 3, 2];
 const MAX_TILES = 90;
+const SEE_CLEAR = 0.9, SEE_MIN = 0.2;
 
-let index = null, tileSet = null;
+let index = null, tileSet = null, foliage = null;
 const tiles = new Map();      // name -> {ter, top, bot, kind} | null (open sea); insertion order = age
 const pending = new Map();    // name -> Promise
 
@@ -34,6 +42,16 @@ async function loadIndex() {
   if (!r.ok) throw new Error(`index ${r.status}`);
   index = await r.json();
   tileSet = new Set(index.tiles);
+}
+
+async function loadFoliage() {
+  if (foliage) return;
+  const r = await fetch('data/foliage.json', { cache: 'no-cache' });
+  if (!r.ok) throw new Error(`foliage ${r.status}`);
+  const f = await r.json();
+  // per 0.5 m step instead of per metre
+  const perStep = t => t.map(ks => ks.map(k => k * STEP));
+  foliage = { bins: f.bins, classes: f.classes, 3: perStep(f.tree), 5: perStep(f.bush) };
 }
 
 async function loadTile(name) {
@@ -78,14 +96,14 @@ function groundAt(x, z) {
   return ((a + (b - a) * fx) * (1 - fz) + (d + (e - d) * fx) * fz) / 100;
 }
 
-// Fenwick tree over slope bins, for adding a band and asking how many bands cover a bin.
-const bit = new Int32Array(BINS + 2);
+// Fenwick tree over slope bins, for adding a band and asking how many bands (or how much k x metres) cover a bin.
+const bit = new Float64Array(BINS + 2);
 function bitAdd(i, v) { for (i++; i <= BINS + 1; i += i & -i) bit[i] += v; }
 function bitSum(i) { let s = 0; for (i++; i > 0; i -= i & -i) s += bit[i]; return s; }
 const binOf = t => Math.min(BINS - 1, Math.max(0, Math.floor((Math.atan(t) / Math.PI + 0.5) * BINS)));
 
 function compute(req) {
-  const { xz, dir, arc, range, eyeH, targetH, elev, cell } = req;
+  const { xz, dir, arc, range, eyeH, targetH, elev, cell } = req, visual = req.model === 'visual';
   const full = arc >= 360;
   const pts = full ? [[xz[0] - range, xz[1] - range], [xz[0] + range, xz[1] + range]] : sectorBox(xz, dir, arc, range);
   const minX = Math.floor(Math.min(...pts.map(p => p[0])) / cell) * cell, maxX = Math.max(...pts.map(p => p[0]));
@@ -110,7 +128,10 @@ function compute(req) {
       if (t < maxSolid || t < lo || t > hi) v = HIDDEN;
       else {
         const leaves = bitSum(binOf(t));
-        v = leaves === 0 ? CLEAR : leaves <= thinCount ? TREES : HIDDEN;
+        if (visual) {
+          const seen = Math.exp(-leaves);
+          v = seen >= SEE_CLEAR ? CLEAR : seen >= SEE_MIN ? TREES : HIDDEN;
+        } else v = leaves < 0.5 ? CLEAR : leaves <= thinCount + 0.5 ? TREES : HIDDEN;
       }
       const cx = Math.floor((x - minX) / cell), cz = Math.floor((maxZ - z) / cell);
       if (cx >= 0 && cx < W && cz >= 0 && cz < H) {
@@ -128,6 +149,18 @@ function compute(req) {
       const top = curT.top[k] * Q;
       if (kind === 3 || kind === 5) { // trees and bushes: foliage
         if (r <= NEAR) continue; // leaves brushing the observer's face
+        if (visual) { // a column from the ground up, each tenth with its own rate
+          let c = 0;
+          while (c < foliage.classes.length && top >= foliage.classes[c]) c++;
+          const K = foliage[kind][c], n = foliage.bins;
+          let prev = 0;
+          for (let j = 0; j < n; j++) {
+            if (K[j] !== prev) bitAdd(binOf((g + top * j / n - eye) / r), K[j] - prev);
+            prev = K[j];
+          }
+          bitAdd(binOf((g + top - eye) / r) + 1, -prev);
+          continue;
+        }
         const a = binOf((g + curT.bot[k] * Q - eye) / r), z2 = binOf((g + top - eye) / r);
         bitAdd(a, 1); bitAdd(z2 + 1, -1);
       } else {
@@ -137,7 +170,7 @@ function compute(req) {
   }
   let clear = 0, trees = 0, total = 0;
   for (const v of cells) if (v) { total++; if (v === CLEAR) clear++; else if (v === TREES) trees++; }
-  return { cells, W, H, minX, maxZ, cell, pct: total ? Math.round(clear / total * 100) : 100, treePct: total ? Math.round(trees / total * 100) : 0 };
+  return { model: visual ? 'visual' : 'full', cells, W, H, minX, maxZ, cell, pct: total ? Math.round(clear / total * 100) : 100, treePct: total ? Math.round(trees / total * 100) : 0 };
 }
 
 // The bounding box of a sector (points on its arc and its tip).
@@ -160,6 +193,7 @@ async function pump() {
     const req = queue.pop();
     try {
       await loadIndex();
+      if (req.model === 'visual') await loadFoliage();
       const r = req.range + 2;
       await loadArea(req.xz[0] - r, req.xz[1] - r, req.xz[0] + r, req.xz[1] + r);
       const res = compute(req);

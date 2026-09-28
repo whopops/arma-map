@@ -1,8 +1,9 @@
 # Foliage see-through measurements
 
 How much of the view Everon's trees and bushes block, measured from what the game draws rather than from the
-physics shapes the line-of-sight export uses. For a later per-cell opacity line-of-sight model; the map's line-of-sight
-code doesn't use these yet.
+physics shapes the line-of-sight export uses. They feed the map's "Visual" line-of-sight option (on trial
+next to Full): `tools/foliage_model.py` turns them into `static/data/foliage.json`, which `static/los-worker.js` reads.
+Run it again after re-measuring.
 
 Files:
 
