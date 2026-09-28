@@ -798,4 +798,8 @@ table.fire tr.best td:last-child { border-radius: 0 5px 5px 0; }
 .pop-h { margin: 10px 0 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
 #fire-requests-from:empty { display: none; }
 #fire-requests-from { margin: -4px 0 8px; }
-#mortar-requests .tgt-head button[data-fire-clear]:hover { color: #69db7c; }
+#mortar-requests .tgt-head button[data-fire-clear]:hover { color: var(--danger); }
+.req-foot { display: flex; align-items: flex-end; gap: 8px; }
+.req-foot > :first-child { flex: 1; min-width: 0; }
+.req-foot .req-add { flex: none; padding: 0 7px; line-height: 20px; font-size: 15px; font-weight: 700; color: var(--faint); background: var(--raise); border: 1px solid var(--line-strong); border-radius: 6px; }
+.req-foot .req-add:hover { color: var(--accent); border-color: var(--accent); }

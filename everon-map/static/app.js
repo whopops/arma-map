@@ -1064,7 +1064,7 @@
       case 'delete': {
         const p = state.players.get(ev.owner);
         const gone = p && p.items.get(ev.id);
-        if (gone && ev.by && !isMine(ev.by)) {
+        if (gone && ev.by && ev.by !== ev.owner && !isMine(ev.by)) { // someone cleared another player's request
           toast(`${gone.label || 'Fire mission'}${isMine(ev.owner) ? '' : ` (${ev.owner})`} cleared by ${ev.by}: mission complete`, 6000);
         }
         if (p) { p.items.delete(ev.id); unrenderItem(p, ev.id); }
@@ -2238,7 +2238,7 @@
       (z.near.length ? `<div class="fire-sub warn">Friendlies in the danger zone: ${z.near.slice(0, 3).map(x => `${esc(x.name)} ${fmtDist(x.d)}`).join(', ')}</div>` : '');
   }
   // Every fire request on the map, with a firing solution to its middle from the mortar you follow, else your own.
-  // Requests that mortar can reach can be cleared (✓) once the mission is done, one at a time.
+  // ✕ removes one request: your own, or (mission complete) anyone's that mortar can reach. + adds it to your targets.
   function refreshFireRequests(sm) {
     const m = sm && sm.it, own = !!m && m.id === myMortar()?.id;
     const reqs = allVisibleItems(isFireReq).sort((a, b) => (b.it.at || 0) - (a.it.at || 0)); // newest first
@@ -2252,14 +2252,14 @@
         const head = `<div class="tgt-head"><span class="id" style="background:${f.color};color:#111">${f.name}</span>` +
           `<span class="t">${esc(it.label || 'Fire mission')}${isMine(p.name) ? '' : ` · ${esc(p.name)}`}</span><span>${fmtDist(sol.d)}</span>` +
           `<span class="sp"></span>` +
-          (b && !isMine(p.name) ? `<button data-fire-clear="${esc(it.id)}" data-owner="${esc(p.name)}" title="Mission complete: clear this request" aria-label="Clear this request">✓</button>` : '') +
-          (own ? `<button data-fire-add="${esc(it.id)}" title="Add its aim point to your targets" aria-label="Add as a target">+</button>` : '') + `</div>`;
+          (isMine(p.name) || b ? `<button data-fire-clear="${esc(it.id)}" data-owner="${esc(p.name)}" title="Remove this fire request" aria-label="Remove this fire request">✕</button>` : '') + `</div>`;
+        const add = own ? `<button class="req-add" data-fire-add="${esc(it.id)}" title="Add its aim point to your targets" aria-label="Add as a target">+</button>` : '';
         const body = b
           ? `<div class="fire-now"><div><span class="k">Ring</span><span class="v">${b.ring}</span></div>` +
             `<div><span class="k">Elevation</span><span class="v">${Math.round(b.elev)}<small>mil</small></span></div>` +
             `<div><span class="k">Azimuth</span><span class="v">${Math.round(sol.azMil)}<small>mil</small></span></div></div>` +
-            `<div class="fire-sub">${esc(shell)} · ${b.tof.toFixed(1)} s · asked ${fmtAgo(Date.now() - (it.at || Date.now()))}</div>`
-          : `<div class="fire-now bad">Out of range for ${esc(shell)}${lim ? ` (${fmtDist(lim.min)}–${fmtDist(lim.max)})` : ''}</div>`;
+            `<div class="req-foot"><span class="fire-sub">${esc(shell)} · ${b.tof.toFixed(1)} s · asked ${fmtAgo(Date.now() - (it.at || Date.now()))}</span>${add}</div>`
+          : `<div class="req-foot"><span class="fire-now bad">Out of range for ${esc(shell)}${lim ? ` (${fmtDist(lim.min)}–${fmtDist(lim.max)})` : ''}</span>${add}</div>`;
         return `<li data-req="${esc(it.id)}">${head}${body}</li>`;
       }).join('');
   }
@@ -2280,7 +2280,6 @@
   });
   $('#mortar-move').addEventListener('click', () => { setTool('mortar'); state.mortarPlacing = true; updateHint(); updateMortarGhost(); updateLive(); });
   $('#mortar-clear').addEventListener('click', () => { const m = myMortar(); if (m) saveItem({ ...m, targets: [] }); });
-  $('#mortar-remove').addEventListener('click', () => { const m = myMortar(); if (m) deleteItem(m.id); });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-act="del-target"]');
     const m = myMortar();
@@ -3890,7 +3889,7 @@
     if (!b || !state.me) return;
     map.closePopup();
     api('/api/clear-fire', { id: state.me.id, token: state.me.token, owner: b.dataset.owner, itemId: b.dataset.fireClear })
-      .then(() => toast('Fire request cleared.')).catch(err => toast(err.message));
+      .then(() => toast('Fire request removed.')).catch(err => toast(err.message));
   });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-follow-mortar]');

@@ -248,8 +248,8 @@ Esc, double-click or right-click finishes.
   Clicking a request also gives aiming details from that mortar: for a point, how many mils of elevation and azimuth
   move the rounds 50 m north / south and east / west (on the same ring, two rows); for an area, a solution for its
   middle and its north, south, east and west ends. Once a mission is done, anyone crewing a mortar that can reach a request (its owner
-  or someone showing its solutions) can clear it with "Mission complete: clear" in its popup or ✓ in the Mortar
-  panel, one request at a time; whoever asked for it is told who cleared it.
+  or someone showing its solutions) can clear it with "Mission complete: clear" in its popup or ✕ on its card in the
+  Mortar panel, one request at a time (✕ also removes your own requests); whoever asked for it is told who cleared it.
 
 - Gun run (CAS), Medevac, Pickup / insertion and Resupply drop: click where it's needed (a gun run can also be an
   area: pick Area in the options and circle the target, like a fire support request). A gun run is sent at once as
@@ -324,7 +324,9 @@ in your browser. FIA caches starts closed.
   ground) and resources.
 
 The **Mortar panel** sits on the right: weapon and shell, your mortar's position and a firing solution for every
-target, and every fire request solved for the mortar you follow (else your own). It folds away to a Mortar tab (with
+target (✕ removes one), and every fire request solved for the mortar you follow (else your own): ✕ at its top right
+removes it, + at its bottom right adds it to your targets. The mortar itself is removed from My markings or its popup,
+not from this panel, so it can't be deleted by accident. It folds away to a Mortar tab (with
 an orange count of the fire requests waiting), opens by itself when you pick the mortar tool, and stays as you left it.
 - The search box finds towns, landmarks, bases, caches, caves and everyone's markings (accents ignored).
 
