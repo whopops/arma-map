@@ -78,7 +78,7 @@ ADMIN_MIN_PASSWORD = 12
 MAX_BRIEFING_CHARS = 6000
 CLOCK_RATES = {0, 1, 2, 3, 4, 6, 8, 12, 24, 48}  # game seconds per real second the room can pick
 ITEM_TYPES = {"marker", "route", "range", "mortar", "fia", "emplacement", "construct", "area",
-              "arrow", "ambush", "post", "sectors", "overwatch", "aa"}
+              "arrow", "ambush", "post", "sectors", "overwatch", "hulldown", "aa"}
 AIR_STATUSES = {"requested", "ack", "enroute", "done"}
 MORTAR_WEAPONS = {"M252", "2B14"}
 MAX_MORTAR_TARGETS = 30
@@ -488,6 +488,10 @@ def validate_item(item):
             return "Bad AA height."
     if t == "overwatch" and not (_is_point(item.get("xz")) and num("range", 50, 2000)):
         return "Bad overwatch."
+    if t == "hulldown":
+        if not (_is_point(item.get("xz")) and num("range", 50, 2000) and item.get("veh") in {"apc", "car"}
+                and item.get("foe") in {"s", "v"}):
+            return "Bad hull-down finder."
     if t == "sectors":
         names = item.get("names", [])
         if not _is_point(item.get("xz")) or not num("radius", 20, 3000) or not num("start", 0, 360):

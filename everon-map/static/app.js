@@ -581,7 +581,7 @@
   };
 
   const TYPE_NAME = { marker: 'Marker', route: 'Route', range: 'Range line', mortar: 'Mortar', fia: 'FIA caches', emplacement: 'MG nest', construct: 'Construct',
-    arrow: 'Arrow', ambush: 'Ambush', post: 'Range card', sectors: 'Sectors of fire', overwatch: 'Overwatch', aa: 'Enemy AA gun' };
+    arrow: 'Arrow', ambush: 'Ambush', post: 'Range card', sectors: 'Sectors of fire', overwatch: 'Overwatch', aa: 'Enemy AA gun', hulldown: 'Hull-down finder' };
   // "wall" is the sandbag line (the original name, kept so older exported plans still import).
   const CONSTRUCT_NAME = { wall: 'Sandbags', wire: 'Barbed wire', roadblock: 'Roadblock', bunker: 'Bunker', checkpoint: 'Checkpoint' };
   const POINT_CONSTRUCTS = ['bunker', 'checkpoint']; // one click drops them
@@ -725,6 +725,7 @@
     { cat: 'plan', name: 'Ambushes', test: it => it.type === 'ambush' },
     { cat: 'plan', name: 'Range lines', test: it => it.type === 'range' },
     { cat: 'plan', name: 'Overwatch', test: it => it.type === 'overwatch' },
+    { cat: 'plan', name: 'Hull-down', test: it => it.type === 'hulldown' },
     { cat: 'plan', name: 'Flight routes', test: it => it.type === 'arrow' && it.kind === 'flight' },
     { cat: 'plan', name: 'Landing zones', test: it => isMarker(it, 'lz') },
     { cat: 'support', name: 'Fire support requests', test: isFireReq },
@@ -772,6 +773,7 @@
   function itemSummary(it) {
     if (it.type === 'route') { const rc = routeCheck(it.points); return `${fmtDist(pathLength(it.points))}${rc ? ` · ${fmtTime(rc.walk)}` : ''}`; }
     if (it.type === 'overwatch') { const los = overwatchLos(it.xz, it.range); return `${fmtDist(it.range)}${los ? ` · ${los.pct}% clear` : ''}`; }
+    if (it.type === 'hulldown') return `${fmtDist(it.range)} · ${HULL[it.veh] ? HULL[it.veh].short : 'APC'}`;
     if (isMarker(it, 'lz')) { const c = lzCheck(it.xz); return c ? LZ_WORD[c.verdict] : grid(it.xz); }
     if (it.type === 'range') return `${fmtDist(dist(it.from, it.to))} · ${pad(Math.round(bearing(it.from, it.to)) % 360, 3)}°`;
     if (it.type === 'mortar') return `${it.weapon} · ${(it.targets || []).length} target${(it.targets || []).length === 1 ? '' : 's'}`;
@@ -793,7 +795,7 @@
   function itemAnchor(it) {
     if (it.type === 'ambush') return [(it.from[0] + it.to[0]) / 2, (it.from[1] + it.to[1]) / 2];
     if (it.type === 'arrow') return it.points[it.points.length - 1];
-    if (it.type === 'post' || it.type === 'sectors' || it.type === 'overwatch' || it.type === 'aa') return it.xz;
+    if (it.type === 'post' || it.type === 'sectors' || it.type === 'overwatch' || it.type === 'hulldown' || it.type === 'aa') return it.xz;
     if (it.type === 'construct') return it.points ? it.points[0] : it.xz;
     if (it.type === 'area') return it.points[0];
     if (it.type === 'fia') return (FIA_KNOWN.find(f => f.name === it.caches[0]) || { xz: [6400, 6400] }).xz;
@@ -1008,6 +1010,8 @@
       renderSectors(p, it, layer, html);
     } else if (it.type === 'overwatch') {
       renderOverwatch(p, it, layer, color, html);
+    } else if (it.type === 'hulldown') {
+      renderHullDown(p, it, layer, color, html);
     }
     if (isMine(p.name) && it.xz) enableDrag(p, it, layer);
     p.layers.set(it.id, layer);
@@ -1374,6 +1378,7 @@
         { tool: 'profile', name: 'Elevation profile', short: 'Profile', icon: svg('<path d="M2 19l5.5-8 4 5 4.5-10L22 19z"/><path d="M2 21h20" stroke-dasharray="2 2.5"/>'),
           hint: 'Click the start point, then the target · a side-on view of the ground between them, with line of sight' },
         '-',
+        { tool: 'hulldown', name: 'Hull-down finder', short: 'Hull-down', icon: svg('<path d="M2 17c4 0 5-6 10-6s6 6 10 6" /><rect x="8" y="12" width="8" height="3.4" rx="1" fill="currentColor" stroke="none"/><path d="M16 13.4h4"/>', 'color:#8ce99a') },
         { tool: 'overwatch', name: 'Overwatch finder', short: 'Overwatch', icon: svg('<circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>', 'color:#8ce99a') },
         { tool: 'cover-route', name: 'Route planner', short: 'Route planner', icon: svg('<circle cx="4.5" cy="19" r="2"/><circle cx="19.5" cy="5" r="2"/><path d="M6 17.5c3-1 2-6 6-6s3-5 6-5" stroke-dasharray="3 2.5"/><path d="M3 9c3-3 6-3 8 0" style="color:#ff6b6b"/>', 'color:#8ce99a') },
         { tool: 'lz', name: 'Landing zone check', short: 'LZ check', icon: svg('<circle cx="12" cy="12" r="9"/><path d="M8.5 7.5v9M15.5 7.5v9M8.5 12h7" stroke-width="2.2"/>', 'color:#8ce99a'),
@@ -1749,6 +1754,9 @@
         label: `${POST_KIND[side].label} ${n}`, note: '', color: side === 'f' ? state.me.color : ENEMY });
     } else if (tool === 'ambush' || tool === 'sectors') {
       shapeClick(xz);
+    } else if (tool === 'hulldown') {
+      const n = [...(state.players.get(state.me.name)?.items.values() || [])].filter(i => i.type === 'hulldown').length + 1;
+      saveItem({ id: uid(), type: 'hulldown', xz: roundXZ(xz), range: state.hdRange, veh: state.hdVeh, foe: state.hdFoe, label: `Hull-down ${n}`, note: '', color: state.me.color });
     } else if (tool === 'overwatch') {
       const n = issueNumber('overwatch', [...(state.players.get(state.me.name)?.items.values() || [])].filter(i => i.type === 'overwatch').length + 1);
       saveItem({ id: uid(), type: 'overwatch', xz: roundXZ(xz), range: state.owRange, label: `Overwatch ${n}`, note: '', color: state.me.color });
@@ -2738,6 +2746,7 @@
   const HELI_ALTS = [[30, '30 m'], [100, '100 m'], [200, '200 m']];
   const EYES = [[0.5, 'Prone'], [1, 'Crouched'], [1.6, 'Standing'], [2.2, 'Vehicle']]; // eye height above the ground, m
   state.profFrom = 1.6; state.profTo = 1.6;
+  state.hdFoe = 's'; state.hdVeh = 'apc'; state.hdRange = 800;
   state.heliAlt = 100;
   state.routeMode = 'foot';
   state.swim = false;
@@ -2753,6 +2762,9 @@
     infantry: [{ label: 'I am', key: 'posUnit', options: [['inf', 'Infantry'], ['arm', 'Armour']] },
       { label: 'My range card', key: 'posRange', options: [[0, 'Off'], ...REACH] }],
     overwatch: { label: 'Overwatch · look out to', key: 'owRange', options: REACH },
+    hulldown: [{ label: 'Enemy', key: 'hdFoe', options: [['s', 'Soldier'], ['v', 'Vehicle']] },
+      { label: 'My vehicle', key: 'hdVeh', options: [['apc', 'APC'], ['car', 'Car / truck']] },
+      { label: 'Look out to', key: 'hdRange', options: REACH }],
     profile: [{ label: 'From', key: 'profFrom', options: EYES }, { label: 'To', key: 'profTo', options: EYES }],
     'air-cas': { label: 'Target', key: 'casShape', options: [['point', 'Point'], ['area', 'Area']] },
     'aa-e': { label: 'Helicopter height', key: 'heliAlt', options: HELI_ALTS },
@@ -2771,6 +2783,7 @@
     if (t === 'sectors') return !d ? 'Click the centre of your position' : 'Move to set size and rotation · click to set';
     if (t === 'vehicle-view-f') return state.armourRange ? 'Click where our vehicle is' : 'Click to mark friendly armour';
     if (t === 'overwatch') return 'Click the objective to find where it can be seen from';
+    if (t === 'hulldown') return 'Click where the enemy is · shows where your vehicle can see them with only its turret above the ridge';
     if (t === 'profile') return draw ? 'Click the target' : 'Click the start point';
     if (t === 'radio') return 'Click where the radio backpack is';
     if (t === 'air-cas') return state.casShape === 'area' ? 'Hold the mouse button and circle the target area; let go and it is sent'
@@ -2848,7 +2861,7 @@
   let coverageSig = null;
   coverageLayer.on('add remove', e => {
     state.showLos = e.type === 'add';
-    state.players.forEach(p => p.items.forEach(it => { if (it.type === 'emplacement' || it.type === 'overwatch') renderItem(p, it); }));
+    state.players.forEach(p => p.items.forEach(it => { if (it.type === 'emplacement' || it.type === 'overwatch' || it.type === 'hulldown') renderItem(p, it); }));
     refreshCoverage(true);
     refreshThreats(true);
   });
@@ -3423,6 +3436,103 @@
           (high !== near && high.h - near.h >= 5 ? `<p>Highest clear view: ${spot(high)}</p>` : '')
         : `<p><b class="rc-no">Nowhere ${OW_MIN} m to ${fmtDist(it.range)} out</b> has a clear view of it.</p>`) +
       '<p class="sub">Tinted: can see it · yellow: through trees</p>';
+  }
+
+  // --- Hull-down finder: where can a vehicle see the enemy with only its turret above the ridge? ----------------------
+  // From the enemy's spot, ground where the vehicle's sights (turret) are in view of the enemy while its hull is not:
+  // the two line-of-sight results the overwatch finder uses, one for each height. Shaded green where the enemy can see
+  // the turret clearly and the hull is hidden, yellow where the turret is only seen through trees. Water, woods and
+  // ground steeper than HD_SLOPE are left out (nowhere to drive).
+  const HULL = {
+    apc: { name: 'APC', short: 'APC', hull: 1.9, sights: 2.4 },
+    car: { name: 'Car or truck', short: 'Car / truck', hull: 1.4, sights: 1.8 },
+  };
+  const HD_FOE = { s: 1.6, v: 2.0 }, HD_SLOPE = 0.5, HD_MIN = 60, HD_BACK = 30; // enemy height (m); steepest ground (rise per run); nearest to the enemy (m); how far back cover is shown (m)
+  const hdCache = new Map();
+  function hullDown(it) {
+    const v = HULL[it.veh] || HULL.apc, fh = HD_FOE[it.foe] || HD_FOE.s;
+    const a = losGrid(it.xz, 0, 360, it.range, true, fh, v.sights, true), b = losGrid(it.xz, 0, 360, it.range, true, fh, v.hull, true);
+    if (!a || !b) return null;
+    if (a.cell !== b.cell || a.W !== b.W || a.H !== b.H) return { pending: true }; // one of them is still being worked out in full
+    const key = `${it.xz}|${it.range}|${it.veh}|${it.foe}`;
+    const hit = hdCache.get(key);
+    if (hit && hit.a === a && hit.b === b) return hit.res;
+    const cells = new Uint8Array(a.W * a.H); // 0 no, 1 hull-down, 2 turret only through trees, 3 defilade
+    let n = 0, total = 0;
+    const spots = [];
+    for (let cz = 0; cz < a.H; cz++) for (let cx = 0; cx < a.W; cx++) {
+      const i = cz * a.W + cx, sees = a.cells[i], hull = b.cells[i];
+      if (!sees) continue;
+      const xz = [a.minX + (cx + 0.5) * a.cell, a.maxZ - (cz + 0.5) * a.cell], d = dist(xz, it.xz);
+      if (d < HD_MIN) continue;
+      total++;
+      if (hull !== LOS_HIDDEN || sees === LOS_HIDDEN) continue;
+      const h = heightAt(xz);
+      if (h == null || h < 0.5 || isForest(xz)) continue;
+      const dx = heightAt([xz[0] + 5, xz[1]]) - heightAt([xz[0] - 5, xz[1]]), dz = heightAt([xz[0], xz[1] + 5]) - heightAt([xz[0], xz[1] - 5]);
+      if (Math.hypot(dx, dz) / 10 > HD_SLOPE) continue;
+      cells[i] = sees === LOS_CLEAR ? 1 : 2;
+      if (sees === LOS_CLEAR) { n++; spots.push({ xz, d, h }); }
+    }
+    // Defilade: drivable ground hidden from the enemy (hull and sights) within HD_BACK of a hull-down spot, where a
+    // vehicle can wait out of sight and then move up.
+    const r = Math.ceil(HD_BACK / a.cell);
+    for (let cz = 0; cz < a.H; cz++) for (let cx = 0; cx < a.W; cx++) {
+      if (cells[cz * a.W + cx] !== 1) continue;
+      for (let z = Math.max(0, cz - r); z <= Math.min(a.H - 1, cz + r); z++) for (let x = Math.max(0, cx - r); x <= Math.min(a.W - 1, cx + r); x++) {
+        const j = z * a.W + x;
+        if (cells[j] || a.cells[j] !== LOS_HIDDEN || b.cells[j] !== LOS_HIDDEN || Math.hypot(x - cx, z - cz) * a.cell > HD_BACK) continue;
+        const q = [a.minX + (x + 0.5) * a.cell, a.maxZ - (z + 0.5) * a.cell], h = heightAt(q);
+        if (dist(q, it.xz) < HD_MIN || h == null || h < 0.5 || isForest(q)) continue;
+        cells[j] = 3;
+      }
+    }
+    const res = { cells, W: a.W, H: a.H, minX: a.minX, maxZ: a.maxZ, cell: a.cell, bounds: a.bounds, n, total, spots };
+    if (hdCache.size > 20) hdCache.clear();
+    hdCache.set(key, { a, b, res });
+    return res;
+  }
+  function hullImage(r) {
+    const c = document.createElement('canvas');
+    c.width = r.W; c.height = r.H;
+    const ctx = c.getContext('2d'), img = ctx.createImageData(r.W, r.H), px = img.data;
+    const put = (k, rgb, a) => { const i = k * 4; px[i] = rgb[0]; px[i + 1] = rgb[1]; px[i + 2] = rgb[2]; px[i + 3] = a; };
+    r.cells.forEach((v, k) => { if (v === 3) put(k, [108, 184, 255], 105); });
+    const grow = r.cell < 5 ? 1 : 0; // a ridge is only a cell or two wide: draw it a little fatter so it shows
+    r.cells.forEach((v, k) => {
+      if (v !== 1 && v !== 2) return;
+      const cx = k % r.W, cz = (k - cx) / r.W, rgb = v === 1 ? [84, 255, 120] : [255, 222, 50], al = v === 1 ? 200 : 130;
+      for (let z = Math.max(0, cz - grow); z <= Math.min(r.H - 1, cz + grow); z++) for (let x = Math.max(0, cx - grow); x <= Math.min(r.W - 1, cx + grow); x++) put(z * r.W + x, rgb, al);
+    });
+    ctx.putImageData(img, 0, 0);
+    return c.toDataURL();
+  }
+  function renderHullDown(p, it, layer, color, html) {
+    const r = state.showLos ? hullDown(it) : null;
+    if (r && !r.pending) layer.addLayer(L.imageOverlay(hullImage(r), r.bounds, { interactive: false, className: 'los-overlay' }));
+    layer.addLayer(L.circle(toLL(it.xz), { radius: it.range, color: '#ff5c5c', weight: 1.6, opacity: 0.75, dashArray: '7 5', fill: false, interactive: false }));
+    const m = L.marker(toLL(it.xz), { icon: L.divIcon({ className: 'ow-glyph', iconSize: [0, 0],
+      html: '<svg viewBox="0 0 24 24" style="--c:#ff5c5c"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="2" class="f"/><path d="M12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5"/></svg>' }),
+      keyboard: false, riseOnHover: true, zIndexOffset: 450 });
+    const name = it.label || 'Hull-down';
+    m.bindTooltip(esc(isMine(p.name) ? name : `${name} (${p.name})`), { direction: 'right', offset: [14, 0], className: 'item-label' });
+    bindInfo(m, html, () => it.xz);
+    layer.addLayer(m);
+  }
+  function hullDownHtml(it) {
+    const r = hullDown(it), v = HULL[it.veh] || HULL.apc, alt = heightAt(it.xz);
+    if (!r) return '<p class="sub">The hull-down finder needs the terrain heights, which are still loading.</p>';
+    if (r.pending) return '<p class="sub">Working out the view…</p>';
+    // Firing spots at least OW_MIN out, closest first, keeping each 80 m from the last one listed.
+    const list = [];
+    r.spots.filter(s => s.d >= OW_MIN).sort((x, y) => x.d - y.d).forEach(s => { if (list.length < 3 && list.every(o => dist(o.xz, s.xz) >= 80)) list.push(s); });
+    const spot = s => `<li><b>${fmtDist(s.d)} ${compass(bearing(it.xz, s.xz))}</b> of them, grid ${grid(s.xz)} (${Math.round(s.h - alt) >= 0 ? '+' : ''}${Math.round(s.h - alt)} m)</li>`;
+    return `<div class="stats"><div><span class="k">Enemy</span><span class="v">${it.foe === 'v' ? 'Vehicle' : 'Soldier'}</span></div>` +
+      `<div><span class="k">Vehicle</span><span class="v">${v.name}</span></div>` +
+      `<div><span class="k">Hull-down ground</span><span class="v">${r.total ? (r.n / r.total * 100).toFixed(1) : 0}%</span></div></div>` +
+      (list.length ? `<p>Closest hull-down spots beyond ${OW_MIN} m:</p><ul class="hd-list">${list.map(spot).join('')}</ul>`
+        : `<p><b class="rc-no">No hull-down ground</b> ${OW_MIN} m to ${fmtDist(it.range)} out.</p>`) +
+      `<p class="sub">Green: turret in view, hull hidden (hull ${v.hull} m, sights ${v.sights} m). Yellow: turret seen only through trees. Blue: hidden from them, ${HD_BACK} m back from a hull-down spot.</p>`;
   }
 
   // --- Route planner (foot): the quickest way on foot around marked enemies ---------------------------------------
@@ -4314,6 +4424,7 @@
   // Popup details for the planning and hazard markings
   function planPopupHtml(owner, it) {
     if (it.type === 'overwatch') return overwatchHtml(it);
+    if (it.type === 'hulldown') return hullDownHtml(it);
     if (isMarker(it, 'lz')) return lzHtml(owner, it);
     if (it.type === 'post' || isPositionCard(it)) {
       const los = postLos(it), enemy = isEnemyPost(it), alt = heightAt(it.xz), kind = POST_KIND[it.side] || POST_KIND.f;
@@ -4639,7 +4750,7 @@
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      const items = (Array.isArray(data) ? data : data.items || []).filter(it => it && ['marker', 'route', 'range', 'mortar', 'fia', 'emplacement', 'construct', 'area', 'arrow', 'ambush', 'post', 'sectors', 'overwatch', 'aa'].includes(it.type));
+      const items = (Array.isArray(data) ? data : data.items || []).filter(it => it && ['marker', 'route', 'range', 'mortar', 'fia', 'emplacement', 'construct', 'area', 'arrow', 'ambush', 'post', 'sectors', 'overwatch', 'hulldown', 'aa'].includes(it.type));
       if (!items.length) throw new Error('No markings found in that file.');
       for (const it of items) {
         // One mortar and one FIA list per player: imported ones replace (mortar) or merge into (FIA) yours.
@@ -5057,7 +5168,7 @@
     .catch(err => { console.error(err); toast('Could not load reference data.', 6000); });
   // Mortars, MG nests and the terrain checks depend on the tables, heightmap and trees, so redraw them once those load.
   const rerenderMortars = () => state.players.forEach(p => p.items.forEach(it => {
-    if (['mortar', 'emplacement', 'overwatch', 'route', 'aa'].includes(it.type) || isMarker(it, 'lz')) renderItem(p, it);
+    if (['mortar', 'emplacement', 'overwatch', 'hulldown', 'route', 'aa'].includes(it.type) || isMarker(it, 'lz')) renderItem(p, it);
   }));
   fetch('data/mortar-tables.json')
     .then(r => r.json())

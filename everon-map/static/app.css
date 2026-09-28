@@ -866,3 +866,5 @@ table.fire tr.best td:last-child { border-radius: 0 5px 5px 0; }
 .prof-side .sight.no { stroke: #ff5c5c; }
 .prof-side .sight.cut { stroke: #ff5c5c; opacity: .35; stroke-dasharray: 2 4; }
 .prof-side .man { stroke: #fff; stroke-width: 2.4; vector-effect: non-scaling-stroke; }
+
+.hd-list { margin: 2px 0 8px; padding-left: 18px; font-size: 12.5px; }
