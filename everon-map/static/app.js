@@ -1127,12 +1127,33 @@
           `<span class="d">${itemSummary(it)}</span><button data-act="delete" data-id="${esc(it.id)}" title="Delete" aria-label="Delete">✕</button></li>`;
       }).join('')).join('');
     if (document.activeElement === $('#search')) runSearch();
+    renderContactLog();
     refreshMortarPanel();
     refreshFia();
     refreshCoverage();
     refreshThreats();
     refreshFireLabels();
   }
+  // Contact log: every live contact report, newest first, with how far it is from your position marker.
+  function renderContactLog() {
+    const rows = allVisibleItems(i => isMarker(i, 'contact') && timeoutState(i) !== 'expired').sort((a, b) => (b.it.at || 0) - (a.it.at || 0));
+    $('#contact-count').textContent = rows.length || '';
+    const me = myPosition();
+    $('#contact-log').innerHTML = rows.length ? rows.map(({ p, it }) => {
+      const t = timeoutState(it), mins = Math.floor((Date.now() - (it.at || Date.now())) / 60e3);
+      const what = [it.what || 'Contact', it.size].filter(Boolean).join(' · ');
+      const sub = [it.activity, mins < 1 ? 'now' : `${mins} min ago${typeof it.gt === 'number' ? ` (${fmtGame(it.gt)})` : ''}`, isMine(p.name) ? 'you' : p.name].filter(Boolean).join(' · ');
+      const away = me ? `${fmtDist(dist(me.xz, it.xz))} ${compass(bearing(me.xz, it.xz))}` : grid(it.xz);
+      return `<li class="${t === 'stale' ? 'stale' : ''}" data-owner="${esc(p.name)}" data-id="${esc(it.id)}" tabindex="0" role="button">` +
+        `<span class="cg">!</span><span class="ct"><b>${esc(what)}</b><span class="sub">${esc(sub)}</span></span><span class="cd">${esc(away)}</span></li>`;
+    }).join('') : '<li class="empty">No contacts. Enemy ▾ → Contact report.</li>';
+  }
+  const openContact = li => {
+    const p = state.players.get(li.dataset.owner), it = p && p.items.get(li.dataset.id);
+    if (it) focusItem(p, it);
+  };
+  $('#contact-log').addEventListener('click', e => { const li = e.target.closest('li[data-id]'); if (li) openContact(li); });
+  $('#contact-log').addEventListener('keydown', e => { const li = e.target.closest('li[data-id]'); if (li && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openContact(li); } });
   let fireSigLast = null;
   function refreshFireLabels() {
     const sig = allVisibleItems(i => i.type === 'mortar').map(({ it: m }) => `${m.id}:${m.xz}:${m.weapon}`).join('|') +
@@ -1212,7 +1233,20 @@
     if (b.dataset.act === 'delete') { deleteItem(it.id); }
     if (b.dataset.act === 'flip') { map.closePopup(); saveItem({ ...it, side: -it.side }); }
     if (b.dataset.act === 'edit') { map.closePopup(); openEditor(it, false); }
+    if (b.dataset.act === 'contact-move') { map.closePopup(); state.contactMove = it.id; updateHint(); }
   });
+  // "It moved": the next click on the map is where the contact is now. Its old spot joins the dotted track (the last
+  // six are kept), its heading points along the move, and its age starts again.
+  const CONTACT_TRAIL = 6;
+  function finishContactMove(xz) {
+    const it = state.players.get(state.me.name)?.items.get(state.contactMove);
+    state.contactMove = null;
+    updateHint();
+    if (!it) return;
+    if (dist(it.xz, xz) < 5) return toast('That is where it already is.');
+    saveItem({ ...it, xz: roundXZ(xz), trail: [...(it.trail || []), it.xz].slice(-CONTACT_TRAIL), heading: Math.round(bearing(it.xz, xz)) % 360, at: Date.now(),
+      ...(clock ? { gt: Math.floor(gameAt() % 86400) } : {}) });
+  }
 
   // ---------------------------------------------------------------------------
   // Editor modal
@@ -1231,6 +1265,7 @@
     const contact = item.type === 'marker' && item.icon === 'contact';
     $('#ed-contact').classList.toggle('hidden', !contact);
     if (contact) {
+      $('#ed-what').value = item.what || '';
       $('#ed-size').value = item.size || '';
       $('#ed-activity').value = item.activity || '';
       $('#ed-heading').value = typeof item.heading === 'number' ? String(item.heading) : '';
@@ -1297,6 +1332,7 @@
     it.note = $('#ed-note').value.trim();
     if (it.type === 'marker' && !$('#ed-icon-row').classList.contains('hidden')) it.icon = $('#ed-icon').value;
     if (it.type === 'marker' && it.icon === 'contact') {
+      it.what = $('#ed-what').value;
       it.size = $('#ed-size').value;
       it.activity = $('#ed-activity').value;
       it.kit = $('#ed-kit').value.trim();
@@ -1473,7 +1509,7 @@
     updateMortarGhost();
   }
   function updateHint() {
-    const text = state.tool === 'mortar' ? mortarHint() : state.tool === 'heli-route' ? coverHint() : TOOL[state.tool]?.hint || '';
+    const text = state.contactMove ? "Click where the contact is now · Esc cancels" : state.tool === 'mortar' ? mortarHint() : state.tool === 'heli-route' ? coverHint() : TOOL[state.tool]?.hint || '';
     const hint = $('#hint');
     hint.textContent = text;
     hint.classList.toggle('hidden', !text);
@@ -1735,7 +1771,7 @@
       saveItem({ id: uid(), type: 'marker', icon: tool, xz: roundXZ(xz), label: HAZARDS[tool], note: '', color: ENEMY, at: Date.now() });
     } else if (tool === 'contact') {
       openEditor({ id: uid(), type: 'marker', icon: 'contact', xz: roundXZ(xz), label: 'Contact', note: '', color: ENEMY, at: Date.now(),
-        size: '', activity: '', kit: '', heading: null, ttl: state.contactTtl }, true);
+        what: '', size: '', activity: '', kit: '', heading: null, ttl: state.contactTtl, ...(clock ? { gt: Math.floor(gameAt() % 86400) } : {}) }, true);
     } else if (tool === 'trp') {
       // Numbered across the whole squad so "TRP 3" means the same point to everyone.
       // Numbers handed out in the last few seconds count as used too, in case the server hasn't echoed them back yet.
@@ -1829,6 +1865,7 @@
   }
 
   map.on('click', e => {
+    if (state.contactMove) { finishContactMove(toXZ(e.latlng)); return; }
     if (state.tool === 'pan') return;
     handleToolClick(toXZ(e.latlng));
   });
@@ -1863,6 +1900,7 @@
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
     if (e.key === 'Escape') {
       if (!$('#editor').classList.contains('hidden')) { closeEditor(); return; }
+      if (state.contactMove) { state.contactMove = null; updateHint(); return; }
       if (openGroup) { closeMenus(); return; }
       if (typing) { document.activeElement.blur(); return; }
       if (emplDraft) { cancelEmplDraft(); return; }
@@ -4396,7 +4434,12 @@
     const m = L.marker(toLL(it.xz), { icon: L.divIcon({ className: `contact-glyph${cls}`, iconSize: [0, 0], html: `${hd}<div><span>!</span></div>` }),
       keyboard: false, riseOnHover: true, zIndexOffset: 700 });
     const mins = Math.floor(age / 60e3);
-    const text = [it.label || 'Contact', it.size, mins < 1 ? 'now' : `${mins} min`].filter(Boolean).join(' · ');
+    const text = [it.label || 'Contact', it.what, it.size, mins < 1 ? 'now' : `${mins} min`].filter(Boolean).join(' · ');
+    if (it.trail && it.trail.length) { // where it has been: a dashed track, oldest first, ending at the contact
+      const pts = [...it.trail, it.xz].map(toLL);
+      layer.addLayer(L.polyline(pts, { color: '#ff5c5c', weight: 2, opacity: t === 'stale' ? 0.35 : 0.7, dashArray: '2 6', interactive: false }));
+      it.trail.forEach(q => layer.addLayer(L.circleMarker(toLL(q), { radius: 3, color: '#ff5c5c', weight: 1.5, fillColor: '#0d1115', fillOpacity: 1, opacity: 0.8, interactive: false })));
+    }
     m.bindTooltip(esc(isMine(p.name) ? text : `${text} (${p.name})`), { permanent: true, direction: 'right', offset: [15, 0], className: `item-label contact-label${cls}` });
     bindInfo(m, html, () => it.xz);
     layer.addLayer(m);
@@ -4467,11 +4510,17 @@
     }
     if (it.type === 'marker' && it.icon === 'contact') {
       const hd = typeof it.heading === 'number' ? HEADING_NAME[it.heading] || `${it.heading}°` : '—';
-      return `<div class="stats wrap"><div><span class="k">How many</span><span class="v">${esc(it.size || '?')}</span></div>` +
+      const me = myPosition(), away = me ? `${fmtDist(dist(me.xz, it.xz))} ${compass(bearing(me.xz, it.xz))} of you` : '';
+      const seen = `${fmtAgo(Date.now() - (it.at || Date.now()))}${typeof it.gt === 'number' ? ` (game time ${fmtGame(it.gt)})` : ''}`;
+      return `<div class="stats wrap"><div><span class="k">What</span><span class="v">${esc(it.what || '?')}</span></div>` +
+        `<div><span class="k">How many</span><span class="v">${esc(it.size || '?')}</span></div>` +
         `<div><span class="k">Doing</span><span class="v">${esc(it.activity || '?')}</span></div>` +
         `<div><span class="k">Heading</span><span class="v">${hd}</span></div></div>` +
         (it.kit ? `<p>Carrying <b>${esc(it.kit)}</b></p>` : '') +
-        `<p class="sub">Seen ${fmtAgo(Date.now() - (it.at || Date.now()))} · ${timeoutText(it)}</p>`;
+        (away ? `<p>${away}</p>` : '') +
+        (it.trail && it.trail.length ? `<p class="sub">Has moved ${fmtDist(pathLength([...it.trail, it.xz]))} since first seen (dotted track).</p>` : '') +
+        `<p class="sub">Seen ${seen} · ${timeoutText(it)}</p>` +
+        (isMine(owner) ? `<div class="row"><button data-act="contact-move" data-id="${esc(it.id)}" title="Click the map where it is now; the old spot stays as a dotted track">It moved</button></div>` : '');
     }
     if (it.type === 'marker' && HAZARDS[it.icon] && it.at) return `<p class="sub">Marked ${fmtAgo(Date.now() - it.at)}</p>`;
     return '';
@@ -4792,7 +4841,7 @@
   const squad = (() => { try { return { open: false, tab: 'players', ...JSON.parse(localStorage.getItem(SQUAD_KEY) || '{}') }; } catch { return { open: false, tab: 'players' }; } })();
   const squadShowing = tab => squad.open && squad.tab === tab;
   function setSquad(open, tab = squad.tab) {
-    squad.open = open; squad.tab = tab === 'briefing' ? 'briefing' : 'players';
+    squad.open = open; squad.tab = ['briefing', 'contacts'].includes(tab) ? tab : 'players';
     $('#squad-panel').classList.toggle('hidden', !open);
     $('#squad-tab').classList.toggle('hidden', open);
     $('#squad-tab').setAttribute('aria-expanded', open);
@@ -5020,7 +5069,7 @@
     out.push({ name: 'Select', sub: 'Tool', key: 'Q', icon: $('#toolbar [data-tool="pan"] svg').outerHTML, run: () => setTool('pan') });
     Object.values(TOOL).forEach(t => out.push({ name: t.name, sub: `${t.group.name} menu`, key: toolKeys(t.tool), icon: t.icon, run: () => setTool(t.tool) }));
     Object.entries(SECTIONS).forEach(([sec, name]) => out.push({ name, sub: 'Sidebar section', run: () => showSection(sec) }));
-    [['players', 'Players'], ['briefing', 'Briefing']].forEach(([tab, name]) => out.push({ name, sub: 'Squad panel', run: () => setSquad(true, tab) }));
+    [['players', 'Players'], ['contacts', 'Contacts'], ['briefing', 'Briefing']].forEach(([tab, name]) => out.push({ name, sub: 'Squad panel', run: () => setSquad(true, tab) }));
     const toggle = (cb, name, sub) => out.push({ name: `${cb.checked ? 'Hide' : 'Show'} ${name}`, sub,
       run: () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); } });
     document.querySelectorAll('#panels .layer').forEach(row => toggle(row.querySelector('input'), row.querySelector('.lbl').textContent.toLowerCase(), 'Map layer'));

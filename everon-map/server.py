@@ -450,13 +450,18 @@ def validate_item(item):
         if not _is_point(item.get("xz")):
             return "Bad marker position."
         # Contact report details (all optional)
-        for k in ("size", "activity", "kit"):
+        for k in ("what", "size", "activity", "kit"):
             if k in item and (not isinstance(item[k], str) or len(item[k]) > 60):
                 return "Bad contact report."
         if item.get("heading") is not None and not num("heading", 0, 360):
             return "Bad contact heading."
         if "ttl" in item and not num("ttl", 0, 1440):
             return "Bad timeout."
+        if "gt" in item and not num("gt", 0, 86400):
+            return "Bad game time."
+        if "trail" in item and not (isinstance(item["trail"], list) and len(item["trail"]) <= 8
+                                    and all(_is_point(q) for q in item["trail"])):
+            return "Bad contact track."
         if "range" in item and not num("range", 0, 2000):
             return "Bad range card reach."
         if "unit" in item and item["unit"] not in {"inf", "arm"}:

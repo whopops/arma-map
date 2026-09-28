@@ -96,12 +96,16 @@
     <aside id="squad-panel" class="panel hidden" aria-label="Players and briefing">
       <header role="tablist">
         <button type="button" class="sq-tab" role="tab" data-sq="players">Players <span id="player-count" class="count"></span></button>
+        <button type="button" class="sq-tab" role="tab" data-sq="contacts">Contacts <span id="contact-count" class="count"></span></button>
         <button type="button" class="sq-tab" role="tab" data-sq="briefing">Briefing <span id="briefing-dot" class="acc-dot hidden" title="The briefing was updated"></span></button>
         <button type="button" id="squad-close" class="icon-btn" title="Hide" aria-label="Hide players and briefing">⟩</button>
       </header>
       <div class="sq-body" data-sq-pane="players">
           <ul id="players"></ul>
           <label class="switch"><input type="checkbox" id="show-others" checked><span>Show other players' markings</span></label>
+      </div>
+      <div class="sq-body hidden" data-sq-pane="contacts">
+          <ul id="contact-log"></ul>
       </div>
       <div class="sq-body hidden" data-sq-pane="briefing">
           <div id="briefing-view">
@@ -239,6 +243,8 @@
         </select>
       </label>
       <div id="ed-contact" class="ed-extra hidden">
+        <label class="field"><span>What</span>
+          <select id="ed-what"><option value="">Unknown</option><option>Infantry</option><option>Vehicle</option><option>Armour</option><option>Helicopter</option><option>Sniper</option><option>Artillery / mortar</option></select></label>
         <div class="pair">
           <label class="field"><span>How many</span>
             <select id="ed-size"><option value="">Unknown</option><option>1</option><option>2–3</option><option>4–6</option><option>7–12</option><option>12+</option></select></label>
