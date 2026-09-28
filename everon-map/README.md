@@ -149,7 +149,7 @@ Esc, double-click or right-click finishes.
   to add targets (up to 30). Each target shows the recommended ring (the lowest that reaches, with the tightest spread),
   elevation in mils corrected for the height difference (from the game's own 1 m terrain; a target on a building is aimed at its roof, where the rounds land), azimuth in degrees and mils (6400 for M252, 6000 for 2B14) and
   flight time; its details list every ring that can reach it, and how many mils of elevation and azimuth move the rounds
-  10 m north, south, east or west on the recommended ring.
+  50 m north / south and east / west on the recommended ring.
   Each target also shows where the rounds will land, the same way as a fire support pin: with an HE shell, a shaded
   red kill zone the size of the ring's spread and a dashed danger zone 20 m further out; with smoke, illumination or
   practice rounds, just the spread. The circles show while you aim too. A target's popup and its entry in the Mortar
@@ -246,7 +246,7 @@ Esc, double-click or right-click finishes.
   message) carries that mortar's solution instead of their own. It's remembered in their browser until they click
   "Stop showing its solutions".
   Clicking a request also gives aiming details from that mortar: for a point, how many mils of elevation and azimuth
-  move the rounds 10 m north / south and east / west (on the same ring, two rows); for an area, a solution for its
+  move the rounds 50 m north / south and east / west (on the same ring, two rows); for an area, a solution for its
   middle and its north, south, east and west ends. Once a mission is done, anyone crewing a mortar that can reach a request (its owner
   or someone showing its solutions) can clear it with "Mission complete: clear" in its popup or ✓ in the Mortar
   panel, one request at a time; whoever asked for it is told who cleared it.

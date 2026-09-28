@@ -2100,7 +2100,7 @@
       extra += `<p>${z.zone}</p>${friendlyWarning(z.near)}`;
     }
     extra += sol.rings.length ? solutionTable(sol) : `<p style="color:var(--danger)">Out of range for ${esc(m.shell)}</p>`;
-    if (sol.best) extra += nudgeTable(nudges(m, m.shell, t, sol), `Adjust 10 m · ring ${sol.best.ring}`);
+    if (sol.best) extra += nudgeTable(nudges(m, m.shell, t, sol), `Adjust ${NUDGE_M} m · ring ${sol.best.ring}`);
     if (isMine(owner)) extra += `<div class="row"><button class="danger" data-act="del-target" data-idx="${idx}">Remove target</button></div>`;
     return popupHtml(`Target ${idx + 1}`, `${m.weapon} ${m.shell} · by ${owner}${isMine(owner) ? ' (you)' : ''}`, t, extra);
   }
@@ -3785,11 +3785,12 @@
     bindInfo(m, html, () => c);
     layer.addLayer(m);
   }
-  // Small moves from a solution: how elevation and azimuth change to shift the rounds 10 m north, south, east or west,
-  // on the same ring. {dir, elev, az} in mils, or null where that ring can't reach.
+  // Small moves from a solution: how elevation and azimuth change to shift the rounds NUDGE_M north, south, east or
+  // west, on the same ring. {dir, elev, az} in mils, or null where that ring can't reach.
+  const NUDGE_M = 50;
   function nudges(m, shell, xz, sol) {
-    const circle = weaponDef(m.weapon)?.milsPerCircle || 6400, ring = sol.best.ring;
-    return [['North', 0, 10], ['South', 0, -10], ['East', 10, 0], ['West', -10, 0]].map(([dir, dx, dz]) => {
+    const circle = weaponDef(m.weapon)?.milsPerCircle || 6400, ring = sol.best.ring, d = NUDGE_M;
+    return [['North', 0, d], ['South', 0, -d], ['East', d, 0], ['West', -d, 0]].map(([dir, dx, dz]) => {
       const s2 = solve(m.weapon, shell, m.xz, [xz[0] + dx, xz[1] + dz]), r = s2.rings.find(q => q.ring === ring);
       const daz = ((s2.azMil - sol.azMil + circle / 2) % circle + circle) % circle - circle / 2;
       return { dir, elev: r ? r.elev - sol.best.elev : null, az: daz };
@@ -3798,7 +3799,7 @@
   // Two rows, N / S and E / W, each cell "first / second" (e.g. elevation −6.4 / +6.4 mil).
   const nudgeTable = (rows, title) => {
     const [n, s, e, w] = rows, pair = (a, b, k) => `${signedMil(a[k])} / ${signedMil(b[k])}`;
-    return `<h4 class="pop-h">${title}</h4><table class="fire trp-table"><tr><th>10 m</th><th>Elevation (mil)</th><th>Azimuth (mil)</th></tr>` +
+    return `<h4 class="pop-h">${title}</h4><table class="fire trp-table"><tr><th>${NUDGE_M} m</th><th>Elevation (mil)</th><th>Azimuth (mil)</th></tr>` +
       `<tr><td>N / S</td><td>${pair(n, s, 'elev')}</td><td>${pair(n, s, 'az')}</td></tr>` +
       `<tr><td>E / W</td><td>${pair(e, w, 'elev')}</td><td>${pair(e, w, 'az')}</td></tr></table>`;
   };
@@ -3824,13 +3825,13 @@
     return out;
   }
   // Aiming details for one request, from the mortar that sizes it (the one you follow or your own if it can reach):
-  // a point gets the 10 m adjustments, an area a solution for its middle and for each end.
+  // a point gets the NUDGE_M adjustments, an area a solution for its middle and for each end.
   function fireAimHtml(it, z) {
     const s = z.s;
     if (!s) return '';
     const who = `${esc(s.m.label || 'Mortar')}${isMine(s.p.name) ? '' : ` (${esc(s.p.name)})`}`;
     if (!it.points) {
-      return nudgeTable(nudges(s.m, s.shell, it.xz, s.sol), `Adjust 10 m · ${who}, ring ${s.sol.best.ring}`);
+      return nudgeTable(nudges(s.m, s.shell, it.xz, s.sol), `Adjust ${NUDGE_M} m · ${who}, ring ${s.sol.best.ring}`);
     }
     const c = fireAim(it), ends = areaEnds(it.points, c);
     const row = (name, xz) => {
