@@ -316,9 +316,6 @@ railings) don't block. TRP tables say Yes, Trees or No. The mortar calculator do
 One scrolling column of sections. Click a section's heading to open or close it; which ones are closed is remembered
 in your browser. FIA caches starts closed.
 
-- **Players**: who's in the room (click a player with a position to jump to it) and the switch for showing other
-  players' markings.
-- **Briefing**: the shared briefing. A dot on its heading means it changed while the section was closed.
 - **My markings**: everything you've put on the map, grouped in toolbar order (each group has its menu's colour),
   plus Export plan and Import plan.
 - **FIA caches this game**: the caches marked this game, and switches for showing them and every possible spot.
@@ -330,6 +327,15 @@ target (✕ removes one), and every fire request solved for the mortar you follo
 removes it, + at its bottom right adds it to your targets. The mortar itself is removed from My markings or its popup,
 not from this panel, so it can't be deleted by accident. It folds away to a Mortar tab (with
 an orange count of the fire requests waiting), opens by itself when you pick the mortar tool, and stays as you left it.
+
+The **Squad** pop-out sits at the bottom right, above the zoom buttons, with two tabs:
+- **Players**: who's in the room (click a player with a position to jump to it) and the switch for showing other
+  players' markings.
+- **Briefing**: the shared briefing. A dot on its tab (and on the folded Squad tab) means it changed while you weren't
+  looking at it.
+
+It folds away to a small Squad tab showing how many players are in the room. The mortar panel and the squad pop-out
+share the right-hand column, so they never overlap: if both are open and tall, each shrinks and scrolls.
 - The search box finds towns, landmarks, bases, caches, caves and everyone's markings (accents ignored).
 
 ## Multiplayer

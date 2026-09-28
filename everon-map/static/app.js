@@ -1097,7 +1097,7 @@
       (isPositionCard(positionOf(p) || {}) ? `<button type="button" class="los-tog${losOff.has(p.name) ? '' : ' on'}" data-act="los" ` +
         `aria-pressed="${!losOff.has(p.name)}" title="${losOff.has(p.name) ? 'Show' : 'Hide'} ${esc(p.name)}'s line of sight">${EYE_ICON}</button>` : '') +
       (positionOf(p) ? `<span class="pos${positionOf(p).unit === 'arm' ? ' arm' : ''}" aria-label="has a position marker"></span>` : '') + `</li>`).join('');
-    $('#player-count').textContent = players.length || '';
+    $('#player-count').textContent = $('#squad-tab-count').textContent = players.length || '';
     // mine
     const me = state.me && state.players.get(state.me.name);
     const items = me ? [...me.items.values()] : [];
@@ -4606,11 +4606,31 @@
   $('#mortar-close').addEventListener('click', () => setMortarPanel(false));
   setMortarPanel((() => { try { return localStorage.getItem(MORTAR_PANEL_KEY) === 'open'; } catch { return false; } })());
 
+  // Squad pop-out (bottom right): players and the briefing, one tab at a time. Folds to a tab showing the player count
+  // (and a dot when the briefing changed); open or closed and which tab are remembered in this browser.
+  const SQUAD_KEY = 'everon-map-squad';
+  const squad = (() => { try { return { open: false, tab: 'players', ...JSON.parse(localStorage.getItem(SQUAD_KEY) || '{}') }; } catch { return { open: false, tab: 'players' }; } })();
+  const squadShowing = tab => squad.open && squad.tab === tab;
+  function setSquad(open, tab = squad.tab) {
+    squad.open = open; squad.tab = tab === 'briefing' ? 'briefing' : 'players';
+    $('#squad-panel').classList.toggle('hidden', !open);
+    $('#squad-tab').classList.toggle('hidden', open);
+    $('#squad-tab').setAttribute('aria-expanded', open);
+    document.querySelectorAll('.sq-tab').forEach(b => { const on = b.dataset.sq === squad.tab; b.classList.toggle('sel', on); b.setAttribute('aria-selected', on); });
+    document.querySelectorAll('[data-sq-pane]').forEach(el => el.classList.toggle('hidden', el.dataset.sqPane !== squad.tab));
+    if (squadShowing('briefing')) { $('#briefing-dot').classList.add('hidden'); $('#squad-tab-dot').classList.add('hidden'); }
+    try { localStorage.setItem(SQUAD_KEY, JSON.stringify(squad)); } catch { /* storage unavailable */ }
+  }
+  $('#squad-tab').addEventListener('click', () => setSquad(true));
+  $('#squad-close').addEventListener('click', () => setSquad(false));
+  document.querySelectorAll('.sq-tab').forEach(b => b.addEventListener('click', () => setSquad(true, b.dataset.sq)));
+  setSquad(squad.open, squad.tab);
+
   // Sidebar sections: one column, each opened and closed from its heading. Which are closed is remembered in this
   // browser (safe to lose); the FIA section starts closed.
   const SEC_KEY = 'everon-map-closed-sections';
   const SECTIONS = {
-    players: 'Players', briefing: 'Briefing', markings: 'My markings', fia: 'FIA caches this game', layers: 'Map layers',
+    markings: 'My markings', fia: 'FIA caches this game', layers: 'Map layers',
   };
   let closedSections;
   try { closedSections = new Set(JSON.parse(localStorage.getItem(SEC_KEY) || '["fia"]')); } catch { closedSections = new Set(['fia']); }
@@ -4621,7 +4641,6 @@
     open ? closedSections.delete(name) : closedSections.add(name);
     el.classList.toggle('closed', !open);
     el.querySelector('.acc-head').setAttribute('aria-expanded', open);
-    if (open && name === 'briefing') $('#briefing-dot').classList.add('hidden');
     try { localStorage.setItem(SEC_KEY, JSON.stringify([...closedSections])); } catch { /* storage unavailable */ }
   }
   function showSection(name, reveal = true) { // open a section and scroll to it (reveal: open the sidebar too)
@@ -4666,11 +4685,11 @@
       clash.textContent = `${b.by} changed the briefing while you were editing. Saving will replace their version.`;
       clash.classList.remove('hidden');
     }
-    if (!sectionOpen('briefing') || $('#sidebar').classList.contains('collapsed')) $('#briefing-dot').classList.remove('hidden');
+    if (!squadShowing('briefing')) { $('#briefing-dot').classList.remove('hidden'); $('#squad-tab-dot').classList.remove('hidden'); }
     toast(`${b.by} updated the briefing`);
   }
   function editBriefing() {
-    showSection('briefing');
+    setSquad(true, 'briefing');
     $('#briefing-input').value = briefing ? briefing.text : '';
     $('#briefing-clash').classList.add('hidden');
     $('#briefing-view').classList.add('hidden');
@@ -4730,6 +4749,7 @@
     out.push({ name: 'Select', sub: 'Tool', key: 'Q', icon: $('#toolbar [data-tool="pan"] svg').outerHTML, run: () => setTool('pan') });
     Object.values(TOOL).forEach(t => out.push({ name: t.name, sub: `${t.group.name} menu`, key: toolKeys(t.tool), icon: t.icon, run: () => setTool(t.tool) }));
     Object.entries(SECTIONS).forEach(([sec, name]) => out.push({ name, sub: 'Sidebar section', run: () => showSection(sec) }));
+    [['players', 'Players'], ['briefing', 'Briefing']].forEach(([tab, name]) => out.push({ name, sub: 'Squad panel', run: () => setSquad(true, tab) }));
     const toggle = (cb, name, sub) => out.push({ name: `${cb.checked ? 'Hide' : 'Show'} ${name}`, sub,
       run: () => { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); } });
     document.querySelectorAll('#panels .layer').forEach(row => toggle(row.querySelector('input'), row.querySelector('.lbl').textContent.toLowerCase(), 'Map layer'));
