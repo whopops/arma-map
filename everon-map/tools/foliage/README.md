@@ -2,8 +2,8 @@
 
 How much of the view Everon's trees and bushes block, measured from what the game draws rather than from the
 physics shapes the line-of-sight export uses. They feed the map's "Visual" line-of-sight option (on trial
-next to Full): `tools/foliage_model.py` turns them into `static/data/foliage.json`, which `static/los-worker.js` reads.
-Run it again after re-measuring.
+next to Full): `tools/foliage_model.py` turns them, with `everon_plants.csv.gz`, into `static/data/foliage.json` and
+`static/data/plants/`, which `static/los-worker.js` reads. Run it again after re-measuring or re-exporting plants.
 
 Files:
 
@@ -11,6 +11,8 @@ Files:
   above the plant's base) the average `cover` and `k` over its shots.
 - `foliage_shots.csv`: the same per shot and slice, plus `width_m`, the plant's width in that slice as seen in that
   shot.
+- `everon_plants.csv.gz`: every standing tree and bush on Everon (762,777), from the island object export by
+  `tools/export_plants.py`: its kind (row of `plants.csv`), position, scale, bounding-box half-width and top.
 - `plants.csv`: every kind of standing tree and bush on Everon (stumps, fallen trunks, branches and `Debris/` left
   out), how many there are and their average scale.
 

@@ -17,12 +17,13 @@
 // tree over slope, so each step costs a couple of log-time updates. Up to THIN metres of foliage in the way counts
 // as "through thin foliage"; more hides it.
 //
-// model 'visual' (being compared with the above): trees and bushes let sight through as much as they do on screen,
-// measured from the game's own pictures of every kind of plant (tools/foliage, made into data/foliage.json by
-// tools/foliage_model.py). Each foliage spot is a column from the ground to its top, and each tenth of that column
-// blocks sight at its measured rate k per metre crossed, for plants of that kind and about that height. The bands carry those rates instead of counts, so the tree
-// sums the k x metres a sight line crosses, and e^(-sum) is the share of the target left visible: at least SEE_CLEAR
-// counts as clear, at least SEE_MIN as seen through foliage, less as hidden.
+// model 'visual' (being compared with the above): trees and bushes let sight through as much as they do on screen.
+// Instead of the tiles' tree and bush spots it uses every plant on Everon (data/plants/X_Z.bin.gz) with its kind's
+// shape and see-through measured from the game's own pictures (data/foliage.json; both made by
+// tools/foliage_model.py): in each tenth of its height, a plant blocks sight at rate k per metre within half-width hw
+// of its centre. The bands carry those rates instead of counts, so the tree sums the k x metres a sight line crosses,
+// and e^(-sum) is the share of the target left visible: at least SEE_CLEAR counts as clear, at least SEE_MIN as seen
+// through foliage, less as hidden.
 'use strict';
 
 const TILE = 500, TN = 501, SN = 1000, SC = 0.5, Q = 0.25;
@@ -33,6 +34,8 @@ const MAX_TILES = 90;
 const SEE_CLEAR = 0.9, SEE_MIN = 0.2;
 
 let index = null, tileSet = null, foliage = null;
+const plantTiles = new Map(), plantPending = new Map(); // name -> {x, z, base, kind, scale, start, items} | null
+const BUCKET = 4, NB = TILE / BUCKET;                     // plants are found through 4 m squares
 const tiles = new Map();      // name -> {ter, top, bot, kind} | null (open sea); insertion order = age
 const pending = new Map();    // name -> Promise
 
@@ -49,9 +52,46 @@ async function loadFoliage() {
   const r = await fetch('data/foliage.json', { cache: 'no-cache' });
   if (!r.ok) throw new Error(`foliage ${r.status}`);
   const f = await r.json();
-  // per 0.5 m step instead of per metre
-  const perStep = t => t.map(ks => ks.map(k => k * STEP));
-  foliage = { bins: f.bins, classes: f.classes, 3: perStep(f.tree), 5: perStep(f.bush) };
+  foliage = { bins: f.bins, margin: f.margin, tiles: new Set(f.tiles),
+    // per 0.5 m step instead of per metre
+    plants: f.plants.map(p => ({ h: p.h, hw: p.hw, k: p.k.map(k => k * STEP), reach: Math.max(...p.hw) })) };
+}
+
+// A tile's plants, with each 4 m square listing the plants that reach into it.
+async function loadPlants(name) {
+  if (plantTiles.has(name)) { const t = plantTiles.get(name); plantTiles.delete(name); plantTiles.set(name, t); return t; }
+  if (plantPending.has(name)) return plantPending.get(name);
+  const p = (async () => {
+    let t = null;
+    if (foliage.tiles.has(name)) {
+      const r = await fetch(`data/plants/${name}.bin.gz?v=${index.version}`);
+      if (!r.ok) throw new Error(`plants ${name}: ${r.status}`);
+      const buf = await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+      const n = new Uint32Array(buf, 0, 1)[0], M = foliage.margin;
+      const u16 = o => new Uint16Array(buf, o, n), u8 = o => new Uint8Array(buf, o, n);
+      const rx = u16(4), rz = u16(4 + 2 * n), rb = u16(4 + 4 * n), kind = u8(4 + 6 * n), rs = u8(4 + 7 * n);
+      const x = new Float32Array(n), z = new Float32Array(n), base = new Float32Array(n), scale = new Float32Array(n);
+      const span = [];
+      for (let i = 0; i < n; i++) {
+        x[i] = rx[i] / 100 - M; z[i] = rz[i] / 100 - M; base[i] = rb[i] / 100; scale[i] = rs[i] / 100;
+        const R = foliage.plants[kind[i]].reach * scale[i];
+        span.push([Math.max(0, Math.floor((x[i] - R) / BUCKET)), Math.min(NB - 1, Math.floor((x[i] + R) / BUCKET)),
+          Math.max(0, Math.floor((z[i] - R) / BUCKET)), Math.min(NB - 1, Math.floor((z[i] + R) / BUCKET))]);
+      }
+      const start = new Uint32Array(NB * NB + 1);
+      span.forEach(([c0, c1, r0, r1]) => { for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) start[r * NB + c + 1]++; });
+      for (let b = 0; b < NB * NB; b++) start[b + 1] += start[b];
+      const items = new Uint32Array(start[NB * NB]), fillAt = start.slice(0, NB * NB);
+      span.forEach(([c0, c1, r0, r1], i) => { for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) items[fillAt[r * NB + c]++] = i; });
+      t = { x, z, base, kind, scale, start, items };
+    }
+    plantTiles.set(name, t);
+    while (plantTiles.size > MAX_TILES) plantTiles.delete(plantTiles.keys().next().value);
+    plantPending.delete(name);
+    return t;
+  })();
+  plantPending.set(name, p);
+  return p;
 }
 
 async function loadTile(name) {
@@ -77,10 +117,13 @@ async function loadTile(name) {
 }
 
 // Everything a request needs, loaded before the maths starts.
-async function loadArea(minX, minZ, maxX, maxZ) {
+async function loadArea(minX, minZ, maxX, maxZ, plants) {
   const jobs = [];
   for (let tz = Math.max(0, Math.floor(minZ / TILE)); tz <= Math.floor(maxZ / TILE); tz++) {
-    for (let tx = Math.max(0, Math.floor(minX / TILE)); tx <= Math.floor(maxX / TILE); tx++) jobs.push(loadTile(`${tx}_${tz}`));
+    for (let tx = Math.max(0, Math.floor(minX / TILE)); tx <= Math.floor(maxX / TILE); tx++) {
+      jobs.push(loadTile(`${tx}_${tz}`));
+      if (plants) jobs.push(loadPlants(`${tx}_${tz}`));
+    }
   }
   await Promise.all(jobs);
 }
@@ -117,7 +160,7 @@ function compute(req) {
   for (let i = 0; i <= rays; i++) {
     const b = (dir - arc / 2 + arc * i / rays) * Math.PI / 180, sx = Math.sin(b), sz = Math.cos(b);
     bit.fill(0);
-    let maxSolid = -Infinity, curT = null, ctx = -1, ctz = -1;
+    let maxSolid = -Infinity, curT = null, curP = null, ctx = -1, ctz = -1;
     for (let r = STEP; r <= range; r += STEP) {
       const x = xz[0] + r * sx, z = xz[1] + r * sz;
       if (x < 0 || z < 0 || x >= 12800 || z >= 12800) break;
@@ -141,26 +184,31 @@ function compute(req) {
       // what stands here, for everything further out
       maxSolid = Math.max(maxSolid, (g - eye) / r);
       const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE);
-      if (tx !== ctx || tz !== ctz) { curT = tileAt(tx, tz); ctx = tx; ctz = tz; }
+      if (tx !== ctx || tz !== ctz) { curT = tileAt(tx, tz); curP = visual ? plantTiles.get(`${tx}_${tz}`) || null : null; ctx = tx; ctz = tz; }
+      if (curP && r > NEAR) { // every plant whose outline this spot is inside (not leaves brushing the observer's face)
+        const lx = x - tx * TILE, lz = z - tz * TILE, P = curP;
+        const bk = Math.min(NB - 1, Math.floor(lz / BUCKET)) * NB + Math.min(NB - 1, Math.floor(lx / BUCKET));
+        for (let q = P.start[bk]; q < P.start[bk + 1]; q++) {
+          const i = P.items[q], s = P.scale[i], pl = foliage.plants[P.kind[i]];
+          const d = Math.hypot(lx - P.x[i], lz - P.z[i]) / s; // in the measured plant's metres
+          if (d >= pl.reach) continue;
+          const n = foliage.bins, h = pl.h * s, base = P.base[i] - eye;
+          let prev = 0;
+          for (let j = 0; j < n; j++) {
+            const k = d < pl.hw[j] ? pl.k[j] / s : 0;
+            if (k !== prev) bitAdd(binOf((base + h * j / n) / r), k - prev);
+            prev = k;
+          }
+          if (prev) bitAdd(binOf((base + h) / r) + 1, -prev);
+        }
+      }
       if (!curT) continue;
       const c = Math.min(SN - 1, Math.floor((x - tx * TILE) / SC)), rr = Math.min(SN - 1, Math.floor((z - tz * TILE) / SC));
       const k = rr * SN + c, kind = curT.kind[k];
       if (!kind || kind === 4) continue; // nothing, or a see-through fence
       const top = curT.top[k] * Q;
       if (kind === 3 || kind === 5) { // trees and bushes: foliage
-        if (r <= NEAR) continue; // leaves brushing the observer's face
-        if (visual) { // a column from the ground up, each tenth with its own rate
-          let c = 0;
-          while (c < foliage.classes.length && top >= foliage.classes[c]) c++;
-          const K = foliage[kind][c], n = foliage.bins;
-          let prev = 0;
-          for (let j = 0; j < n; j++) {
-            if (K[j] !== prev) bitAdd(binOf((g + top * j / n - eye) / r), K[j] - prev);
-            prev = K[j];
-          }
-          bitAdd(binOf((g + top - eye) / r) + 1, -prev);
-          continue;
-        }
+        if (r <= NEAR || visual) continue; // leaves brushing the observer's face; Visual has the plants above
         const a = binOf((g + curT.bot[k] * Q - eye) / r), z2 = binOf((g + top - eye) / r);
         bitAdd(a, 1); bitAdd(z2 + 1, -1);
       } else {
@@ -195,7 +243,7 @@ async function pump() {
       await loadIndex();
       if (req.model === 'visual') await loadFoliage();
       const r = req.range + 2;
-      await loadArea(req.xz[0] - r, req.xz[1] - r, req.xz[0] + r, req.xz[1] + r);
+      await loadArea(req.xz[0] - r, req.xz[1] - r, req.xz[0] + r, req.xz[1] + r, req.model === 'visual');
       const res = compute(req);
       postMessage({ id: req.id, ...res }, [res.cells.buffer]);
     } catch (err) {

@@ -2445,8 +2445,8 @@
   // Light: the 10 m model above (87%), instant and small. A full result arrives a moment after it's asked for: until
   // then the light one stands in, and everything that shows line of sight redraws when it lands. Drafts still being
   // aimed (cache = false) stay light so they keep up with the mouse.
-  // Visual (on trial, to compare with Full): the same 0.5 m data, but trees and bushes let sight through as much as
-  // they do on screen, measured from the game's pictures of every kind of plant (see static/los-worker.js).
+  // Visual (on trial, to compare with Full): Full's buildings, walls and rocks, with every tree and bush on Everon as
+  // see-through as it is on screen, measured from the game's pictures of each kind of plant (see static/los-worker.js).
   const FULL_CELL = 2.5; // metres per cell of a full result's shading
   const LOS_MODE_KEY = 'everon-map-los-detail';
   const fullCache = new Map(), fullWanted = new Map(); // key -> result, key -> request id
@@ -2506,7 +2506,7 @@
   }
   // The popups' explanation, for whichever detail produced the result.
   const losNote = los => (los && los.model === 'visual'
-    ? 'Visual (on trial): every building, wall and rock from the game at 0.5 m, with trees and bushes letting sight through as much as they do on screen, measured from the game\'s pictures of every kind of plant. Yellow is a soldier seen at least 20% through foliage; more foliage than that hides them.'
+    ? 'Visual (on trial): every building, wall and rock from the game at 0.5 m, and every tree and bush on Everon with its own shape and size, letting sight through as much as it does on screen (measured from the game\'s pictures of each kind of plant). Yellow is a soldier seen at least 20% through foliage; more foliage than that hides them.'
     : los && los.cell < LOS_CELL
     ? 'Full detail: every building, wall, rock, tree and bush from the game at 0.5 m, with the open space under tree crowns; yellow is ground behind no more than 2 m of foliage. Checked against 20,000 of the game\'s own sight lines, it agrees 95% of the time.'
     : TREES_NOTE);
@@ -2522,7 +2522,7 @@
     $('#los-note').textContent = WORKER_MODES.includes(state.losMode) && fullError ? 'Full detail could not load, so Light is shown.'
       : WORKER_MODES.includes(state.losMode) && fullWanted.size ? 'Working out full detail…'
       : state.losMode === 'full' ? '0.5 m: every building, wall and tree from the game (95% match). Downloads the area you look at, a few MB at a time.'
-      : state.losMode === 'visual' ? 'On trial: Full, but trees and bushes are as see-through as they look in game (measured from its pictures). Switch between this and Full to compare.'
+      : state.losMode === 'visual' ? 'On trial: Full, but every tree and bush is its own kind, shape and size, as see-through as it looks in game. Switch between this and Full to compare.'
       : '10 m: quick and small (87% match). Best for phones and slow connections.';
   }
   $('#los-detail').addEventListener('click', e => {
