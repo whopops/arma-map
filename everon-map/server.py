@@ -251,6 +251,26 @@ class Hub:
             self._broadcast(p.room, {"type": "delete", "owner": o.name, "id": item_id, "by": p.name})
         return 200, {"ok": True}
 
+    def move_mortar_target(self, pid, token, owner, item_id, idx, xz):
+        """Move one of someone's mortar targets, to correct fire (the page offers it to the mortar's crew)."""
+        if not isinstance(owner, str) or not isinstance(item_id, str) or not isinstance(idx, int) or isinstance(idx, bool) or not _is_point(xz):
+            return 400, {"error": "Bad target."}
+        with self.lock:
+            p = self._auth(pid, token)
+            if not p:
+                return 401, {"error": "Session expired. Reload the page."}
+            o = next((q for q in self.players.values() if q.room == p.room and q.name == owner), None)
+            it = o.items.get(item_id) if o else None
+            if not it or it.get("type") != "mortar" or not 0 <= idx < len(it.get("targets", [])):
+                return 404, {"error": "That target has gone."}
+            targets = list(it["targets"])
+            targets[idx] = xz
+            it = {**it, "targets": targets}
+            o.items[item_id] = it
+            o.item_bytes[item_id] = len(json.dumps(it))
+            self._broadcast(p.room, {"type": "item", "owner": o.name, "item": it})
+        return 200, {"ok": True}
+
     def delete(self, pid, token, item_id):
         with self.lock:
             p = self._auth(pid, token)
@@ -862,6 +882,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(*HUB.set_air_status(pid, token, body.get("owner"), body.get("itemId"), body.get("status")))
         if path == "/api/delete":
             return self.send_json(*HUB.delete(pid, token, body.get("itemId")))
+        if path == "/api/mortar-target":
+            return self.send_json(*HUB.move_mortar_target(pid, token, body.get("owner"), body.get("itemId"), body.get("idx"), body.get("xz")))
         if path == "/api/clear-fire":
             return self.send_json(*HUB.clear_fire(pid, token, body.get("owner"), body.get("itemId")))
         if path == "/api/briefing":

@@ -848,8 +848,17 @@
     return popupHtml(it.label || typeLabel(it), `${typeLabel(it)} · by ${owner}${isMine(owner) ? ' (you)' : ''}`, xz, extra);
   }
 
+  // A marking being dragged isn't redrawn until it's dropped (a redraw would drop the marker from under the mouse).
+  const dragging = { id: null, pending: null };
   function renderItem(p, it) {
+    if (dragging.id === it.id) { dragging.pending = [p, it]; return; }
     try { drawItem(p, it); } catch (err) { console.warn('Could not draw a marking', it && it.id, err); }
+  }
+  const dragStart = id => { map.closePopup(); dragging.id = id; dragging.pending = null; };
+  function dragEnd() {
+    const pend = dragging.pending;
+    dragging.id = null; dragging.pending = null;
+    if (pend) renderItem(...pend);
   }
   function drawItem(p, it) {
     const old = p.layers.get(it.id);
@@ -1003,14 +1012,16 @@
   }
 
   // Your own point markings can be dragged to a new spot; whatever hangs off them (a field of fire, range rings,
-  // sectors, a mortar's reach) moves with them once the move is saved. Mortar targets stay where they are.
+  // sectors, a mortar's reach) moves with them once the move is saved. Mortar targets stay where they are (they're
+  // dragged on their own; see renderMortar).
   function enableDrag(p, it, layer) {
     const at = toLL(it.xz);
     const m = layer.getLayers().find(l => l instanceof L.Marker && l.options.interactive !== false && !l.options.draggable && l.getLatLng().equals(at));
     if (!m) return;
     m.options.draggable = true;
-    m.on('dragstart', () => map.closePopup());
+    m.on('dragstart', () => dragStart(it.id));
     m.on('dragend', () => {
+      dragEnd();
       const xz = toXZ(m.getLatLng()), cur = p.items.get(it.id) || it;
       if (xz[0] < 0 || xz[1] < 0 || xz[0] > WORLD || xz[1] > WORLD) { toast("That's off the map."); renderItem(p, cur); return; }
       saveItem({ ...cur, xz: roundXZ(xz) });
@@ -2125,8 +2136,17 @@
       const ok = !!sol.best;
       layer.addLayer(L.polyline([center, toLL(t)], { color: ok ? color : '#ff6b6b', weight: 1.5, opacity: 0.8, dashArray: '2 5', interactive: false }));
       if (ok) impactZones(layer, t, sol.best.dispersion, isLethal(m.shell), shellColor(m.shell));
-      const tm = L.marker(toLL(t), { keyboard: false, icon: glyphIcon('✛', ok ? color : '#ff6b6b') });
-      tm.bindTooltip(esc(`T${idx + 1} · ${ok ? fmtSolution(sol, true) : 'out of range'}`), { permanent: true, direction: 'right', offset: [12, 0], className: 'item-label' });
+      // The mortar's crew (its owner, or anyone showing its solutions) can drag a target to correct fire; the label
+      // follows with the new solution and the move is saved for everyone on release.
+      const crew = mine || state.followMortar === m.id;
+      const tm = L.marker(toLL(t), { keyboard: false, draggable: crew, icon: glyphIcon('✛', ok ? color : '#ff6b6b') });
+      const tLabel = s2 => esc(`T${idx + 1} · ${s2.best ? fmtSolution(s2, true) : 'out of range'}`);
+      tm.bindTooltip(tLabel(sol), { permanent: true, direction: 'right', offset: [12, 0], className: 'item-label' });
+      if (crew) {
+        tm.on('dragstart', () => dragStart(m.id));
+        tm.on('drag', () => tm.setTooltipContent(tLabel(solve(m.weapon, m.shell, m.xz, toXZ(tm.getLatLng())))));
+        tm.on('dragend', () => { dragEnd(); moveTarget(p, m, idx, toXZ(tm.getLatLng())); });
+      }
       bindInfo(tm, () => targetPopup(p.name, p.items.get(m.id) || m, idx), () => t);
       layer.addLayer(tm);
     });
@@ -2137,6 +2157,16 @@
     mk.bindTooltip(esc((m.label && m.label !== 'Mortar' ? `${m.label} · ${m.weapon}` : tag) + following), { permanent: true, direction: 'right', offset: [12, 0], className: 'item-label' });
     bindInfo(mk, html, () => m.xz);
     layer.addLayer(mk);
+  }
+
+  function moveTarget(p, m, idx, xz) {
+    const cur = p.items.get(m.id) || m;
+    if (xz[0] < 0 || xz[1] < 0 || xz[0] > WORLD || xz[1] > WORLD || !cur.targets || idx >= cur.targets.length) {
+      toast("That's off the map."); renderItem(p, cur); return;
+    }
+    const at = roundXZ(xz);
+    if (isMine(p.name)) saveItem({ ...cur, targets: cur.targets.map((t, i) => (i === idx ? at : t)) });
+    else api('/api/mortar-target', { id: state.me.id, token: state.me.token, owner: p.name, itemId: m.id, idx, xz: at }).catch(err => { toast(err.message); renderItem(p, cur); });
   }
 
   // Live aiming line from your mortar to the cursor.

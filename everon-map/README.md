@@ -150,6 +150,8 @@ Esc, double-click or right-click finishes.
   elevation in mils corrected for the height difference (from the game's own 1 m terrain; a target on a building is aimed at its roof, where the rounds land), azimuth in degrees and mils (6400 for M252, 6000 for 2B14) and
   flight time; its details list every ring that can reach it, and how many mils of elevation and azimuth move the rounds
   50 m north / south and east / west on the recommended ring.
+  To correct fire, drag a target: its label shows the new solution as you drag, and dropping it saves the move for
+  everyone. The mortar's owner and anyone showing its solutions can drag its targets.
   Each target also shows where the rounds will land, the same way as a fire support pin: with an HE shell, a shaded
   red kill zone the size of the ring's spread and a dashed danger zone 20 m further out; with smoke, illumination or
   practice rounds, just the spread. The circles show while you aim too. A target's popup and its entry in the Mortar
