@@ -1053,9 +1053,9 @@
         if (air && !isNew && before && before.status !== ev.item.status && ev.item.statusBy && !isMine(ev.item.statusBy)) {
           toast(`${ev.item.label || air.short}: ${AIR_STATUS[ev.item.status || 'requested'].name} by ${ev.item.statusBy}`, 8000);
         }
-        const m = isNew && isFireReq(ev.item) && !isMine(ev.owner) && TABLES && myMortar();
-        if (m) {
-          const { sol } = fireSolution(m, ev.item);
+        const sm = isNew && isFireReq(ev.item) && !isMine(ev.owner) && TABLES && solutionMortar();
+        if (sm) {
+          const { sol } = fireSolution(sm.it, ev.item);
           toast(`${(FIRE[ev.item.fire] || FIRE.he).name} requested by ${ev.owner}: ${sol.best ? fmtSolution(sol, true) : 'out of range'}`, 8000);
         }
         renderItem(p, ev.item);
@@ -1109,7 +1109,7 @@
   let fireSigLast = null;
   function refreshFireLabels() {
     const sig = allVisibleItems(i => i.type === 'mortar').map(({ it: m }) => `${m.id}:${m.xz}:${m.weapon}`).join('|') +
-      `|${myMortar()?.id}|${!!TABLES}|${!!HEIGHT}`;
+      `|${solutionMortar()?.it.id}|${!!TABLES}|${!!HEIGHT}`;
     if (sig === fireSigLast) return;
     fireSigLast = sig;
     state.players.forEach(p => p.items.forEach(it => { if (isFireReq(it)) renderItem(p, it); }));
@@ -1992,6 +1992,26 @@
     const me = state.me && state.players.get(state.me.name);
     return me ? [...me.items.values()].find(i => i.type === 'mortar') : null;
   };
+  // Another player's mortar whose firing solutions you've chosen to see (its popup's "Show its solutions" button), so a
+  // mortar team can all read the same numbers. Remembered in this browser; it wins over your own mortar while it's on
+  // the map, and your own takes over again if it goes.
+  const FOLLOW_KEY = 'everon-map-follow-mortar';
+  state.followMortar = (() => { try { return localStorage.getItem(FOLLOW_KEY) || null; } catch { return null; } })();
+  const followedMortar = () => (state.followMortar && allVisibleItems(i => i.type === 'mortar' && i.id === state.followMortar)[0]) || null;
+  // The mortar whose solutions fire requests show: the one you follow, else your own. {p, it} or null.
+  const solutionMortar = () => {
+    const f = followedMortar();
+    if (f) return f;
+    const m = myMortar();
+    return m ? { p: state.players.get(state.me.name), it: m } : null;
+  };
+  function setFollowMortar(id) {
+    state.followMortar = id;
+    try { if (id) localStorage.setItem(FOLLOW_KEY, id); else localStorage.removeItem(FOLLOW_KEY); } catch { /* storage unavailable */ }
+    fireSigLast = null;
+    refreshLists();
+    state.players.forEach(p => p.items.forEach(it => { if (it.type === 'mortar') renderItem(p, it); }));
+  }
 
   function mortarHint() {
     if (!TABLES) return 'Loading firing tables…';
@@ -2019,6 +2039,13 @@
   function mortarInfoHtml(m) {
     const W = weaponDef(m.weapon), lim = shellLimits(m.weapon, m.shell), alt = heightAt(m.xz);
     let html = `<p><b>${esc(W ? W.label : m.weapon)}</b> · ${esc(m.shell)}</p>`;
+    if (myMortar()?.id !== m.id) {
+      const on = state.followMortar === m.id;
+      html += `<div class="row"><button data-follow-mortar="${on ? '' : esc(m.id)}" aria-pressed="${on}">` +
+        `${on ? 'Stop showing its solutions' : 'Show its solutions on my map'}</button></div>` +
+        `<p class="sub">${on ? 'Fire requests on your map carry this mortar\'s firing solutions.'
+          : 'Fire requests on your map will carry this mortar\'s firing solutions, as its owner sees them.'}</p>`;
+    }
     if (alt != null) html += `<div class="sub">Altitude ${Math.round(alt)} m</div>`;
     if (lim) html += `<div class="sub">Reach ${fmtDist(lim.min)} – ${fmtDist(lim.max)}</div>`;
     const reqs = allVisibleItems(isFireReq);
@@ -2101,7 +2128,8 @@
 
     const mk = L.marker(center, { keyboard: false, zIndexOffset: 500, icon: glyphIcon('⊕', color) });
     const tag = mine ? `Mortar · ${m.weapon}` : `Mortar · ${m.weapon} (${p.name})`;
-    mk.bindTooltip(esc(m.label && m.label !== 'Mortar' ? `${m.label} · ${m.weapon}` : tag), { permanent: true, direction: 'right', offset: [12, 0], className: 'item-label' });
+    const following = !mine && state.followMortar === m.id ? ' · solutions shown' : '';
+    mk.bindTooltip(esc((m.label && m.label !== 'Mortar' ? `${m.label} · ${m.weapon}` : tag) + following), { permanent: true, direction: 'right', offset: [12, 0], className: 'item-label' });
     bindInfo(mk, html, () => m.xz);
     layer.addLayer(mk);
   }
@@ -3706,7 +3734,7 @@
   const KILL_RADIUS = 20;
   function fireSpread(req) {
     if (!TABLES) return null;
-    const mine = myMortar();
+    const mine = solutionMortar()?.it;
     let best = null;
     allVisibleItems(i => i.type === 'mortar').forEach(({ p, it: m }) => {
       const r = { p, m, ...fireSolution(m, req) };
@@ -3741,7 +3769,7 @@
     }
     const m = L.marker(toLL(c), { keyboard: false, riseOnHover: true, zIndexOffset: 400, icon: L.divIcon({ className: 'fire-glyph', iconSize: [0, 0],
       html: `<svg viewBox="0 0 24 24" style="--c:${f.color}"><circle cx="12" cy="12" r="8"/><path d="M12 1v7M12 16v7M1 12h7M16 12h7"/></svg>` }) });
-    const mine = TABLES && myMortar(), sol = mine && fireSolution(mine, it).sol;
+    const sm = TABLES && solutionMortar(), sol = sm && fireSolution(sm.it, it).sol;
     const name = `${it.label || 'Fire mission'} · ${f.name}${sol ? ` · ${sol.best ? fmtSolution(sol, true) : 'out of range'}` : ''}`;
     m.bindTooltip(esc(isMine(p.name) ? name : `${name} (${p.name})`), { permanent: true, direction: 'right', offset: [14, 0], className: 'item-label fire-label' });
     bindInfo(m, html, () => c);
@@ -3785,6 +3813,13 @@
     }
     return html + (it.points ? `<p class="sub">Solutions aim at the middle of the area; walk the rounds across it for anything bigger than the shell's spread.</p>` : '');
   }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-follow-mortar]');
+    if (!b) return;
+    map.closePopup();
+    setFollowMortar(b.dataset.followMortar || null);
+    toast(b.dataset.followMortar ? 'Fire requests now show this mortar\'s solutions.' : 'Stopped showing that mortar\'s solutions.');
+  });
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-fire-add]');
     if (!b || !state.me) return;

@@ -240,7 +240,10 @@ Esc, double-click or right-click finishes.
   mortar's shell of the requested type. If you have a mortar, "Add as a target on my mortar" adds the aim point to it.
   Once your mortar is down, every request is solved for it automatically: the Mortar section lists them (ring, elevation,
   azimuth, shell and flight time; + adds one to your targets), each request's label on the map carries your solution,
-  and a message pops up with the solution when someone else asks for fire.
+  and a message pops up with the solution when someone else asks for fire. The rest of a mortar team can see the same
+  numbers: click the team's mortar and pick "Show its solutions on my map", and every request's label (and the
+  message) carries that mortar's solution instead of their own. It's remembered in their browser until they click
+  "Stop showing its solutions".
 - Gun run (CAS), Medevac, Pickup / insertion and Resupply drop: click where it's needed (a gun run can also be an
   area: pick Area in the options and circle the target, like a fire support request). A gun run is sent at once as
   "CAS 1", "CAS 2"… with no form, since there's rarely time; add the target and attack direction later with Edit.
