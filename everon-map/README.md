@@ -279,15 +279,25 @@ under **Map layers → Line-of-sight detail**:
   of leaves. It downloads the part of the map you're looking at (500 m squares, about 0.5 MB each; a 1.5 km card
   needs up to ~50 of them the first time) and keeps them. The shading appears in its Light form at once and
   sharpens a moment later.
-- **Light** (the default on phones and tablets): 10 m squares, under 2 MB for the whole island, instant. Trees are
-  their real heights; woods thin the view the further it runs through them (faster in thick undergrowth), crowns
-  hide what's under them from above, and large buildings block. **Yellow** is ground seen only partly, through trees.
+- **Visual** (on trial, to compare with Full): Full's buildings, walls and rocks, but trees and bushes are as
+  see-through as they look in game. Every tree and bush on Everon (762,777 of 70 kinds, `tools/export_plants.py`)
+  has its own position, size and its kind's shape and leaf density, measured from the game's own pictures of each
+  kind (`tools/foliage`, made into map data by `tools/foliage_model.py`). **Yellow** is a soldier at least 20%
+  visible through foliage. It downloads a small plant list (5 MB for the whole island) on top of Full's squares.
+- **Light** (the default on phones and tablets): 10 m squares, under 4 MB for the whole island, instant. Every
+  tree and bush from Visual is averaged into each square at seven heights (`tools/bake_light_foliage.py`), so woods
+  thin the view the further it runs through them, faster in thick undergrowth and dense crowns, and at the height
+  the sight line actually crosses them; walls, rocks and small buildings thin it too, and large buildings block.
+  **Yellow** is ground seen only partly, through trees. Its few constants are fitted to Visual's results at 200 spots
+  across the island (`tools/fit_light.js`): it agrees with Visual on **91%** of the ground and finds 63% of what
+  Visual shows through foliage.
 
-Both were scored against 20,000 of the game's own sight lines across the island (the Workbench tool's "Check: sight
-lines"): Full agrees with the game on **95%** of them, Light on **87%** (where Light says clear the game sees 77% of
-the time, through trees 34%, hidden 2%). The terrain alone would agree on 66%. Grass, small clutter and see-through
-fences (poles, nets, railings) don't block. TRP tables say Yes, Trees or No. The mortar calculator doesn't depend on
-this setting. "Line-of-sight shading" under Map layers turns the shading on or off.
+Full was scored against 20,000 of the game's own sight lines across the island (the Workbench tool's "Check: sight
+lines") and agrees with the game on **95%** of them (the terrain alone would agree on 66%). Those are physics rays,
+which stop on plants' simple collision shapes rather than their leaves, so they can't judge foliage; Visual and Light
+are measured against what the game draws instead. Grass, small clutter and see-through fences (poles, nets,
+railings) don't block. TRP tables say Yes, Trees or No. The mortar calculator doesn't depend on this setting.
+"Line-of-sight shading" under Map layers turns the shading on or off.
 
 ## Sidebar
 

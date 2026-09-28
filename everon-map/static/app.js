@@ -169,8 +169,12 @@
   // CANOPY   four planes of HN*HN bytes: canopy top (m), crown base (m), share of the cell blocked at head height by
   //          trunks, bushes and low branches (0-255), share covered by crowns seen from above (0-255).
   // BUILDINGS building height (m) where buildings fill at least 40% of the cell.
+  // FOLIAGE  per height band above the ground (LIGHT_BANDS), the cell's average foliage k (how strongly leaves block
+  //          sight, per metre, 0-255 = 0-LIGHT_K_MAX), from every measured plant (tools/bake_light_foliage.py).
+  // CLUTTER  per height band, the share of the cell filled by buildings, walls, rocks and poles (0-255).
   let FOREST = null; // Uint8Array of packed bits
-  let CANOPY = null, BUILDINGS = null;
+  let CANOPY = null, BUILDINGS = null, FOLIAGE = null, CLUTTER = null, FOLIAGE_MAX = null, CLUTTER_MAX = null; // max over bands
+  const LIGHT_BANDS = [0, 1, 2, 4, 7, 12, 20, 45], LIGHT_K_MAX = 0.5;
   const cellOf = ([x, z]) => (x < 0 || z < 0 || x >= WORLD || z >= WORLD ? -1 : Math.floor(z / HCELL) * HN + Math.floor(x / HCELL));
   const canopyTop = p => { const k = cellOf(p); return CANOPY && k >= 0 ? CANOPY[k] : 0; };
   const buildingTop = p => { const k = cellOf(p); return BUILDINGS && k >= 0 ? BUILDINGS[k] : 0; };
@@ -2340,18 +2344,23 @@
     state.emplHeight = Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 0;
     updateEmplDraft();
   });
-  // Trees thin the view rather than cutting it off, and are their real heights (tools/bake_los.py, from the game's own
-  // trees). Below the crowns a cell thins the view by (its head-height share of trunks, bushes and low branches) /
-  // S_EFF per metre; inside the crowns (crown base to canopy top) by CROWN_K x -ln(1 - crown cover) / crown depth per
-  // metre, so the view is thinnest at a slant down into a wood: someone on a hill can't see a soldier under the trees.
-  // What a sight line keeps is T = exp(-sum): at least SEE_CLEAR counts as seen, SEE_TREES..SEE_CLEAR as seen through
-  // trees, less as hidden. S_EFF and CROWN_K were fitted to 20,000 of the game's own sight rays across the island
-  // (tools/workbench, "Check: sight lines"): this model agrees with the engine on 87% of them; where it says clear the
-  // game sees 77% of the time, through trees 34%, hidden 2%.
-  // Buildings (where they fill a 10 m cell) block like the ground, except right beside the eye (it's standing there).
-  // The mortar calculator never uses this; it reads the bare terrain.
-  const S_EFF = 0.8, CROWN_K = 2.5, SEE_CLEAR = 0.75, SEE_TREES = 0.1, BUILDING_NEAR = 10;
-  const TREES_NOTE = "Woods thin the view the further it runs through them, faster in thick undergrowth, and tree crowns hide what's under them from above. Trees are their real heights from the game, and large buildings block too; checked against 20,000 of the game's own sight lines, this agrees with the game 87% of the time.";
+  // Trees, bushes and clutter thin the view rather than cutting it off. Each 10 m cell holds, per height band above the
+  // ground, the average of every plant's measured leaves there (FOLIAGE, the same plants and see-through the Visual
+  // model uses one by one) and the share of it filled by walls, rocks and small buildings (CLUTTER). A sight line
+  // crossing a cell at some height meets FOLIAGE_K (FOLIAGE_LOW_K below LOW_TOP) x that k plus CLUTTER_K x that share
+  // per metre; what it keeps is T = exp(-sum): at least SEE_CLEAR counts as seen, SEE_TREES..SEE_CLEAR as seen through
+  // trees, less as hidden. The rates and the two thresholds were fitted to the Visual model's results at 200 spots
+  // across the island (tools/fit_light.js), for the best F1 score over hidden, clear and through-trees ground.
+  // Averaging leaves over 10 m hides gaps and trunks, so they're weaker than Visual's measured rates and the
+  // thresholds differ.
+  // Buildings (where they fill a 10 m cell) block like the ground, and neither they nor clutter count right beside
+  // the eye (it's standing there). The mortar calculator never uses this; it reads the bare terrain.
+  const FOLIAGE_K = 0.55, FOLIAGE_LOW_K = 0.62, CLUTTER_K = 0.7, SEE_CLEAR = 0.7, SEE_TREES = 0.23, BUILDING_NEAR = 10;
+  const LIGHT_MIN_TAU = 0.01;
+  const LOW_TOP = 4; // bands up to this height (m) use FOLIAGE_LOW_K: undergrowth and trunks, not crowns
+  const BAND_AT = new Uint8Array(LIGHT_BANDS[LIGHT_BANDS.length - 1]); // band for each whole metre of height
+  for (let b = 0; b < LIGHT_BANDS.length - 1; b++) BAND_AT.fill(b, LIGHT_BANDS[b], LIGHT_BANDS[b + 1]);
+  const TREES_NOTE = "Light: every tree and bush on Everon, averaged over 10 m squares at each height, thins the view the further it runs through them (faster in thick undergrowth and dense crowns); walls, rocks and small buildings thin it too, and large buildings block. It agrees with the Visual model on 91% of the ground.";
   const TAU_CLEAR = -Math.log(SEE_CLEAR), TAU_TREES = -Math.log(SEE_TREES);
   const LOS_HIDDEN = 1, LOS_CLEAR = 2, LOS_TREES = 3;
   const LOS_RANK = [0, 1, 3, 2]; // when samples disagree about a cell: clear beats through trees beats hidden
@@ -2371,7 +2380,7 @@
   // elev: [lowest, highest] angle in degrees a gun can aim (null = any).
   function lightLos(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
     if (!HEIGHT || range < 1) return null;
-    const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}|${!!CANOPY}`;
+    const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}|${!!FOLIAGE}`;
     if (cache && losCache.has(key)) return losCache.get(key);
     const pts = arc >= 360 ? [[xz[0] - range, xz[1] - range], [xz[0] + range, xz[1] + range]] : sectorLatLngs(xz, dir, arc, range).map(toXZ);
     // The box is snapped to the 10 m grid so results from different spots line up cell for cell.
@@ -2384,8 +2393,11 @@
     const [lo, hi] = elev ? elev.map(d => Math.tan(d * Math.PI / 180)) : [-Infinity, Infinity];
     const maxN = Math.ceil(range / step) + 1, NN = HN * HN;
     const hs = new Float64Array(maxN), blk = new Float64Array(maxN); // ground; ground plus any building
-    const top = new Float64Array(maxN), base = new Float64Array(maxN), muLow = new Float64Array(maxN), muCrown = new Float64Array(maxN);
-    const wooded = new Int32Array(maxN); // indices of the samples with trees, in order
+    const NBANDS = LIGHT_BANDS.length - 1;
+    const mus = new Float64Array(maxN * NBANDS); // per sample and band: what a metre of sight line meets there
+    const wooded = new Int32Array(maxN); // indices of the samples with plants or clutter, in order
+    const cUnit = CLUTTER_K / 255, bandTop = BAND_AT.length;
+    const fUnit = LIGHT_BANDS.slice(1).map(top => (top <= LOW_TOP ? FOLIAGE_LOW_K : FOLIAGE_K) * LIGHT_K_MAX / 255), fMax = Math.max(...fUnit);
     for (let i = 0; i <= rays; i++) {
       const b = (dir - arc / 2 + arc * i / rays) * Math.PI / 180, sx = Math.sin(b), sz = Math.cos(b);
       let n = 0, m = 0;
@@ -2395,11 +2407,10 @@
         const k = cellOf([x, z]);
         hs[n] = ground([x, z]);
         blk[n] = hs[n] + (BUILDINGS && k >= 0 && r > BUILDING_NEAR ? BUILDINGS[k] : 0);
-        if (CANOPY && k >= 0 && CANOPY[k] > 0) {
-          const t = CANOPY[k], bs = CANOPY[NN + k], cover = Math.min(CANOPY[3 * NN + k] / 255, 0.97);
-          top[n] = hs[n] + t; base[n] = hs[n] + bs;
-          muLow[n] = CANOPY[2 * NN + k] / 255 / S_EFF;
-          muCrown[n] = CROWN_K * -Math.log(1 - cover) / Math.max(t - bs, 2);
+        // cells whose plants and clutter could thin a sight line by more than LIGHT_MIN_TAU (skipping stray twigs)
+        if (FOLIAGE && k >= 0 && (FOLIAGE_MAX[k] * fMax + CLUTTER_MAX[k] * cUnit) * step > LIGHT_MIN_TAU) {
+          const near = r <= BUILDING_NEAR; // no clutter where the eye stands
+          for (let b = 0; b < NBANDS; b++) mus[n * NBANDS + b] = FOLIAGE[b * NN + k] * fUnit[b] + (near ? 0 : CLUTTER[b * NN + k] * cUnit);
           wooded[m++] = n;
         }
         n++;
@@ -2416,9 +2427,9 @@
           for (let q = 0; q < m && tau <= TAU_TREES; q++) {
             const w = wooded[q];
             if (w > j) break;
-            const y = eye + t * (w + 1) * step; // the sight line's height over that sample
-            if (y >= top[w]) continue;
-            tau += (y >= base[w] ? muCrown[w] : muLow[w]) * len * (w === j ? 0.5 : 1);
+            const y = eye + t * (w + 1) * step - hs[w]; // the sight line's height above the ground there
+            if (y < 0 || y >= bandTop) continue;
+            tau += mus[w * NBANDS + BAND_AT[Math.floor(y)]] * len * (w === j ? 0.5 : 1);
           }
           v = tau > TAU_TREES ? LOS_HIDDEN : tau > TAU_CLEAR ? LOS_TREES : LOS_CLEAR;
         }
@@ -2442,8 +2453,8 @@
   }
   // Line of sight in the viewer's chosen detail. Full: every building, wall, rock, tree and bush from the game at
   // 0.5 m (static/los-worker.js, in a background thread; agrees with the game's own sight lines 95% of the time).
-  // Light: the 10 m model above (87%), instant and small. A full result arrives a moment after it's asked for: until
-  // then the light one stands in, and everything that shows line of sight redraws when it lands. Drafts still being
+  // Light: the 10 m model above (91% agreement with Visual), instant and small. A full result arrives a moment after
+  // it's asked for: until then the light one stands in, and everything that shows line of sight redraws when it lands. Drafts still being
   // aimed (cache = false) stay light so they keep up with the mouse.
   // Visual (on trial, to compare with Full): Full's buildings, walls and rocks, with every tree and bush on Everon as
   // see-through as it is on screen, measured from the game's pictures of each kind of plant (see static/los-worker.js).
@@ -2523,7 +2534,7 @@
       : WORKER_MODES.includes(state.losMode) && fullWanted.size ? 'Working out full detail…'
       : state.losMode === 'full' ? '0.5 m: every building, wall and tree from the game (95% match). Downloads the area you look at, a few MB at a time.'
       : state.losMode === 'visual' ? 'On trial: Full, but every tree and bush is its own kind, shape and size, as see-through as it looks in game. Switch between this and Full to compare.'
-      : '10 m: quick and small (87% match). Best for phones and slow connections.';
+      : '10 m: quick and small (91% match with Visual). Best for phones and slow connections.';
   }
   $('#los-detail').addEventListener('click', e => {
     const b = e.target.closest('[data-los-mode]');
@@ -4656,9 +4667,12 @@
     });
   }
   // Trees and buildings: line of sight worked out before they arrived is redone with them.
-  Promise.all(['everon-forest.bin', 'everon-canopy.bin', 'everon-buildings.bin'].map(lightBin))
-    .then(([forest, canopy, buildings]) => {
+  Promise.all(['everon-forest.bin', 'everon-canopy.bin', 'everon-buildings.bin', 'everon-foliage.bin', 'everon-clutter.bin'].map(lightBin))
+    .then(([forest, canopy, buildings, foliage, clutter]) => {
       FOREST = new Uint8Array(forest); CANOPY = new Uint8Array(canopy); BUILDINGS = new Uint8Array(buildings);
+      const nn = HN * HN, f = new Uint8Array(foliage), c = new Uint8Array(clutter), fm = new Uint8Array(nn), cm = new Uint8Array(nn);
+      for (let i = 0; i < f.length; i++) { const k = i % nn; if (f[i] > fm[k]) fm[k] = f[i]; if (c[i] > cm[k]) cm[k] = c[i]; }
+      FOLIAGE = f; CLUTTER = c; FOLIAGE_MAX = fm; CLUTTER_MAX = cm;
       forestLayer.redraw();
       lzCache.clear();
       losCache.clear();
