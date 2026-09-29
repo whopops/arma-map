@@ -36,6 +36,9 @@ END_M = 2.0         # piece ends this close are one junction
 ON_ROAD_M = 4.0     # an end this close to another road joins it there
 BRIDGE_M = 120      # longest gap two roads pointing at each other are joined across (a bridge)
 LOOSE_M = 10        # a loose road end this close to another road, or another loose end, is joined to it
+FACE_M = 60         # two loose ends pointing at each other are joined across up to this (footbridges, rocks, streams)
+NEAR_END_M = 15     # ...and two this close if either points at the other
+PATH_LOOSE_M = 15   # a loose foot path end this close to another path or road joins it, whichever way it points
 STEP_M = 2.0        # spacing of the smooth curve's points
 SIMPLIFY_M = 0.3    # how far the written line may stray from the curve
 KIND_NAMES = ['main road', 'street', 'dirt road', 'foot path']
@@ -300,7 +303,7 @@ def join_loose(nodes, edges, objects_dir):
                     continue
                 g = geoms[j]
                 d = g.distance(Point(e))
-                if d <= LOOSE_M:
+                if d <= (PATH_LOOSE_M if k == 3 else LOOSE_M):   # a path's hairpin can stop further short
                     q = np.array(g.interpolate(g.project(Point(e))).coords[0])
                     if best is None or d < best[0]:
                         best = (d, j, q)
@@ -326,6 +329,46 @@ def join_loose(nodes, edges, objects_dir):
         made += joined
         if not joined:
             break
+    return made
+
+
+def join_facing(nodes, edges):
+    """Paths (and roads) that stop and start again where the ground changes (a footbridge, rocks, a stream): two loose
+    ends pointing at each other within FACE_M are joined, and two within NEAR_END_M if either points at the other.
+    Nearest pairs first; each end joins once. Returns how many were joined."""
+    deg = Counter()
+    for a, b, k, p in edges:
+        deg[a] += 1
+        deg[b] += 1
+    loose = []
+    for i, (a, b, k, p) in enumerate(edges):
+        for nd, q in ((a, p), (b, p[::-1])):
+            if deg[nd] == 1:
+                ls = LineString(q)
+                back = np.array(ls.interpolate(min(10.0, ls.length)).coords[0])
+                loose.append((nd, i, np.array(q[0], float), np.array(q[0], float) - back, k))
+    if not loose:
+        return 0
+    from scipy.spatial import cKDTree
+    t = cKDTree(np.array([l[2] for l in loose]))
+    cands = []
+    for x, y in t.query_pairs(FACE_M):
+        n1, i1, e1, t1, k1 = loose[x]
+        n2, i2, e2, t2, k2 = loose[y]
+        if i1 == i2:
+            continue
+        v = e2 - e1
+        d = float(np.hypot(*v))
+        a1, a2 = angle(v, t1), angle(-v, t2)
+        if max(a1, a2) <= 45 or (d <= NEAR_END_M and min(a1, a2) <= 45):
+            cands.append((d * (1 + (a1 + a2) / 90), n1, n2, max(k1, k2)))
+    done, made = set(), 0
+    for cost, n1, n2, k in sorted(cands):
+        if n1 in done or n2 in done:
+            continue
+        done |= {n1, n2}
+        edges.append([n1, n2, k, np.array([nodes[n1], nodes[n2]])])
+        made += 1
     return made
 
 
@@ -387,6 +430,7 @@ def main():
     nodes, edges = build(pieces)
     print('bridges and short gaps joined:', join_bridges(nodes, edges, os.path.join(args.src, 'objects')))
     print('loose ends joined:', join_loose(nodes, edges, os.path.join(args.src, 'objects')))
+    print('facing ends joined:', join_facing(nodes, edges))
 
     # junctions on the same spot (a road split where another joined it) are one
     from scipy.spatial import cKDTree
