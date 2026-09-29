@@ -226,20 +226,43 @@ def split_edge(nodes, edges, i, q):
     return n
 
 
+def bridge_boxes(objects_dir):
+    """Each bridge's outline on the ground: all its parts (deck, pillars, railings) that lie together, as one box."""
+    parts = []
+    if os.path.isdir(objects_dir):
+        for fn in os.listdir(objects_dir):
+            with open(os.path.join(objects_dir, fn), encoding='utf8', errors='replace') as f:
+                for r in csv.DictReader(f):
+                    if '/Bridges/' in r['prefab']:
+                        parts.append((float(r['minx']), float(r['minz']), float(r['maxx']), float(r['maxz'])))
+    par = list(range(len(parts)))
+
+    def find(x):
+        while par[x] != x:
+            par[x] = par[par[x]]
+            x = par[x]
+        return x
+    from scipy.spatial import cKDTree
+    if parts:
+        c = np.array([((a + b) / 2, (z0 + z1) / 2) for a, z0, b, z1 in parts])
+        for i, j in cKDTree(c).query_pairs(30):
+            par[find(i)] = find(j)
+    boxes = {}
+    for i, (x0, z0, x1, z1) in enumerate(parts):
+        r = find(i)
+        b = boxes.get(r, (x0, z0, x1, z1))
+        boxes[r] = (min(b[0], x0), min(b[1], z0), max(b[2], x1), max(b[3], z1))
+    return list(boxes.values())
+
+
 def join_loose(nodes, edges, objects_dir):
     """Loose road ends that should meet something, as the game's roads sometimes stop a few metres short:
       - within LOOSE_M of another loose end: joined to it
       - within LOOSE_M of another road: joined to it there
       - on a bridge: carried on straight ahead to the road at the far end (up to BRIDGE_M)
     Returns how many were joined."""
-    boxes = []
-    if os.path.isdir(objects_dir):
-        for fn in os.listdir(objects_dir):
-            with open(os.path.join(objects_dir, fn), encoding='utf8', errors='replace') as f:
-                for r in csv.DictReader(f):
-                    if '/Bridges/' in r['prefab'] and 'Railing' not in r['prefab']:
-                        boxes.append((float(r['minx']), float(r['minz']), float(r['maxx']), float(r['maxz'])))
-    on_bridge = lambda xz: any(x0 - 3 <= xz[0] <= x1 + 3 and z0 - 3 <= xz[1] <= z1 + 3 for x0, z0, x1, z1 in boxes)
+    boxes = bridge_boxes(objects_dir)
+    on_bridge = lambda xz: any(x0 - 5 <= xz[0] <= x1 + 5 and z0 - 5 <= xz[1] <= z1 + 5 for x0, z0, x1, z1 in boxes)
     made = 0
     for _ in range(3):
         deg = Counter()
@@ -308,13 +331,7 @@ def join_loose(nodes, edges, objects_dir):
 
 def join_bridges(nodes, edges, objects_dir):
     """Roads that stop at either end of a bridge: loose ends pointing at each other, with a bridge between."""
-    boxes = []
-    if os.path.isdir(objects_dir):
-        for fn in os.listdir(objects_dir):
-            with open(os.path.join(objects_dir, fn), encoding='utf8', errors='replace') as f:
-                for r in csv.DictReader(f):
-                    if '/Bridges/' in r['prefab'] and 'Railing' not in r['prefab']:
-                        boxes.append((float(r['minx']), float(r['minz']), float(r['maxx']), float(r['maxz'])))
+    boxes = bridge_boxes(objects_dir)
     deg = Counter()
     for a, b, k, p in edges:
         deg[a] += 1
@@ -370,6 +387,19 @@ def main():
     nodes, edges = build(pieces)
     print('bridges and short gaps joined:', join_bridges(nodes, edges, os.path.join(args.src, 'objects')))
     print('loose ends joined:', join_loose(nodes, edges, os.path.join(args.src, 'objects')))
+
+    # junctions on the same spot (a road split where another joined it) are one
+    from scipy.spatial import cKDTree
+    same = list(range(len(nodes)))
+
+    def root(x):
+        while same[x] != x:
+            same[x] = same[same[x]]
+            x = same[x]
+        return x
+    for i, j in cKDTree(np.array(nodes, float)).query_pairs(0.5):
+        same[root(i)] = root(j)
+    edges = [[root(a), root(b), k, p] for a, b, k, p in edges]
 
     used = sorted({e[0] for e in edges} | {e[1] for e in edges})
     new = {o: i for i, o in enumerate(used)}
