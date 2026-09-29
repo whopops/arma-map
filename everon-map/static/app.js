@@ -815,6 +815,8 @@
     if (it.type === 'route') {
       const legs = it.points.slice(1).map((p, i) => `<div>Leg ${i + 1}: ${fmtDist(dist(it.points[i], p))} · ${fmtBearing(bearing(it.points[i], p))}</div>`).join('');
       if (it.plan) extra += `<p class="sub">Planned ${fmtAgo(Date.now() - (it.plan.at || Date.now()))}; re-plans when enemies change.</p>`;
+      const overM = it.plan && it.plan.mode === 'vehicle' ? steepRuns(it.points, it.steep).reduce((m, run) => m + pathLength(run), 0) : 0;
+      if (overM) extra += `<p><b class="rc-no">Over ${SLOPE_LIMIT_DEG}° for ${fmtDist(overM)}</b> <span class="sub">(red) · no other way through</span></p>`;
       extra += `<p><b>${fmtDist(pathLength(it.points))}</b> over ${it.points.length - 1} leg${it.points.length > 2 ? 's' : ''}</p>` +
         routeCheckHtml(routeCheck(it.points)) + `<details class="legs"><summary>Legs</summary><div class="sub">${legs}</div></details>`;
     }
@@ -950,8 +952,10 @@
       const lls = it.points.map(toLL), rc = state.showLos ? routeCheck(it.points) : null;
       if (rc) drawExposure(layer, rc);
       const casing = L.polyline(lls, { color: '#000', weight: 6, opacity: 0.45, interactive: false });
-      const line = L.polyline(lls, { color, weight: 3.5, opacity: 0.95, bubblingMouseEvents: false });
+      const drive = it.plan && it.plan.mode === 'vehicle'; // a drive: green, red where over the slope limit
+      const line = L.polyline(lls, { color: drive ? DRIVE_OK : color, weight: drive ? 4 : 3.5, opacity: 0.95, bubblingMouseEvents: false });
       layer.addLayer(casing).addLayer(line);
+      if (drive) steepRuns(it.points, it.steep).forEach(run => layer.addLayer(L.polyline(run.map(toLL), { color: DRIVE_STEEP, weight: 4.5, opacity: 1, lineCap: 'butt', interactive: false })));
       const last = it.points.length - 1;
       it.points.forEach((pt, i) => {
         const v = L.circleMarker(toLL(pt), { radius: i === 0 || i === last ? 5 : 3.5, color: '#000', weight: 1.5, fillColor: color, fillOpacity: 1, bubblingMouseEvents: false });
@@ -3460,9 +3464,15 @@
       const ws = watchers();
       me.items.forEach(it => {
         if (it.type !== 'route' || !it.plan || !['foot', 'vehicle'].includes(it.plan.mode)) return;
-        const pts = it.plan.mode === 'vehicle' ? (ROADS ? findVehicleRoute(it.plan.from, it.plan.to, ws, !it.plan.roadsOnly)?.pts : null)
-          : findCoveredRoute(it.plan.from, it.plan.to, ws, !!it.plan.swim);
-        if (pts && pts.join(';') !== it.points.join(';')) saveItem({ ...it, points: pts, plan: { ...it.plan, at: Date.now() } });
+        const veh = it.plan.mode === 'vehicle';
+        const r = veh ? (ROADS ? findVehicleRoute(it.plan.from, it.plan.to, ws, !it.plan.roadsOnly) : null) : null;
+        const pts = veh ? r?.pts : findCoveredRoute(it.plan.from, it.plan.to, ws, !!it.plan.swim);
+        const steep = r?.steep?.length ? r.steep : undefined;
+        if (pts && (pts.join(';') !== it.points.join(';') || (veh && JSON.stringify(steep) !== JSON.stringify(it.steep)))) {
+          const next = { ...it, points: pts, plan: { ...it.plan, at: Date.now() } };
+          if (steep) next.steep = steep; else delete next.steep;
+          saveItem(next);
+        }
       });
     }, 400);
   }
@@ -3725,15 +3735,17 @@
   }
   // Searched in a box around the start and end; if nothing is found (a bay or a ridge in the way needs a long way
   // round), again in bigger boxes, up to the whole island.
-  function findCoveredRoute(from, to, ws, swim = false, car = false) {
+  // With car set, returns {runs} (see assembleRoute) instead of points; steepOk lets it cross ground steeper than
+  // CAR_MAX_GRADE when there's no other way (those stretches come back flagged steep).
+  function findCoveredRoute(from, to, ws, swim = false, car = false, steepOk = false) {
     const first = Math.min(800, Math.max(250, dist(from, to) * 0.4));
     for (const pad of [first, 2000, WORLD]) {
-      const pts = routeInBox(from, to, ws, swim, pad, car);
+      const pts = routeInBox(from, to, ws, swim, pad, car, steepOk);
       if (pts || pad >= WORLD) return pts;
     }
     return null;
   }
-  function routeInBox(from, to, ws, swim, pad, car = false) {
+  function routeInBox(from, to, ws, swim, pad, car = false, steepOk = false) {
     const C = LOS_CELL;
     const x0 = Math.max(0, Math.floor((Math.min(from[0], to[0]) - pad) / C) * C), x1 = Math.min(WORLD, Math.ceil((Math.max(from[0], to[0]) + pad) / C) * C);
     const z0 = Math.max(0, Math.floor((Math.min(from[1], to[1]) - pad) / C) * C), z1 = Math.min(WORLD, Math.ceil((Math.max(from[1], to[1]) + pad) / C) * C);
@@ -3765,9 +3777,10 @@
     const gx = centre(g), vmax = car ? OFFROAD_MS : walkSpeed(-0.05);
     const path = aStar(W, H, C, s, g, (k, n, len) => {
       if (mult[n] === Infinity) return Infinity;
-      if (car) { // a vehicle across country: no water, nothing steeper than CAR_MAX_GRADE
-        const grade = (hgt[n] - hgt[k]) / len;
-        return Math.abs(grade) > CAR_MAX_GRADE || isWater(hgt[n]) ? Infinity : len / (OFFROAD_MS * driveFactor(grade)) * (mult[k] + mult[n]) / 2;
+      if (car) { // a vehicle across country: no water, nothing steeper than CAR_MAX_GRADE (unless steepOk, at a heavy price)
+        const grade = (hgt[n] - hgt[k]) / len, steep = Math.abs(grade) > CAR_MAX_GRADE;
+        if (isWater(hgt[n]) || (steep && !steepOk)) return Infinity;
+        return len / (OFFROAD_MS * driveFactor(grade)) * (mult[k] + mult[n]) / 2 * (steep ? STEEP_COST : 1);
       }
       if (isWater(hgt[k]) || isWater(hgt[n])) return len / SWIM * (mult[k] + mult[n]) / 2; // swimming (only when on)
       const grade = (hgt[n] - hgt[k]) / len;
@@ -3776,6 +3789,16 @@
     if (!path) return null;
     const cells = path.map(centre);
     cells[0] = from; cells[cells.length - 1] = to;
+    if (car) { // runs of steps that stay under the limit, and runs of steps over it
+      const runs = [];
+      for (let i = 0; i + 1 < path.length; i++) {
+        const steep = Math.abs(hgt[path[i + 1]] - hgt[path[i]]) / dist(centre(path[i]), centre(path[i + 1])) > CAR_MAX_GRADE;
+        const last = runs[runs.length - 1];
+        if (last && last.steep === steep) last.pts.push(cells[i + 1]); else runs.push({ steep, pts: [cells[i], cells[i + 1]] });
+      }
+      if (!runs.length) runs.push({ steep: false, pts: [from, to] });
+      return { runs: runs.map(r => ({ steep: r.steep, pts: simplify(r.pts, 4) })) };
+    }
     let tol = 4, pts = simplify(cells, tol);
     while (pts.length > 200) pts = simplify(cells, tol *= 1.5);
     return pts.map(roundXZ);
@@ -3790,7 +3813,11 @@
   const ROAD_KMH = [65, 45, 35, 25];   // main road, street, dirt road, foot path
   const PATH_PENALTY = 1.6;            // foot paths cost this much more than their time, so roads win unless a path saves a lot
   const OFFROAD_MS = 15 / 3.6;         // across country, on the flat
-  const CAR_MAX_GRADE = Math.tan(30 * Math.PI / 180);
+  // Off-road, a vehicle keeps to ground under 45 degrees (green). It only crosses steeper ground when there is no other
+  // way through, and those stretches turn red; STEEP_COST makes the search cross as little of it as it can.
+  const SLOPE_LIMIT_DEG = 45;
+  const CAR_MAX_GRADE = Math.tan(SLOPE_LIMIT_DEG * Math.PI / 180);
+  const STEEP_COST = 200;
   const CONNECT_M = 700, CONNECT_ROADS_ONLY_M = 250, CONNECT_EDGES = 6;
   const ROAD_WORD = ['main road', 'street', 'dirt road', 'foot path'];
   const driveFactor = grade => 1 / (1 + 4 * Math.max(0, grade - 0.06) + 2 * Math.max(0, -grade - 0.10));
@@ -3821,19 +3848,25 @@
     }
     return best;
   }
-  // Can a vehicle cross from a to b off the road? Returns its driving time, or null (water, too steep).
-  function offroadTime(a, b, ws) {
+  // Can a vehicle cross from a to b off the road? Returns {secs, runs}: its driving cost, and the way in runs of one
+  // kind ({steep, pts}: under the slope limit, or over it, which is only allowed with steepOk); null if water, or too
+  // steep without steepOk.
+  function offroadTime(a, b, ws, steepOk = false) {
     const L = dist(a, b), n = Math.max(1, Math.ceil(L / 10));
     let prev = heightAt(a);
     if (prev == null) return null;
-    let t = 0;
+    let t = 0, from = a;
+    const at = j => [a[0] + (b[0] - a[0]) * j / n, a[1] + (b[1] - a[1]) * j / n], runs = [];
     for (let j = 1; j <= n; j++) {
-      const p = [a[0] + (b[0] - a[0]) * j / n, a[1] + (b[1] - a[1]) * j / n], h = heightAt(p), step = L / n, grade = (h - prev) / step;
-      if (isWater(h) || Math.abs(grade) > CAR_MAX_GRADE) return null;
-      t += step / (OFFROAD_MS * driveFactor(grade)) * seenMult(ws, p);
+      const p = at(j), h = heightAt(p), step = L / n, grade = (h - prev) / step, steep = Math.abs(grade) > CAR_MAX_GRADE;
+      if (isWater(h) || (steep && !steepOk)) return null;
+      t += step / (OFFROAD_MS * driveFactor(grade)) * seenMult(ws, p) * (steep ? STEEP_COST : 1);
+      const last = runs[runs.length - 1];
+      if (last && last.steep === steep) last.pts[1] = j === n ? b : p; else runs.push({ steep, pts: [from, j === n ? b : p] });
+      from = p;
       prev = h;
     }
-    return t;
+    return { secs: t, runs };
   }
   let roadAdj = null;
   function roadGraph() {
@@ -3843,7 +3876,7 @@
     return (roadAdj = { src: ROADS, adj });
   }
   // Route by road from `from` to `to`; returns {pts, secs, legs: {kind: metres}, roadShare} or null.
-  function driveRoadRoute(from, to, ws, offroad) {
+  function driveRoadRoute(from, to, ws, offroad, steepOk = false) {
     const { adj } = roadGraph(), nodes = ROADS.nodes, edges = ROADS.edges, reach = offroad ? CONNECT_M : CONNECT_ROADS_ONLY_M;
     const ncost = new Map(); // `${edge}:${dir}` -> seconds along the whole edge
     const edgeCost = (i, fwd) => {
@@ -3862,12 +3895,12 @@
       cands.sort((a, b) => a.d - b.d);
       const made = [];
       for (const c of cands.slice(0, CONNECT_EDGES)) {
-        const leg = c.d < 1 ? 0 : offroadTime(isStart ? xz : c.p, isStart ? c.p : xz, ws);
+        const leg = c.d < 1 ? { secs: 0, runs: [] } : offroadTime(isStart ? xz : c.p, isStart ? c.p : xz, ws, steepOk);
         if (leg === null) continue;
         const e = edges[c.edge], pts = e[3], id = nextId++;
         const toA = [c.p, ...pts.slice(0, c.i + 1).reverse()], toB = [c.p, ...pts.slice(c.i + 1)];
-        const legPts = isStart ? [xz, c.p] : [c.p, xz];
-        made.push({ id, i: c.edge, at: c.i, p: c.p, legPts, legSecs: leg, legLen: c.d });
+        const legRuns = leg.runs.length ? leg.runs : [{ steep: false, pts: isStart ? [xz, c.p] : [c.p, xz] }]; // in the way of travel
+        made.push({ id, i: c.edge, at: c.i, p: c.p, legRuns, legSecs: leg.secs, legLen: c.d });
         // moving out of this point along the road to either end (start), or in from either end (goal)
         const secsA = driveTime(toA, e[2], ws), secsB = driveTime(toB, e[2], ws);
         if (isStart) {
@@ -3910,12 +3943,12 @@
     const pieces = [];
     for (let v = goal; v !== null;) {
       const pr = prev[v];
-      if (pr.from === null) { pieces.push({ pts: pr.s.legPts, kind: 4 }); break; }
-      pieces.push({ pts: pr.pts, kind: pr.kind });
+      if (pr.from === null) { [...pr.s.legRuns].reverse().forEach(r => pieces.push({ pts: r.pts, kind: 4, steep: r.steep })); break; }
+      pieces.push({ pts: pr.pts, kind: pr.kind, steep: false });
       v = pr.from;
     }
     pieces.reverse();
-    pieces.push({ pts: goalSecs.get(goal).legPts, kind: 4 });
+    goalSecs.get(goal).legRuns.forEach(r => pieces.push({ pts: r.pts, kind: 4, steep: r.steep }));
     const pts = [], legs = {};
     pieces.forEach(pc => {
       pc.pts.forEach(p => { if (!pts.length || dist(pts[pts.length - 1], p) > 0.05) pts.push(p); });
@@ -3923,25 +3956,59 @@
     });
     // the search used costs (exposure and the foot path penalty); the time shown is the plain driving time
     const secs = pieces.reduce((t, pc) => t + driveTime(pc.pts, pc.kind, [], false), 0);
-    return { pts, cost: best, secs, legs };
+    return { pts, cost: best, secs, legs, runs: pieces.map(pc => ({ steep: pc.steep, pts: pc.pts })) };
+  }
+  // A drive is drawn green, and red where it crosses ground over the slope limit. `steep` is [first, last] point index
+  // pairs into points (as findVehicleRoute returns, and saved routes keep).
+  const DRIVE_OK = '#3ddc84', DRIVE_STEEP = '#ff3b3b';
+  const steepRuns = (points, steep) => (Array.isArray(steep) ? steep : []).filter(r => Array.isArray(r) && Number.isInteger(r[0]) && Number.isInteger(r[1]) && r[0] >= 0 && r[1] > r[0] && r[1] < points.length)
+    .map(([a, b]) => points.slice(a, b + 1));
+  const drawDrive = (layer, points, steep, opts = {}) => {
+    layer.addLayer(L.polyline(points.map(toLL), { color: DRIVE_OK, weight: 4, opacity: 0.95, ...opts }));
+    steepRuns(points, steep).forEach(run => layer.addLayer(L.polyline(run.map(toLL), { color: DRIVE_STEEP, weight: 4.5, opacity: 1, lineCap: 'butt', ...opts })));
+  };
+  // Turn runs ({steep, pts}, each starting where the last ended) into the route: neighbours of one kind are joined,
+  // every run is simplified on its own (so a steep stretch stays exactly where the planner found it), and the result is
+  // {pts, steep} with steep the [first, last] point index of each stretch over the slope limit.
+  function assembleRoute(runs) {
+    const merged = [];
+    runs.forEach(r => {
+      const last = merged[merged.length - 1];
+      if (last && last.steep === r.steep) r.pts.forEach(p => { if (dist(last.pts[last.pts.length - 1], p) > 0.05) last.pts.push(p); });
+      else merged.push({ steep: r.steep, pts: [...r.pts] });
+    });
+    let tol = 1.5, simple = merged.map(r => simplify(r.pts, tol));
+    while (simple.reduce((n, s) => n + s.length, 0) - merged.length + 1 > 200) simple = merged.map(r => simplify(r.pts, tol *= 1.5));
+    const pts = [], steep = [];
+    simple.forEach((s, i) => {
+      const first = pts.length ? pts.length - 1 : 0;
+      s.forEach(p => { if (!pts.length || dist(pts[pts.length - 1], p) > 0.05) pts.push(p); });
+      if (merged[i].steep && pts.length - 1 > first) steep.push([first, pts.length - 1]);
+    });
+    return { pts: pts.map(roundXZ), steep };
   }
   // Roads first; across country when allowed and there's no road way, or the road way is far longer than the direct line.
+  // Returns {pts, steep, cost, secs, legs}: steep lists the [first, last] point index of each stretch over the slope
+  // limit. Those only appear when there is no way through that stays under it.
   function findVehicleRoute(from, to, ws, offroad = true) {
-    const road = driveRoadRoute(from, to, ws, offroad);
-    let pts = road && road.pts, res = road;
+    return planDrive(from, to, ws, offroad, false) || planDrive(from, to, ws, offroad, true);
+  }
+  function planDrive(from, to, ws, offroad, steepOk) {
+    const road = driveRoadRoute(from, to, ws, offroad, steepOk);
+    let res = road;
     const tooLong = road && offroad && pathLength(road.pts) > 4 * dist(from, to) + 500;
     if (offroad && (!road || tooLong)) {
-      const direct = findCoveredRoute(from, to, ws, false, true);
+      const direct = findCoveredRoute(from, to, ws, false, true, steepOk);
       if (direct) {
-        const secs = driveTime(direct, 4, ws);
-        if (!road || secs < road.cost) res = { pts: direct, cost: secs, secs: driveTime(direct, 4, [], false), legs: { 4: pathLength(direct) } };
+        const flat = [];
+        direct.runs.forEach(r => r.pts.forEach(p => { if (!flat.length || dist(flat[flat.length - 1], p) > 0.05) flat.push(p); }));
+        const cost = direct.runs.reduce((t, r) => t + driveTime(r.pts, 4, ws) * (r.steep ? STEEP_COST : 1), 0);
+        if (!road || cost < road.cost) res = { pts: flat, cost, secs: driveTime(flat, 4, [], false), legs: { 4: pathLength(flat) }, runs: direct.runs };
       }
     }
     if (!res) return null;
-    pts = res.pts;
-    let tol = 1.5, out = simplify(pts, tol);
-    while (out.length > 200) out = simplify(pts, tol *= 1.5);
-    return { ...res, pts: out.map(roundXZ) };
+    const { pts, steep } = assembleRoute(res.runs);
+    return { ...res, pts, steep };
   }
 
   function showCoverResult(d) {
@@ -3957,16 +4024,19 @@
       const dr = d.drive, total = rc ? rc.total : pathLength(d.pts);
       const legs = Object.entries(dr.legs).filter(([, m]) => m >= 20).sort((a, b) => b[1] - a[1])
         .map(([k, m]) => `${fmtDist(m)} ${k === '4' ? 'off-road' : ROAD_WORD[k]}`).join(' · ');
+      const overM = steepRuns(d.pts, dr.steep).reduce((m, run) => m + pathLength(run), 0);
       const vhtml = () => popupHtml('Vehicle route', `${fmtDist(total)} · ${fmtTime(dr.secs)} driving`, end,
         `<p>${legs || 'Across country'}.</p>` +
+        (overM ? `<p><b class="rc-no">Over ${SLOPE_LIMIT_DEG}° for ${fmtDist(overM)}</b> <span class="sub">(red) · no other way through</span></p>` : '') +
         (rc ? `<p>${rc.watchers ? `${rc.seenClear ? `<b class="rc-no">Seen for ${fmtDist(rc.seenClear)}</b>` : '<b class="rc-ok">Never seen clearly</b>'}` +
           `${rc.seenTrees ? `, <span class="rc-trees">through trees for ${fmtDist(rc.seenTrees)}</span>` : ''}.` : '<span class="sub">Mark enemies to see where it is exposed.</span>'}</p>` +
           `<p class="sub">Climbs ${Math.round(rc.climb)} m, descends ${Math.round(rc.descent)} m; steepest stretch ${Math.round(rc.steep * 100)}%.</p>` : '') +
         '<div class="row"><button data-cover="save">Save as route</button><button data-cover="discard">Discard</button></div>' +
-        `<p class="sub">Main roads ${ROAD_KMH[0]}, streets ${ROAD_KMH[1]}, dirt roads ${ROAD_KMH[2]}, foot paths ${ROAD_KMH[3]} (avoided unless they save a lot) and across country ${Math.round(OFFROAD_MS * 3.6)} km/h, slower on slopes. Re-plans when enemies change.</p>`);
-      d.layer.removeLayer(line); // the foot route's dashes; a drive is drawn solid
-      const vline = L.polyline(lls, { color: state.me.color, weight: 4, bubblingMouseEvents: false }).addTo(d.layer);
-      vline.on('click', e => { L.DomEvent.stop(e); popup().setLatLng(toLL(end)).setContent(vhtml()).openOn(map); });
+        `<p class="sub">Main roads ${ROAD_KMH[0]}, streets ${ROAD_KMH[1]}, dirt roads ${ROAD_KMH[2]}, foot paths ${ROAD_KMH[3]} (avoided unless they save a lot) and across country ${Math.round(OFFROAD_MS * 3.6)} km/h, slower on slopes. Off-road stays under ${SLOPE_LIMIT_DEG}° (green); red is over it. Re-plans when enemies change.</p>`);
+      d.layer.removeLayer(line); // the foot route's dashes; a drive is drawn solid, green, and red where too steep
+      const vlayer = L.layerGroup().addTo(d.layer);
+      drawDrive(vlayer, d.pts, dr.steep, { bubblingMouseEvents: false, interactive: true });
+      vlayer.eachLayer(l => l.on('click', e => { L.DomEvent.stop(e); popup().setLatLng(toLL(end)).setContent(vhtml()).openOn(map); }));
       popup().setLatLng(toLL(end)).setContent(vhtml()).openOn(map);
       return;
     }
@@ -3992,6 +4062,7 @@
       const veh = coverDraft.vehicle;
       const n = issueNumber(veh ? 'drive' : 'foot', [...(state.players.get(state.me.name)?.items.values() || [])].filter(i => i.type === 'route' && i.plan && (i.plan.mode === 'vehicle') === !!veh).length + 1);
       saveItem({ id: uid(), type: 'route', points: pts, label: `${veh ? 'Vehicle' : 'Foot'} route ${n}`, note: '', color: state.me.color,
+        ...(veh && coverDraft.drive?.steep?.length ? { steep: coverDraft.drive.steep } : {}),
         plan: { mode: veh ? 'vehicle' : 'foot', from: pts[0], to: pts[pts.length - 1], at: Date.now(), ...(coverDraft.swim ? { swim: true } : {}), ...(veh && !coverDraft.offroad ? { roadsOnly: true } : {}) } });
     }
     map.closePopup();
