@@ -3810,7 +3810,7 @@
   // is multiplied like the foot planner does. Start and end are joined to the nearest roads by short off-road legs
   // (no water, nothing steeper than CAR_MAX_GRADE). With off-road allowed, and when there's no road way or the roads
   // are far, the grid search crosses country instead. The speeds are estimates, not measured in game.
-  const ROAD_KMH = [65, 45, 35, 25];   // main road, street, dirt road, foot path
+  const ROAD_KMH = [80, 60, 50, 25];   // main road, street, dirt road, foot path
   const PATH_PENALTY = 1.6;            // foot paths cost this much more than their time, so roads win unless a path saves a lot
   const OFFROAD_MS = 15 / 3.6;         // across country, on the flat
   // Off-road, a vehicle keeps to ground under 45 degrees (green). It only crosses steeper ground when there is no other
