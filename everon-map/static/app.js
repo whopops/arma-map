@@ -377,8 +377,9 @@
     { key: 'roads', label: 'Roads', on: false, icon: '<span class="lg-road"></span>', countText: '', legendHtml:
       '<div class="legend-key one"><div><span class="lk-line road-main"></span>Main road</div>' +
       '<div><span class="lk-line road-street"></span>Street</div>' +
-      '<div><span class="lk-line road-dirt"></span>Dirt road</div>' +
-      '<div><span class="lk-line road-path"></span>Foot path (vehicles can use it, but avoid it)</div></div>' },
+      '<div><span class="lk-line road-dirt"></span>Dirt road</div></div>' },
+    { key: 'paths', label: 'Foot paths', on: false, icon: '<span class="lg-path"></span>', countText: '', legendHtml:
+      '<div class="legend-key one"><div><span class="lk-line road-path"></span>Foot path (vehicle routes avoid them)</div></div>' },
     { key: 'hillshade', label: 'Hill shading', on: false, icon: '<span class="lg-hill"></span>', countText: '' },
     { key: 'contours', label: 'Contour lines', on: false, icon: '<span class="lg-contour"></span>', countText: '10–50 m' },
     { key: 'fiaGame', box: '#fia-layers', label: "Show this game's caches", on: true, icon: '<span class="lg-live">◆</span>', dynamic: true },
@@ -544,6 +545,7 @@
       addSearch(f.name, 'FIA hidden cache', f.xz, html);
     });
     g('roads');
+    g('paths');
     g('fiaGame');
     d.fiaGame = []; // counted live in the layer list
     refLayers.contours = contourLayer;
@@ -5458,18 +5460,19 @@
 
   // ---------------------------------------------------------------------------
   // Roads: the network traced from the printed map by tools/extract_roads.py. {nodes: [[x, z]], edges: [[a, b, kind, pts]]}
-  // with kind 0 main road, 1 street, 2 dirt road, 3 foot path. Drawn as a layer; the vehicle route planner will run on it.
+  // with kind 0 main road, 1 street, 2 dirt road, 3 foot path. Roads and foot paths are separate layers; the vehicle
+  // route planner runs on all of it.
   // ---------------------------------------------------------------------------
   const ROAD_STYLE = [{ color: '#ffd43b', weight: 5 }, { color: '#fff3bf', weight: 3.5 }, { color: '#d9a066', weight: 3 }, { color: '#e9ecef', weight: 2, dash: '5 4' }];
   let ROADS = null;
   function loadRoads() {
     fetch('data/roads.json').then(r => r.json()).then(d => {
       ROADS = d;
-      const layer = refLayers.roads;
       // dark casing first so every kind reads on top of any map, then the colours, main roads last (on top)
       const line = (e, w, color, dash) => L.polyline(e[3].map(toLL), { color, weight: w, opacity: 0.95, lineCap: 'round', lineJoin: 'round', dashArray: dash, interactive: false });
-      d.edges.forEach(e => layer.addLayer(line(e, ROAD_STYLE[e[2]].weight + 2, '#11171c')));
-      [3, 2, 1, 0].forEach(k => d.edges.forEach(e => { if (e[2] === k) layer.addLayer(line(e, ROAD_STYLE[k].weight, ROAD_STYLE[k].color, ROAD_STYLE[k].dash)); }));
+      const layerOf = k => (k === 3 ? refLayers.paths : refLayers.roads);
+      d.edges.forEach(e => layerOf(e[2]).addLayer(line(e, ROAD_STYLE[e[2]].weight + 2, '#11171c')));
+      [3, 2, 1, 0].forEach(k => d.edges.forEach(e => { if (e[2] === k) layerOf(k).addLayer(line(e, ROAD_STYLE[k].weight, ROAD_STYLE[k].color, ROAD_STYLE[k].dash)); }));
     }).catch(err => console.error('roads', err));
   }
 

@@ -889,6 +889,8 @@ table.fire tr.best td:last-child { border-radius: 0 5px 5px 0; }
 /* Roads layer */
 .lg-road { width: 18px; height: 14px; position: relative; }
 .lg-road::before { content: ""; position: absolute; left: 0; right: 0; top: 5px; height: 4px; border-radius: 2px; background: #ffd43b; box-shadow: 0 0 0 1.5px #11171c; }
+.lg-path { width: 18px; height: 14px; position: relative; }
+.lg-path::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; border-top: 2px dashed #e9ecef; filter: drop-shadow(0 0 1px #11171c); }
 .lk-line.road-main { border-top: 4px solid #ffd43b; }
 .lk-line.road-street { border-top: 3px solid #fff3bf; }
 .lk-line.road-dirt { border-top: 3px solid #d9a066; }
