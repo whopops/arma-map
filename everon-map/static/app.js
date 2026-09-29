@@ -3805,7 +3805,7 @@
   }
 
   // --- Route planner (vehicle): the quickest drive on the road network, around marked enemies ---------------------
-  // Dijkstra over the roads traced from the printed map (ROADS, tools/extract_roads.py), costed in driving time: each
+  // Dijkstra over the game's own roads (ROADS, tools/import_game_roads.py), costed in driving time: each
   // kind of road has a speed (ROAD_KMH), slopes slow it (driveFactor) and where a marked enemy sees a stretch the time
   // is multiplied like the foot planner does. Start and end are joined to the nearest roads by short off-road legs
   // (no water, nothing steeper than CAR_MAX_GRADE). With off-road allowed, and when there's no road way or the roads
@@ -5530,7 +5530,7 @@
   window.addEventListener('beforeunload', leave);
 
   // ---------------------------------------------------------------------------
-  // Roads: the network traced from the printed map by tools/extract_roads.py. {nodes: [[x, z]], edges: [[a, b, kind, pts]]}
+  // Roads: the game's own road network (tools/import_game_roads.py). {nodes: [[x, z]], edges: [[a, b, kind, pts]]}
   // with kind 0 main road, 1 street, 2 dirt road, 3 foot path. Roads and foot paths are separate layers; the vehicle
   // route planner runs on all of it.
   // ---------------------------------------------------------------------------
