@@ -4,7 +4,7 @@
 
   // ---------------------------------------------------------------------------
   // Coordinates. Game X runs east, game Z runs north, both in metres (0..12800).
-  // Tiles and CRS follow the EnfusionMapMaker convention (1 unit = 1 m, 50 m tile offset).
+  // Tiles and CRS: 1 unit = 1 m, 50 m tile offset.
   // ---------------------------------------------------------------------------
   const OFFSET = 50;
   const SCALE = 12.501;

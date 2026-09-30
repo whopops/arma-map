@@ -473,13 +473,12 @@ layers are empty there. The `MAPS` table at the top of `static/app.js` and `MAPS
 ## Data sources
 
 - POIs (bases, supplies, vehicles, refuel, repair, FIA caches, HQ starts) are extracted from the game
-  via [reforger.recoil.org](https://reforger.recoil.org/everon/) / [EnfusionMapMaker](https://github.com/nickludlam/EnfusionMapMaker)
-- Place names come from [iZurvive](https://www.izurvive.com/reforger_everon/), fitted to game coordinates (typically within ~100 m)
-- Caves and hideouts come from a community Game Master camp-location guide, so they're approximate
+- Place names are fitted to game coordinates (typically within ~100 m)
+- Caves and hideouts are Game Master camp locations, so they're approximate
 - Terrain, trees, buildings, walls and other objects: measured in Arma Reforger Tools (Workbench) with the
   `tools/workbench` add-on and baked into `static/data` by `tools/bake_los.py` (see the top of that file to redo
   it). This is derived from Bohemia Interactive's game data: check their content rules before hosting it publicly.
-- Mortar firing tables: in-game M252 / 2B14 tables from
-  [147888sf/ArmA-Reforger-mortar-calculator](https://github.com/147888sf/ArmA-Reforger-mortar-calculator)
-- Map tiles are fetched from reforger.recoil.org and cached locally. If you host this publicly, consider
-  pre-caching or self-hosting tiles instead of relying on their server.
+- Mortar ballistics: elevation and flight time come from our own model of the game's shell physics, checked
+  against live in-game firing. The in-game M252 / 2B14 tables are only used to decide which charge rings reach.
+- Everon map tiles are still fetched from an outside tile server and cached locally (see `TILE_UPSTREAM` in
+  `server.py`). Kolguyev and Arland tiles are baked into `static/data/maps`.
