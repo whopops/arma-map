@@ -350,7 +350,7 @@ under **Map layers → Line-of-sight detail**:
   scales it; if trees block less in game than on the map, lower it. Yellow and the thresholds are Visual's. The measured
   caveats show under the switch: Ultra draw distance at 2560x1440 and a 40° lens, and thin leaf edges count as fully
   blocking, so it probably overstates what a player sees. It needs the map's plants (position, ground height, scale, kind)
-  in `static/data/plants/`, which only Everon has so far; on Kolguyev and Arland the button is greyed out.
+  (Everon's are in `static/data/plants/`, the other maps' in `static/data/maps/<map>/plants/`).
 - **Light** (the default on phones and tablets): 10 m squares, under 4 MB for the whole island, instant. Every
   tree and bush from Visual is averaged into each square at seven heights (`tools/bake_light_foliage.py`), so woods
   thin the view the further it runs through them, faster in thick undergrowth and dense crowns, and at the height
@@ -411,9 +411,9 @@ Each map has its own satellite picture, roads, terrain and line-of-sight data. W
 | Plants / profiles | `static/data/plants/`, `static/data/maps/everon/foliage/` | `static/data/maps/<map>/foliage/foliage_profiles.json` |
 
 `tools/import_map_data.py` copies a map's baked data in from `reforger-map-tools`. What doesn't exist yet for Kolguyev and
-Arland: towns, landmarks, Conflict bases, caves, supplies, buildings and place names (those layers are empty),
-per-plant tree files (Visual and Measured are greyed out) and the foliage and clutter bands Light uses (Light has bare
-terrain and buildings only). The `MAPS` table at the top of `static/app.js` and `MAPS` in `server.py` list the maps.
+Arland: Conflict bases, caves, supplies, vehicle spawns and FIA caches (those layers are empty; towns and landmarks come
+from the game's map descriptors, `places.json`). Their trees (`plants/` and `foliage.json`, per-plant position, ground
+height, scale and kind) are baked, so all four line-of-sight options work there. The `MAPS` table at the top of `static/app.js` and `MAPS` in `server.py` list the maps.
 
 ## Multiplayer
 - Everyone enters a username and a **room code** each visit; nothing is remembered in the browser. Only people who use the

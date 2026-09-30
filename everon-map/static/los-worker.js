@@ -65,7 +65,7 @@ async function loadFoliage() {
   const r = await fetch(CFG.visual.foliage, { cache: 'no-cache' });
   if (!r.ok) throw new Error(`foliage ${r.status}`);
   const f = await r.json();
-  foliage = { bins: f.bins, margin: f.margin, tiles: new Set(f.tiles), dir: CFG.visual.plants,
+  foliage = { bins: f.bins, margin: f.margin, tiles: new Set(f.tiles), dir: CFG.visual.plants, unit: f.baseUnit || 0.01,
     // per 0.5 m step instead of per metre
     plants: f.plants.map(p => ({ h: p.h, hw: p.hw, k: p.k.map(k => k * STEP), reach: Math.max(...p.hw) })) };
 }
@@ -78,8 +78,10 @@ async function loadProfiles() {
   if (!rp.ok) throw new Error(`profiles ${rp.status}`);
   if (!rl.ok) throw new Error(`plant list ${rl.status}`);
   const raw = await rp.json(), list = await rl.json();
-  profiles = list.kinds.map(prefab => (raw[prefab] ? buildProfile(raw[prefab]) : null));
-  plantSrc = { margin: list.margin, tiles: new Set(list.tiles), dir: list.dir || CFG.profiles.dir, reach: profiles.map(p => (p ? p.reach : 0)) };
+  // Everon's plants.json says `kinds`; a map's own foliage.json says `prefabs`. baseUnit: metres per step of the ground height.
+  profiles = (list.kinds || list.prefabs).map(prefab => (raw[prefab] ? buildProfile(raw[prefab]) : null));
+  plantSrc = { margin: list.margin, tiles: new Set(list.tiles), dir: list.dir || CFG.profiles.dir, unit: list.baseUnit || 0.01,
+    reach: profiles.map(p => (p ? p.reach : 0)) };
 }
 
 // One kind's slices as arrays: for each measured distance the cover of every 0.25 m slice, and the slice's half-width.
@@ -148,7 +150,7 @@ async function loadPlants(name, model) {
       const x = new Float32Array(n), z = new Float32Array(n), base = new Float32Array(n), scale = new Float32Array(n);
       const span = [];
       for (let i = 0; i < n; i++) {
-        x[i] = rx[i] / 100 - M; z[i] = rz[i] / 100 - M; base[i] = rb[i] / 100; scale[i] = rs[i] / 100;
+        x[i] = rx[i] / 100 - M; z[i] = rz[i] / 100 - M; base[i] = rb[i] * src.unit; scale[i] = rs[i] / 100;
         const R = (model === 'profiles' ? src.reach[kind[i]] : src.plants[kind[i]].reach) * scale[i];
         span.push([Math.max(0, Math.floor((x[i] - R) / BUCKET)), Math.min(NB - 1, Math.floor((x[i] + R) / BUCKET)),
           Math.max(0, Math.floor((z[i] - R) / BUCKET)), Math.min(NB - 1, Math.floor((z[i] + R) / BUCKET))]);

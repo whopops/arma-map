@@ -16,9 +16,9 @@
     everon: { id: 'everon', name: 'Everon', size: 12800, legacy: true, tiles: '/tiles/{z}/{x}/{y}.jpg',
       foliage: 'data/maps/everon/foliage/foliage_profiles.json', plants: 'data/maps/everon/foliage/plants.json' },
     kolguyev: { id: 'kolguyev', name: 'Kolguyev', size: 12800, dir: 'data/maps/kolguyev', tiles: '/maptiles/kolguyev/{z}/{x}/{y}.jpg',
-      foliage: 'data/maps/kolguyev/foliage/foliage_profiles.json', plants: null },
+      foliage: 'data/maps/kolguyev/foliage/foliage_profiles.json', plants: 'data/maps/kolguyev/foliage.json', plantsDir: 'data/maps/kolguyev/plants' },
     arland: { id: 'arland', name: 'Arland', size: 4096, dir: 'data/maps/arland', tiles: '/maptiles/arland/{z}/{x}/{y}.jpg',
-      foliage: 'data/maps/arland/foliage/foliage_profiles.json', plants: null },
+      foliage: 'data/maps/arland/foliage/foliage_profiles.json', plants: 'data/maps/arland/foliage.json', plantsDir: 'data/maps/arland/plants' },
   };
   let MAP = MAPS.everon;
   let WORLD = MAP.size;
@@ -2655,7 +2655,7 @@
   // Visual needs Everon's own plant files; Measured needs a plant list for the map (MAP.plants), so on a map whose
   // trees haven't been baked yet only Full and Light are offered.
   const WORKER_MODES = ['full', 'visual', 'profiles'];
-  const modeAvailable = m => m === 'light' || (fullSupported() && (m === 'full' || (m === 'visual' && MAP.legacy) || (m === 'profiles' && !!MAP.plants)));
+  const modeAvailable = m => m === 'light' || (fullSupported() && (m === 'full' || m === 'visual' || (m === 'profiles' && !!MAP.plants)));
   function defaultLosMode() {
     const weak = (navigator.deviceMemory && navigator.deviceMemory < 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4)
       || matchMedia('(pointer: coarse)').matches; // phones and tablets
@@ -2674,7 +2674,7 @@
   // What the worker needs to find this map's files.
   const workerCfg = () => ({
     size: WORLD, losDir: mapLosDir(),
-    visual: MAP.legacy ? { foliage: 'data/foliage.json', plants: 'data/plants' } : null,
+    visual: MAP.legacy ? { foliage: 'data/foliage.json', plants: 'data/plants' } : { foliage: `${MAP.dir}/foliage.json`, plants: `${MAP.dir}/plants` },
     profiles: MAP.plants ? { json: MAP.foliage, plants: MAP.plants, dir: MAP.plantsDir || 'data/plants' } : null,
   });
   function losGrid(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
@@ -2727,7 +2727,7 @@
       b.classList.toggle('sel', on);
       b.setAttribute('aria-checked', on);
       b.disabled = !modeAvailable(b.dataset.losMode);
-      b.title = b.disabled && WORKER_MODES.includes(b.dataset.losMode) && fullSupported() ? `${b.dataset.losMode === 'profiles' ? 'Measured' : 'Visual'} needs this map's trees, which haven't been baked yet` : b.title;
+      b.title = b.disabled && WORKER_MODES.includes(b.dataset.losMode) && fullSupported() ? `${b.dataset.losMode === 'profiles' ? 'Measured' : 'Visual'} needs a browser that can run it in the background` : b.title;
     });
     const measured = state.losMode === 'profiles';
     $('#los-strength').classList.toggle('hidden', !measured);
@@ -2737,7 +2737,7 @@
       : state.losMode === 'full' ? '0.5 m detail from the game.'
       : state.losMode === 'visual' ? 'On trial: plants as see-through as in game.'
       : measured ? 'On trial: each plant blocks by what was measured from game pictures.'
-      : MAP.legacy ? '10 m. Quick, for phones.' : '10 m. Quick, for phones. Trees are not in this map’s light data yet.';
+      : '10 m. Quick, for phones.';
   }
   $('#los-detail').addEventListener('click', e => {
     const b = e.target.closest('[data-los-mode]');
@@ -5640,7 +5640,9 @@
     if (MAP !== def || !tileLayer) { MAP = def; showMapBase(); }
     if (!modeAvailable(state.losMode)) state.losMode = defaultLosMode();
     renderLosDetail();
-    (def.legacy ? fetch('data/everon.json').then(r => r.json()) : Promise.resolve(emptyReference()))
+    // Everon: the full reference file. Another map: its town and landmark names, from the game's map descriptors.
+    (def.legacy ? fetch('data/everon.json').then(r => r.json())
+      : fetch(`${def.dir}/places.json`).then(r => r.json()).then(p => ({ ...emptyReference(), towns: p.towns || [], landmarks: p.landmarks || [] })).catch(() => emptyReference()))
       .then(d => { buildReference(d); refreshFia(); loadRoads(); })
       .catch(err => { console.error(err); toast('Could not load reference data.', 6000); });
     // the line-of-sight index says how big the 10 m grids are, so it comes first
@@ -5671,7 +5673,7 @@
   }
   function loadLight(def) {
     // Trees and buildings: line of sight worked out before they arrived is redone with them.
-    Promise.all((def.legacy ? ['forest', 'canopy', 'buildings', 'foliage', 'clutter'] : ['forest', 'canopy', 'buildings']).map(lightBin))
+    Promise.all(['forest', 'canopy', 'buildings', 'foliage', 'clutter'].map(lightBin))
       .then(([forest, canopy, buildings, foliage, clutter]) => {
         FOREST = new Uint8Array(forest); CANOPY = new Uint8Array(canopy); BUILDINGS = new Uint8Array(buildings);
         if (foliage) {

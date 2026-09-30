@@ -30,9 +30,12 @@ SLUGS = {'everon': 'eden-853e92', 'kolguyev': 'cain-1ea95d', 'arland': 'arland-a
 
 
 def copy_tree(src, dst):
-    if os.path.isdir(dst):
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst)
+    # only what changed: a file of the same size already there is left alone (so a re-run doesn't recopy the tiles)
+    def keep_new(s, d):
+        if os.path.isfile(d) and os.path.getsize(d) == os.path.getsize(s):
+            return d
+        return shutil.copy2(s, d)
+    shutil.copytree(src, dst, copy_function=keep_new, dirs_exist_ok=True)
     files = [os.path.join(r, f) for r, _, fs in os.walk(dst) for f in fs]
     print(f'  {os.path.relpath(dst, DATA)}: {len(files)} files, {sum(os.path.getsize(f) for f in files) / 1e6:.1f} MB')
 
@@ -75,6 +78,9 @@ def main():
             everon_plants_json(os.path.join(out, 'foliage', 'plants.json'))
             continue
         copy_file(os.path.join(site, 'roads.json'), os.path.join(out, 'roads.json'))
+        copy_file(os.path.join(site, 'places.json'), os.path.join(out, 'places.json'))
+        copy_file(os.path.join(site, 'foliage.json'), os.path.join(out, 'foliage.json'))  # plant kinds, tiles, units
+        copy_tree(os.path.join(site, 'plants'), os.path.join(out, 'plants'))
         copy_tree(os.path.join(site, 'los'), os.path.join(out, 'los'))
         copy_tree(os.path.join(site, 'light'), os.path.join(out, 'light'))
         copy_tree(os.path.join(site, 'tiles'), os.path.join(out, 'tiles'))
