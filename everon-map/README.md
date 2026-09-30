@@ -174,8 +174,9 @@ Esc, double-click or right-click finishes.
   which rings reach. A crosswind is aimed off on the azimuth. Enter the wind in the Mortar panel as the in-game map shows
   it (m/s, and the direction it blows from; live fire confirmed the map shows where the wind comes from); it is saved on
   your mortar, so anyone showing its solutions gets the same numbers. "Show sound ranges" (the Mortar panel, or any
-  mortar's popup) draws how far every mortar's firing is heard (2 km) and, around each target, how far its rounds landing
-  are heard (HE 2 km, practice 1.7 km, smoke 200 m, illumination 1.1 km).
+  mortar's popup) draws how far every mortar's firing is heard (330 m in a breeze) and, around each target, how far its
+  rounds landing are heard (HE 475 m, smoke 150 m in a breeze). These are where the sound drops below the background
+  noise; pick Still, Breeze, Windy or Storm beside the toggle (see "Who can hear it" for how they're worked out).
   To correct fire, drag a target: its label shows the new solution as you drag, and dropping it saves the move for
   everyone. The mortar's owner and anyone showing its solutions can drag its targets.
   Each target also shows where the rounds will land, the same way as a fire support pin: with an HE shell, a shaded
@@ -243,10 +244,18 @@ Esc, double-click or right-click finishes.
   The sights heights are the real vehicles' overall heights (2.32, 2.31 and 2.69 m); where the hull ends and the turret
   begins is estimated, since the game's own numbers aren't published. Change `HULL` in `static/app.js` to tune them.
   Ground height and slope come from the game's 1 m terrain once its tiles have loaded (the 10 m heights until then).
-- Who can hear it (P then 0): pick the weapon and click where the shooting is. A dashed purple circle shows how far away
-  the game plays that shot, from its sound files: rifles, light MGs, pistols and grenade launchers 3.3 km, suppressed
-  rifles 3.7 km (still supersonic), 7.62 MGs and rifles 3.9 km, heavy MGs and cannons (M2, NSV, KPVT on the BTR-70 and
-  BRDM-2, M242 on the LAV-25) and RPG / LAW 4.8 km, mortars 2 km. It is faint near the edge; hills and wind aren't counted.
+- Who can hear it (P then 0): pick the weapon and the background noise, and click where the shooting is. A dashed
+  purple circle shows how far away the muzzle blast (not the bullet's supersonic crack) stays above the background noise.
+  The game plays a shot out to 3.3-4.8 km, but the wind and ambience drown it long before that, so the range is worked
+  out from the game's own sound files: each gun's loudness at the muzzle (Amplitude configs: rifle -15.5 LUFS, 7.62 MG
+  -13.5, heavy MG / launcher -9; a suppressor about 5 dB less), falling 6 dB per doubling of distance with air absorption,
+  against the ambient wind and bed recordings (all mastered to -30 LUFS, played through the wind bus at -10 dB, so -40
+  LUFS at full wind). The shot counts as heard while its loudest 50 ms is above the noise in any third-octave band. In
+  a breeze (-50 LUFS): rifles, pistols and grenade launchers 555 m, suppressed rifles 310 m, 7.62 MGs 695 m, heavy MGs
+  and RPG / LAW 1.15 km, mortars 330 m. Still air (-55) reaches about 1.8x as far, a storm (-40) about a third. The
+  game's own AI hears a normal shot to 500 m and a suppressed one to 100 m, the same order. Hills, trees and buildings
+  aren't counted, and the loudness steps are estimates: check them against what you hear in game. The scripts are in
+  `reforger-map-tools/audible`.
 - Overwatch finder: pick how far out to look (400 m, 800 m or 1.5 km) and click an objective. Ground from which a
   crouched observer can see a standing soldier on the objective is tinted in your colour (yellow if only through
   trees); ground that can't see it is left unshaded. The popup gives the share of ground with a clear view, the

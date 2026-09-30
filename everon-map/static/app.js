@@ -2399,7 +2399,7 @@
     }
     if (alt != null) html += `<div class="sub">Altitude ${Math.round(alt)} m</div>`;
     if (lim) html += `<div class="sub">Reach ${fmtDist(lim.min)} – ${fmtDist(lim.max)}</div>`;
-    html += `<div class="sub">Heard firing ${fmtDist(GUNS.mortar.range)} away · its ${esc(m.shell)} rounds landing ${fmtDist(impactHeard(m.shell))}</div>` +
+    html += `<div class="sub">Heard firing ${fmtDist(GUNS.mortar.range)} away · its ${esc(m.shell)} rounds landing ${fmtDist(impactHeard(m.shell))} (${esc(NOISE.find(n => n[0] === state.noise)[1].toLowerCase())} background)</div>` +
       `<div class="row"><button data-act="hear-mortar" aria-pressed="${state.hearMortar}">${state.hearMortar ? 'Hide' : 'Show'} sound ranges on the map</button></div>`;
     const reqs = allVisibleItems(isFireReq);
     if (reqs.length && TABLES) {
@@ -2611,9 +2611,9 @@
   $('#mortar-wind-d').addEventListener('change', onWindChange);
   // Sound: how far every mortar's firing is heard (2 km) and how far its rounds landing are heard, around each target.
   // Only on this screen, remembered in this browser; switched from the Mortar panel or any mortar's popup.
-  // Impacts, from the shells' sound files (Sounds/Weapons/Ammo/MortarShells): HE 2 km, practice 1.7 km, smoke 200 m;
-  // illumination: the flare, 1.1 km (Sounds/Ammo/Flares).
-  const impactHeard = shell => (/^HE/.test(shell) ? 2000 : /^Practice/.test(shell) ? 1700 : /^Smoke/.test(shell) ? 200 : 1100);
+  // Impacts: the shells' own loudness (Sounds/Weapons/Ammo/MortarShells: HE and practice 65, smoke 20 on the slope scale
+  // a rifle shot's 76 sits on), against the background noise chosen under Sound (see REACH_M).
+  const impactHeard = shell => heardAt(/^HE/.test(shell) ? 'he' : /^Practice/.test(shell) ? 'practice' : /^Smoke/.test(shell) ? 'smoke' : 'illum');
   const HEAR_KEY = 'everon-map-mortar-hear';
   state.hearMortar = (() => { try { return localStorage.getItem(HEAR_KEY) === '1'; } catch { return false; } })();
   function setHearMortar(on) {
@@ -3158,20 +3158,53 @@
   }
 
   // Option picker under the toolbar for the Plan tools; keys 1-4 pick too.
-  // Who can hear it: how far the game plays a weapon's shot. From the game's sound files (Sounds/Weapons/.../*_Shot.acp): each
-  // shot's loudest layer uses a shared volume setting whose outer range is where the engine stops playing it (the volume falls
-  // off as 1/distance until then). Beyond it nobody hears the shot.
-  const GUNS = {
-    rifle: { name: 'Rifle or light MG', range: 3300, of: 'M16A2, AK-74, AKS-74U, M249, RPK-74 (5.56 / 5.45 mm)' },
-    'rifle-s': { name: 'Suppressed rifle', range: 3700, of: 'M16A2, AK-74, AKS-74U with a suppressor',
-      note: 'The suppressor changes how the shot sounds, not how far the game carries it: the bullet is still supersonic, and its sound setting reaches 3.7 km.' },
-    mg: { name: '7.62 MG or rifle', range: 3900, of: 'PKM, PKT, M60, M240, UK-59, SVD, M21, vz. 58' },
-    hmg: { name: 'Heavy MG or cannon', range: 4800, of: 'M2 .50 cal and NSV on tripods, KPVT (BTR-70, BRDM-2), M242 25 mm (LAV-25)' },
-    launcher: { name: 'RPG or LAW', range: 4800, of: 'RPG-7, M72 LAW' },
-    gl: { name: 'Grenade launcher', range: 3300, of: 'M203, GP-25' },
-    pistol: { name: 'Pistol', range: 3300, of: 'M9, PM' },
-    mortar: { name: 'Mortar', range: 2000, of: 'M252, 2B14 firing (their HE rounds landing also carry 2 km)' },
+  // Who can hear it: how far away a shot (the muzzle blast, not the supersonic crack) stands out above the background noise.
+  // The game only plays a shot out to the outer range of its sound setting (3.3 to 4.8 km), but long before that the shot is
+  // quieter than the wind and ambience. So the range is worked out the way the game mixes it, from its own sound files:
+  //  - the shot starts at the loudness its sound setting names (Sounds/_SharedData/Configs/Amplitude: rifle -15.5 LUFS, 7.62 MG
+  //    -13.5, heavy -9; suppressed, mortar and impacts in proportion to their slope factor) and falls 6 dB per doubling of
+  //    distance, less air absorption on the high tones;
+  //  - the background is the game's wind and ambience beds (mastered to -30 LUFS, played through the -10 dB wind bus), so -40
+  //    LUFS at full wind, quieter as it calms;
+  //  - the shot is heard while its loudest 50 ms is above the noise in any third-octave band (Far and Mid blast layers).
+  // REACH_M is that worked out for four noise levels (reforger-map-tools/audible). The game's own AI hears a
+  // normal shot out to 500 m and a suppressed one to 100 m (SCR_AIDangerReaction_WeaponFired), which sits in the same range.
+  const NOISE = [['still', 'Still'], ['breeze', 'Breeze'], ['windy', 'Windy'], ['storm', 'Storm']];
+  const NOISE_LUFS = { still: -55, breeze: -50, windy: -45, storm: -40 };
+  const REACH_M = { // metres, per background noise
+    rifle: { still: 975, breeze: 555, windy: 315, storm: 175 },
+    'rifle-s': { still: 545, breeze: 310, windy: 175, storm: 100 },
+    mg: { still: 1215, breeze: 695, windy: 395, storm: 225 },
+    hmg: { still: 1995, breeze: 1150, windy: 655, storm: 370 },
+    mortar: { still: 585, breeze: 330, windy: 185, storm: 105 },
+    he: { still: 835, breeze: 475, windy: 270, storm: 150 },
+    smoke: { still: 260, breeze: 150, windy: 85, storm: 45 },
+    illum: { still: 645, breeze: 365, windy: 205, storm: 115 },
   };
+  REACH_M.launcher = REACH_M.hmg; REACH_M.gl = REACH_M.pistol = REACH_M.rifle; REACH_M.practice = REACH_M.he;
+  const NOISE_KEY = 'everon-map-noise';
+  state.noise = (() => { try { const v = localStorage.getItem(NOISE_KEY); return NOISE_LUFS[v] ? v : 'breeze'; } catch { return 'breeze'; } })();
+  const heardAt = key => REACH_M[key][state.noise];
+  const GUNS = {
+    rifle: { name: 'Rifle or light MG', get range() { return heardAt('rifle'); }, of: 'M16A2, AK-74, AKS-74U, M249, RPK-74 (5.56 / 5.45 mm)' },
+    'rifle-s': { name: 'Suppressed rifle', get range() { return heardAt('rifle-s'); }, of: 'M16A2, AK-74, AKS-74U with a suppressor',
+      note: 'A suppressor takes about 5 dB off the muzzle blast in the game. The supersonic crack of the bullet is not counted here.' },
+    mg: { name: '7.62 MG or rifle', get range() { return heardAt('mg'); }, of: 'PKM, PKT, M60, M240, UK-59, SVD, M21, vz. 58' },
+    hmg: { name: 'Heavy MG or cannon', get range() { return heardAt('hmg'); }, of: 'M2 .50 cal and NSV on tripods, KPVT (BTR-70, BRDM-2), M242 25 mm (LAV-25)' },
+    launcher: { name: 'RPG or LAW', get range() { return heardAt('launcher'); }, of: 'RPG-7, M72 LAW' },
+    gl: { name: 'Grenade launcher', get range() { return heardAt('gl'); }, of: 'M203, GP-25' },
+    pistol: { name: 'Pistol', get range() { return heardAt('pistol'); }, of: 'M9, PM' },
+    mortar: { name: 'Mortar', get range() { return heardAt('mortar'); }, of: 'M252, 2B14 firing' },
+  };
+  function setNoise(v) {
+    if (!NOISE_LUFS[v]) return;
+    state.noise = v;
+    try { localStorage.setItem(NOISE_KEY, v); } catch { /* storage unavailable */ }
+    const sel = $('#mortar-noise'); if (sel) sel.value = v;
+    state.players.forEach(p => p.items.forEach(it => { if (it.type === 'mortar' || it.type === 'audible') renderItem(p, it); }));
+  }
+  $('#mortar-noise').value = state.noise;
+  $('#mortar-noise').addEventListener('change', e => setNoise(e.target.value));
   const REACH = [[400, '400 m'], [800, '800 m'], [1500, '1.5 km']];
   const HELI_ALTS = [[30, '30 m'], [100, '100 m'], [200, '200 m']];
   const EYES = [[0.5, 'Prone'], [1, 'Crouched'], [1.6, 'Standing'], [2.2, 'Vehicle']]; // eye height above the ground, m
@@ -3194,7 +3227,8 @@
     infantry: [{ label: 'I am', key: 'posUnit', options: [['inf', 'Infantry'], ['arm', 'Armour']] },
       { label: 'My range card', key: 'posRange', options: [[0, 'Off'], ...REACH] }],
     overwatch: { label: 'Overwatch · look out to', key: 'owRange', options: REACH },
-    audible: { label: 'Weapon', key: 'hearGun', options: Object.entries(GUNS).map(([k, g]) => [k, g.name]) },
+    audible: [{ label: 'Weapon', key: 'hearGun', options: Object.entries(GUNS).map(([k, g]) => [k, g.name]) },
+      { label: 'Background noise', key: 'noise', options: NOISE }],
     hulldown: [{ label: 'Enemy', key: 'hdFoe', options: [['s', 'Soldier'], ['v', 'Vehicle']] },
       { label: 'My vehicle', key: 'hdVeh', options: [['btr70', 'BTR-70'], ['brdm2', 'BRDM-2'], ['lav25', 'LAV-25']] },
       { label: 'Look out to', key: 'hdRange', options: REACH }],
@@ -3247,6 +3281,7 @@
       .join('<span class="mp-sep" aria-hidden="true"></span>') + `<span class="mp-hint">${pickerHint()}</span>`;
   }
   function setPickerValue(pk, v) {
+    if (pk.key === 'noise') return setNoise(v), renderPicker();
     state[pk.key] = v;
     if (pk.key === 'routeMode') cancelCoverDraft();
     if (pk.key === 'heliAlt') { // AA coverage is worked out for the helicopter's height
@@ -5168,7 +5203,8 @@
     return `<div class="stats"><div><span class="k">Weapon</span><span class="v">${esc(g.name)}</span></div>` +
       `<div><span class="k">Heard out to</span><span class="v">${fmtDist(g.range)}</span></div></div>` +
       `<p class="sub">${esc(g.of)}.</p>` + (g.note ? `<p class="sub">${esc(g.note)}</p>` : '') +
-      `<p class="sub">The farthest the game plays the shot, from its sound files. It is faint near the edge, and wind, hills and buildings are not counted.</p>`;
+      `<p class="sub">Where the muzzle blast drops below the ${esc(NOISE.find(n => n[0] === state.noise)[1].toLowerCase())} background noise (${NOISE_LUFS[state.noise]} LUFS), worked out from the game's sound files. ` +
+      `Quieter wind hears farther: ${NOISE.map(([k, n]) => `${n.toLowerCase()} ${fmtDist(REACH_M[it.gun in REACH_M ? it.gun : 'rifle'][k])}`).join(', ')}. Hills, trees and buildings are not counted, and the bullet's own crack is not.</p>`;
   }
 
   // Popup details for the planning and hazard markings
