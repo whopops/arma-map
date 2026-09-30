@@ -8,7 +8,21 @@
   // ---------------------------------------------------------------------------
   const OFFSET = 50;
   const SCALE = 12.501;
-  const WORLD = 12800;
+  // The maps a room can be opened on (the server keeps the same list). size: the world's side in metres. Everon's data
+  // sits where it always did; the others' lives in data/maps/<id>/ (roads.json, light/, los/, foliage/, tiles/), as baked
+  // by reforger-map-tools. plants: this map's plant list for the measured-profiles line of sight, when its trees have
+  // been baked.
+  const MAPS = {
+    everon: { id: 'everon', name: 'Everon', size: 12800, legacy: true, tiles: '/tiles/{z}/{x}/{y}.jpg',
+      foliage: 'data/maps/everon/foliage/foliage_profiles.json', plants: 'data/maps/everon/foliage/plants.json' },
+    kolguyev: { id: 'kolguyev', name: 'Kolguyev', size: 12800, dir: 'data/maps/kolguyev', tiles: '/maptiles/kolguyev/{z}/{x}/{y}.jpg',
+      foliage: 'data/maps/kolguyev/foliage/foliage_profiles.json', plants: null },
+    arland: { id: 'arland', name: 'Arland', size: 4096, dir: 'data/maps/arland', tiles: '/maptiles/arland/{z}/{x}/{y}.jpg',
+      foliage: 'data/maps/arland/foliage/foliage_profiles.json', plants: null },
+  };
+  let MAP = MAPS.everon;
+  let WORLD = MAP.size;
+  const mapLosDir = () => (MAP.legacy ? 'data/los' : `${MAP.dir}/los`);
   const CRS = L.Util.extend({}, L.CRS, {
     projection: L.Projection.LonLat,
     transformation: new L.Transformation(1 / SCALE, 0, -1 / SCALE, 0),
@@ -38,7 +52,7 @@
   // ---------------------------------------------------------------------------
   // Map
   // ---------------------------------------------------------------------------
-  const worldBounds = L.latLngBounds(toLL([0, 0]), toLL([WORLD, WORLD]));
+  let worldBounds = L.latLngBounds(toLL([0, 0]), toLL([WORLD, WORLD]));
   const map = L.map('map', {
     crs: CRS,
     center: toLL([6400, 6400]),
@@ -56,15 +70,31 @@
   L.control.zoom({ position: 'bottomright' }).addTo(map);
 
   const BLANK_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-  const EveronTiles = L.TileLayer.extend({
+  const MapTiles = L.TileLayer.extend({
     getTileUrl(c) {
-      // the 50 m offset makes Leaflet ask for a column just past the last tile at some zooms: nothing is there
+      // the 50 m offset makes Leaflet ask for a column just past the last tile at some zooms: nothing is there. The
+      // range is Everon's and Kolguyev's; a smaller map simply has no file for the rest (the server answers 404).
       const z = 5 - c.z, n = 2 ** (7 - z), y = -(c.y + 1);
       if (c.x < 0 || y < 0 || c.x >= n || y >= n) return BLANK_TILE;
-      return `/tiles/${z}/${c.x}/${y}.jpg`;
+      return MAP.tiles.replace('{z}', z).replace('{x}', c.x).replace('{y}', y);
     },
   });
-  new EveronTiles('', { minZoom: -1, maxZoom: 7, minNativeZoom: 0, maxNativeZoom: 5, bounds: worldBounds, keepBuffer: 3 }).addTo(map);
+  let tileLayer = null;
+  // The satellite picture, the map's edges and the view for the map in MAP; the join screen shows Everon until a room's
+  // own map is known. Every layer's `bounds` option is read when a tile is asked for, so they are updated here.
+  function showMapBase() {
+    WORLD = MAP.size;
+    worldBounds = L.latLngBounds(toLL([0, 0]), toLL([WORLD, WORLD]));
+    if (tileLayer) tileLayer.remove();
+    tileLayer = new MapTiles('', { minZoom: -1, maxZoom: 7, minNativeZoom: 0, maxNativeZoom: 5, bounds: worldBounds, keepBuffer: 3, errorTileUrl: BLANK_TILE }).addTo(map);
+    tileLayer.bringToBack();
+    map.setMaxBounds(worldBounds.pad(0.25));
+    // Everon opens at zoom 0; a smaller map opens zoomed in far enough to fill the window.
+    map.invalidateSize({ animate: false });
+    const size = map.getSize(), fit = size.x && size.y ? Math.log2(Math.min(size.x, size.y) / (WORLD / SCALE)) : 0;
+    map.setView(toLL([WORLD / 2, WORLD / 2]), Math.min(3, Math.max(0, Math.round(fit * 2) / 2)), { animate: false });
+    [gridLayer, contourLayer, hillshadeLayer, forestLayer, lzShadeLayer].forEach(l => { l.options.bounds = worldBounds; });
+  }
 
   const GridOverlay = L.GridLayer.extend({
     createTile(coords) {
@@ -210,14 +240,14 @@
   const forestLayer = new ForestLayer({ bounds: worldBounds, zIndex: 4, minZoom: -1, maxZoom: 7 });
 
   // Helicopter landing suitability at every 10 m cell, baked by tools/bake_los.py from the game's own terrain and
-  // objects with the same rules as the landing zone check (everon-lz.bin: 0 water, 1 good, 2 marginal, 3 no-go).
+  // objects with the same rules as the landing zone check (the lz grid: 0 water, 1 good, 2 marginal, 3 no-go).
   // It leaves out the approach directions, which are too slow to check everywhere; hover or drop an LZ for those.
   // Loaded the first time the shading is shown.
   let LZ_GRID = null, lzGridLoading = false;
   function lzGrid() {
     if (LZ_GRID || lzGridLoading) return LZ_GRID;
     lzGridLoading = true;
-    lightBin('everon-lz.bin')
+    lightBin('lz')
       .then(buf => { LZ_GRID = new Uint8Array(buf); lzShadeLayer.redraw(); })
       .catch(err => { lzGridLoading = false; console.error('Landing grid not loaded', err); });
     return null;
@@ -1958,7 +1988,8 @@
   // ---------------------------------------------------------------------------
   // Mortar: terrain heights + in-game firing tables
   // ---------------------------------------------------------------------------
-  const HN = 1280, HCELL = 10;   // 1280 x 1280 grid, 10 m cells, row 0 = south edge
+  let HN = 1280;                 // cells per side of the 10 m grids (1280 on the old Everon files, 1300 on the new ones)
+  const HCELL = 10;              // metres per cell, row 0 = south edge
   let HEIGHT = null;             // Int16Array of decimetres
   let TABLES = null;             // {weapons: {M252: {label, milsPerCircle, shells: {name: {ring: {dispersion, table}}}}}}
   state.mortarWeapon = 'M252';
@@ -1981,13 +2012,21 @@
   // measured by the game engine - fetched here when first needed and kept. Until a tile arrives the 10 m heights
   // stand in, and the mortar and landing zones redo themselves when it lands.
   const SEA = 'sea';
-  let detailIndex = null, detailV = 0;
+  let detailIndex = null, detailV = 0, TERRAIN_UNIT = 0.01; // metres per step of a tile's terrain values
   const detailTiles = new Map(), detailLoading = new Set();
   let detailRedraw = 0;
-  if (typeof DecompressionStream !== 'undefined') {
-    fetch('data/los/index.json', { cache: 'no-cache' }).then(r => r.json())
-      .then(ix => { detailIndex = new Set(ix.tiles); detailV = ix.version; afterDetail(); })
-      .catch(err => console.error('Detail tiles not available', err));
+  // The map's line-of-sight index: which 500 m tiles exist, the version that busts the browser's cache, and the units.
+  // Resolves to the index (or null) once read, so the 10 m grids can take their size from it.
+  function loadDetailIndex() {
+    if (typeof DecompressionStream === 'undefined') return Promise.resolve(null);
+    return fetch(`${mapLosDir()}/index.json`, { cache: 'no-cache' }).then(r => r.json())
+      .then(ix => {
+        detailIndex = new Set(ix.tiles); detailV = ix.version;
+        TERRAIN_UNIT = (ix.terrain && ix.terrain.unit) || 0.01;
+        afterDetail();
+        return ix;
+      })
+      .catch(err => { console.error('Detail tiles not available', err); return null; });
   }
   // A tile (or SEA for open water), or undefined while it loads or when there's no detail to be had.
   function detailTile(x, z) {
@@ -1997,7 +2036,7 @@
     if (!detailIndex.has(name)) return SEA;
     if (!detailLoading.has(name)) {
       detailLoading.add(name);
-      fetch(`data/los/${name}.bin.gz?v=${detailV}`)
+      fetch(`${mapLosDir()}/${name}.bin.gz?v=${detailV}`)
         .then(r => { if (!r.ok) throw new Error(r.status); return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer(); })
         .then(buf => {
           const o = 501 * 501 * 2, n = 1000 * 1000;
@@ -2027,7 +2066,7 @@
     const lx = Math.min(Math.max(x - t.x0, 0), 499.999), lz = Math.min(Math.max(z - t.z0, 0), 499.999);
     const c = Math.floor(lx), r = Math.floor(lz), fx = lx - c, fz = lz - r, T = t.ter;
     const a = T[r * 501 + c], b = T[r * 501 + c + 1], d = T[(r + 1) * 501 + c], e = T[(r + 1) * 501 + c + 1];
-    return ((a + (b - a) * fx) * (1 - fz) + (d + (e - d) * fx) * fz) / 100;
+    return ((a + (b - a) * fx) * (1 - fz) + (d + (e - d) * fx) * fz) * TERRAIN_UNIT;
   }
   // What stands on the 0.5 m spot: {kind: 1 building, 2 wall/rock/pole/prop, 3 tree, 4 see-through fence, 5 bush, top: m}.
   function objectAt([x, z]) {
@@ -2613,23 +2652,38 @@
   const fullCache = new Map(), fullWanted = new Map(); // key -> result, key -> request id
   let losWorker = null, fullSeq = 0, fullRedraw = 0, fullError = null;
   const fullSupported = () => typeof Worker !== 'undefined' && typeof DecompressionStream !== 'undefined';
-  const WORKER_MODES = ['full', 'visual'];
+  // Visual needs Everon's own plant files; Measured needs a plant list for the map (MAP.plants), so on a map whose
+  // trees haven't been baked yet only Full and Light are offered.
+  const WORKER_MODES = ['full', 'visual', 'profiles'];
+  const modeAvailable = m => m === 'light' || (fullSupported() && (m === 'full' || (m === 'visual' && MAP.legacy) || (m === 'profiles' && !!MAP.plants)));
   function defaultLosMode() {
     const weak = (navigator.deviceMemory && navigator.deviceMemory < 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4)
       || matchMedia('(pointer: coarse)').matches; // phones and tablets
     return fullSupported() && !weak ? 'full' : 'light';
   }
+  const LOS_STRENGTH_KEY = 'everon-map-los-strength';
+  // How strongly the measured leaves block (1 = as photographed), for the Measured model only.
+  state.losStrength = (() => {
+    try { const v = parseFloat(localStorage.getItem(LOS_STRENGTH_KEY)); if (v >= 0 && v <= 1.5) return v; } catch { /* storage unavailable */ }
+    return 1;
+  })();
   state.losMode = (() => {
-    try { const v = localStorage.getItem(LOS_MODE_KEY); if ((WORKER_MODES.includes(v) && fullSupported()) || v === 'light') return v; } catch { /* storage unavailable */ }
+    try { const v = localStorage.getItem(LOS_MODE_KEY); if (modeAvailable(v)) return v; } catch { /* storage unavailable */ }
     return defaultLosMode();
   })();
+  // What the worker needs to find this map's files.
+  const workerCfg = () => ({
+    size: WORLD, losDir: mapLosDir(),
+    visual: MAP.legacy ? { foliage: 'data/foliage.json', plants: 'data/plants' } : null,
+    profiles: MAP.plants ? { json: MAP.foliage, plants: MAP.plants, dir: MAP.plantsDir || 'data/plants' } : null,
+  });
   function losGrid(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
-    if (cache && WORKER_MODES.includes(state.losMode) && fullSupported() && HEIGHT && range >= 1) {
-      const model = state.losMode;
-      const key = `${model}|${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}`;
+    if (cache && WORKER_MODES.includes(state.losMode) && modeAvailable(state.losMode) && HEIGHT && range >= 1) {
+      const model = state.losMode, strength = model === 'profiles' ? state.losStrength : undefined;
+      const key = `${model}${strength === undefined ? '' : `@${strength}`}|${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}`;
       const hit = fullCache.get(key);
       if (hit) return hit;
-      if (!fullWanted.has(key)) requestFull(key, { xz, dir, arc, range, eyeH, targetH, reverse, elev, cell: FULL_CELL, model });
+      if (!fullWanted.has(key)) requestFull(key, { xz, dir, arc, range, eyeH, targetH, reverse, elev, cell: FULL_CELL, model, strength, cfg: workerCfg() });
     }
     return lightLos(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev);
   }
@@ -2672,13 +2726,18 @@
       const on = b.dataset.losMode === state.losMode;
       b.classList.toggle('sel', on);
       b.setAttribute('aria-checked', on);
-      b.disabled = WORKER_MODES.includes(b.dataset.losMode) && !fullSupported();
+      b.disabled = !modeAvailable(b.dataset.losMode);
+      b.title = b.disabled && WORKER_MODES.includes(b.dataset.losMode) && fullSupported() ? `${b.dataset.losMode === 'profiles' ? 'Measured' : 'Visual'} needs this map's trees, which haven't been baked yet` : b.title;
     });
+    const measured = state.losMode === 'profiles';
+    $('#los-strength').classList.toggle('hidden', !measured);
+    $('#los-caveat').classList.toggle('hidden', !measured);
     $('#los-note').textContent = WORKER_MODES.includes(state.losMode) && fullError ? 'Full detail could not load, so Light is shown.'
       : WORKER_MODES.includes(state.losMode) && fullWanted.size ? 'Working out full detail…'
       : state.losMode === 'full' ? '0.5 m detail from the game.'
       : state.losMode === 'visual' ? 'On trial: plants as see-through as in game.'
-      : '10 m. Quick, for phones.';
+      : measured ? 'On trial: each plant blocks by what was measured from game pictures.'
+      : MAP.legacy ? '10 m. Quick, for phones.' : '10 m. Quick, for phones. Trees are not in this map’s light data yet.';
   }
   $('#los-detail').addEventListener('click', e => {
     const b = e.target.closest('[data-los-mode]');
@@ -2686,6 +2745,15 @@
     state.losMode = b.dataset.losMode;
     try { localStorage.setItem(LOS_MODE_KEY, state.losMode); } catch { /* storage unavailable */ }
     renderLosDetail();
+    redrawLos();
+  });
+  const strengthRange = $('#los-strength-range');
+  strengthRange.value = state.losStrength;
+  $('#los-strength-out').textContent = state.losStrength.toFixed(1);
+  strengthRange.addEventListener('input', () => { $('#los-strength-out').textContent = (+strengthRange.value).toFixed(1); });
+  strengthRange.addEventListener('change', () => {
+    state.losStrength = +strengthRange.value;
+    try { localStorage.setItem(LOS_STRENGTH_KEY, String(state.losStrength)); } catch { /* storage unavailable */ }
     redrawLos();
   });
   renderLosDetail();
@@ -4977,7 +5045,7 @@
     if (entries.length > 1) return addFiaList(entries);
     const xz = parseCoords(input.value);
     if (!xz) return fiaMessage('Couldn\'t read that. Try "089 028".', 'err');
-    if (xz === 'off') return fiaMessage("Those coordinates are off the map. Everon grids run from 000 to 128.", 'err');
+    if (xz === 'off') return fiaMessage(`Those coordinates are off the map. ${MAP.name} grids run from 000 to ${Math.floor(WORLD / 100)}.`, 'err');
     const hit = nearestFia(xz);
     const where = `${hit.cache.name} (${grid(hit.cache.xz)})`;
     if (!addFiaCache(hit.cache.name)) return;
@@ -5481,8 +5549,12 @@
     btn.disabled = true;
     $('#join-error').textContent = '';
     try {
-      const me = await api('/api/join', { name: $('#join-name').value, room: $('#join-room').value });
+      const me = await api('/api/join', { name: $('#join-name').value, room: $('#join-room').value, map: $('#join-map').value });
       state.me = me;
+      // the room's map, which may not be the one picked (a room that's already open keeps its own)
+      if (!startMap(me.map)) return;
+      $('#join-map').value = MAP.id;
+      $('#room-map').textContent = MAP.name;
       $('#me-avatar').style.background = me.color;
       $('#me-avatar').textContent = [...me.name][0].toUpperCase();
       $('#me-name').textContent = me.name;
@@ -5537,7 +5609,7 @@
   const ROAD_STYLE = [{ color: '#ffd43b', weight: 5 }, { color: '#fff3bf', weight: 3.5 }, { color: '#d9a066', weight: 3 }, { color: '#e9ecef', weight: 2, dash: '5 4' }];
   let ROADS = null;
   function loadRoads() {
-    fetch('data/roads.json').then(r => r.json()).then(d => {
+    fetch(MAP.legacy ? 'data/roads.json' : `${MAP.dir}/roads.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => {
       ROADS = d;
       // dark casing first so every kind reads on top of any map, then the colours, main roads last (on top)
       const line = (e, w, color, dash) => L.polyline(e[3].map(toLL), { color, weight: w, opacity: 0.95, lineCap: 'round', lineJoin: 'round', dashArray: dash, interactive: false });
@@ -5550,10 +5622,34 @@
   // ---------------------------------------------------------------------------
   // Boot
   // ---------------------------------------------------------------------------
-  fetch('data/everon.json')
-    .then(r => r.json())
-    .then(d => { buildReference(d); refreshFia(); loadRoads(); })
-    .catch(err => { console.error(err); toast('Could not load reference data.', 6000); });
+  // The reference layers (towns, Conflict bases, caches, supplies) exist for Everon only so far; another map gets the
+  // same layer list with nothing in it, plus its roads and terrain.
+  const emptyReference = () => ({ towns: [], landmarks: [], caves: [], conflict: [], mob: [], supplies: [], vehicles: [], refuel: [], repair: [], fia: [] });
+  // Everything that depends on the room's map, loaded once it is known (after joining). A page only ever shows one map:
+  // joining a room on another map afterwards reloads it. Returns false when it does.
+  let startedMap = null;
+  function startMap(id) {
+    const def = MAPS[id] || MAPS.everon;
+    if (startedMap) {
+      if (startedMap === def.id) return true;
+      toast(`Switching to ${def.name}…`);
+      setTimeout(() => location.reload(), 300);
+      return false;
+    }
+    startedMap = def.id;
+    if (MAP !== def || !tileLayer) { MAP = def; showMapBase(); }
+    if (!modeAvailable(state.losMode)) state.losMode = defaultLosMode();
+    renderLosDetail();
+    (def.legacy ? fetch('data/everon.json').then(r => r.json()) : Promise.resolve(emptyReference()))
+      .then(d => { buildReference(d); refreshFia(); loadRoads(); })
+      .catch(err => { console.error(err); toast('Could not load reference data.', 6000); });
+    // the line-of-sight index says how big the 10 m grids are, so it comes first
+    loadDetailIndex().then(ix => {
+      if (!def.legacy && ix && ix.light) HN = ix.light.cols;
+      loadLight(def);
+    });
+    return true;
+  }
   // Mortars, MG nests and the terrain checks depend on the tables, heightmap and trees, so redraw them once those load.
   const rerenderMortars = () => state.players.forEach(p => p.items.forEach(it => {
     if (['mortar', 'emplacement', 'overwatch', 'hulldown', 'route', 'aa'].includes(it.type) || isMarker(it, 'lz')) renderItem(p, it);
@@ -5565,29 +5661,42 @@
   // Map data is cached by browsers for a week: bump DATA_V whenever tools/bake_los.py is run again.
   const DATA_V = 4;
   // The 10 m data files are gzipped (about a seventh of the download) and unpacked here.
+  // name: height, forest, canopy, buildings, lz (every map), foliage, clutter (Everon's own files only).
   function lightBin(name) {
-    return fetch(`data/light/${name}.gz?v=${DATA_V}`).then(r => {
+    const url = MAP.legacy ? `data/light/everon-${name}.bin.gz?v=${DATA_V}` : `${MAP.dir}/light/${name}.bin.gz?v=${detailV || DATA_V}`;
+    return fetch(url).then(r => {
       if (!r.ok) throw new Error(`${name}: ${r.status}`);
       return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
     });
   }
-  // Trees and buildings: line of sight worked out before they arrived is redone with them.
-  Promise.all(['everon-forest.bin', 'everon-canopy.bin', 'everon-buildings.bin', 'everon-foliage.bin', 'everon-clutter.bin'].map(lightBin))
-    .then(([forest, canopy, buildings, foliage, clutter]) => {
-      FOREST = new Uint8Array(forest); CANOPY = new Uint8Array(canopy); BUILDINGS = new Uint8Array(buildings);
-      const nn = HN * HN, f = new Uint8Array(foliage), c = new Uint8Array(clutter), fm = new Uint8Array(nn), cm = new Uint8Array(nn);
-      for (let i = 0; i < f.length; i++) { const k = i % nn; if (f[i] > fm[k]) fm[k] = f[i]; if (c[i] > cm[k]) cm[k] = c[i]; }
-      FOLIAGE = f; CLUTTER = c; FOLIAGE_MAX = fm; CLUTTER_MAX = cm;
-      forestLayer.redraw();
-      lzCache.clear();
-      losCache.clear();
-      state.players.forEach(p => p.items.forEach(it => renderItem(p, it)));
-      refreshCoverage(true);
-      refreshThreats(true);
-    })
-    .catch(err => { console.error('Trees and buildings not loaded', err); toast('Could not load trees and buildings - line of sight uses the bare terrain.', 6000); });
-  lightBin('everon-height.bin')
-    .then(buf => { HEIGHT = new Int16Array(buf); rerenderMortars(); refreshLists(); contourLayer.redraw(); hillshadeLayer.redraw(); lzShadeLayer.redraw(); })
-    .catch(err => { console.error(err); toast('Could not load terrain heights - mortar solutions ignore elevation.', 6000); });
+  function loadLight(def) {
+    // Trees and buildings: line of sight worked out before they arrived is redone with them.
+    Promise.all((def.legacy ? ['forest', 'canopy', 'buildings', 'foliage', 'clutter'] : ['forest', 'canopy', 'buildings']).map(lightBin))
+      .then(([forest, canopy, buildings, foliage, clutter]) => {
+        FOREST = new Uint8Array(forest); CANOPY = new Uint8Array(canopy); BUILDINGS = new Uint8Array(buildings);
+        if (foliage) {
+          const nn = HN * HN, f = new Uint8Array(foliage), c = new Uint8Array(clutter), fm = new Uint8Array(nn), cm = new Uint8Array(nn);
+          for (let i = 0; i < f.length; i++) { const k = i % nn; if (f[i] > fm[k]) fm[k] = f[i]; if (c[i] > cm[k]) cm[k] = c[i]; }
+          FOLIAGE = f; CLUTTER = c; FOLIAGE_MAX = fm; CLUTTER_MAX = cm;
+        }
+        forestLayer.redraw();
+        lzCache.clear();
+        losCache.clear();
+        state.players.forEach(p => p.items.forEach(it => renderItem(p, it)));
+        refreshCoverage(true);
+        refreshThreats(true);
+      })
+      .catch(err => { console.error('Trees and buildings not loaded', err); toast('Could not load trees and buildings - line of sight uses the bare terrain.', 6000); });
+    lightBin('height')
+      .then(buf => { HEIGHT = new Int16Array(buf); rerenderMortars(); refreshLists(); contourLayer.redraw(); hillshadeLayer.redraw(); lzShadeLayer.redraw(); })
+      .catch(err => { console.error(err); toast('Could not load terrain heights - mortar solutions ignore elevation.', 6000); });
+  }
+  // Until a room's map is known the join screen shows the one picked in its list (Everon to begin with).
+  showMapBase();
+  $('#join-map').addEventListener('change', e => {
+    if (startedMap) return;
+    MAP = MAPS[e.target.value] || MAPS.everon;
+    showMapBase();
+  });
   $('#join-name').focus();
 })();

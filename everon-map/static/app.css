@@ -243,6 +243,10 @@ ul { list-style: none; margin: 0; padding: 0; }
 .los-detail .ld-opts button.sel { background: var(--accent); color: var(--accent-ink); font-weight: 650; }
 .los-detail .ld-opts button:disabled { opacity: .4; cursor: not-allowed; }
 .los-detail .ld-note { flex-basis: 100%; font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+.los-detail .ld-strength { flex-basis: 100%; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text); }
+.los-detail .ld-strength input { flex: 1; min-width: 0; }
+.los-detail .ld-strength output { min-width: 2.2em; text-align: right; font-family: var(--mono); color: var(--muted); }
+.los-detail .hidden { display: none; }
 
 /* Layers + legend */
 .fia-layers { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
@@ -711,6 +715,8 @@ table.fire tr.best td:last-child { border-radius: 0 5px 5px 0; }
 /* ==========================================================================
    Rooms, briefing, tool finder, hill shading, dragging
    ========================================================================== */
+.room-map { color: var(--muted); }
+.room-map:not(:empty)::before { content: '· '; }
 .room-row { display: flex; gap: 6px; }
 .room-row input { flex: 1; min-width: 0; font-family: var(--mono); letter-spacing: .03em; }
 .room-row button { white-space: nowrap; padding: 0 12px; }

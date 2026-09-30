@@ -143,7 +143,7 @@
       <span id="me-avatar" class="avatar"></span>
       <div class="id-text">
         <b id="me-name"></b>
-        <span class="id-room">Room <code id="room-code"></code>
+        <span class="id-room">Room <code id="room-code"></code> <span id="room-map" class="room-map"></span>
           <button type="button" id="room-copy" class="link-btn" title="Copy a link that fills in this room code">Copy invite link</button></span>
       </div>
     </div>
@@ -189,9 +189,16 @@
             <span class="ld-opts">
               <button type="button" data-los-mode="full" role="radio" title="Every building, wall and tree from the game, at 0.5 m">Full</button>
               <button type="button" data-los-mode="visual" role="radio" title="On trial: plants as see-through as in game">Visual</button>
+              <button type="button" data-los-mode="profiles" role="radio" title="On trial: every plant blocks by the share of its outline measured from game pictures taken at 25 to 300 m">Measured</button>
               <button type="button" data-los-mode="light" role="radio" title="10 m squares, quick">Light</button>
             </span>
+            <div id="los-strength" class="ld-strength hidden">
+              <label for="los-strength-range" title="How strongly the measured leaves block. 1.0 is what the pictures showed; lower it if trees block less in game than on the map.">Foliage strength</label>
+              <input type="range" id="los-strength-range" min="0" max="1.5" step="0.05" value="1">
+              <output id="los-strength-out">1.0</output>
+            </div>
             <div id="los-note" class="ld-note"></div>
+            <div id="los-caveat" class="ld-note hidden">Measured at Ultra object draw distance, 2560x1440, 40° lens: lower settings swap to denser far models sooner. The bottom 1.7 m of each plant was seen against terrain, so close bush values there are the least certain (±15-20%). Thin or see-through leaf edges count as fully blocking, which probably overstates what a player sees.</div>
           </div>
           <div id="layers"></div>
           <label class="switch"><input type="checkbox" id="show-grid" checked><span>Grid lines</span></label>
@@ -223,6 +230,13 @@
           <button type="button" id="join-new-room" title="Make up a new random room code">New code</button>
         </div>
       </div>
+      <label class="field"><span>Map · picked by whoever opens the room; a room that is already open keeps its map</span>
+        <select id="join-map" aria-label="Map">
+          <option value="everon">Everon</option>
+          <option value="kolguyev">Kolguyev</option>
+          <option value="arland">Arland</option>
+        </select>
+      </label>
       <div id="join-error" class="error" role="alert"></div>
       <button type="submit" class="primary">Enter map</button>
     </form>

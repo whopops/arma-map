@@ -47,6 +47,10 @@ BANS_FILE = os.path.join(ROOT, "bans.json")
 TRUST_PROXY = False  # set by --behind-proxy
 ADMIN_ALLOW = None   # set by --admin-allow: networks the admin view answers to (None = everywhere)
 TILE_UPSTREAM = "https://reforger.recoil.org/map-tiles/everon/{z}/{x}/{y}/tile.jpg"
+# The maps a room can be opened on. Everon's satellite tiles come from the cache above; the others' are files under
+# static/data/maps/<map>/tiles/ (see the /maptiles/ route).
+MAPS = ("everon", "kolguyev", "arland")
+DEFAULT_MAP = "everon"
 
 GRACE_SECONDS = 15          # how long a dropped connection may reconnect before its markings vanish
 KEEPALIVE_SECONDS = 5
@@ -148,7 +152,7 @@ class Hub:
                 self.rooms.pop(p.room, None)  # last one out: forget the room and its briefing
 
     # --- API ---------------------------------------------------------------
-    def join(self, name, room, ip):
+    def join(self, name, room, ip, map_id=None):
         ban = BANS.active(addr_key(ip))
         if ban:
             return 403, {"error": ban_message(ban)}
@@ -158,8 +162,14 @@ class Hub:
             return 400, {"error": "Use 1-20 letters, numbers, spaces, - _ . [ ]"}
         if not ROOM_RE.match(room):
             return 400, {"error": "Room codes are 3-32 letters, numbers, - or _."}
+        if map_id is None:
+            map_id = DEFAULT_MAP
+        if map_id not in MAPS:
+            return 400, {"error": "Unknown map."}
         with self.lock:
             others = self._in_room(room)
+            # The map belongs to the room: whoever opens it picks, everyone who joins later gets the same one.
+            map_id = self.rooms[room].get("map", DEFAULT_MAP) if others and room in self.rooms else map_id
             if len(self.players) >= MAX_PLAYERS:
                 return 503, {"error": "The map server is full right now. Try again later."}
             if len(others) >= MAX_ROOM_PLAYERS:
@@ -172,9 +182,9 @@ class Hub:
             color = next((c for c in COLORS if c not in used), COLORS[len(others) % len(COLORS)])
             p = Player(name, color, room, ip)
             self.players[p.id] = p
-            self.rooms.setdefault(room, {"briefing": None, "created": time.time()})
+            self.rooms.setdefault(room, {"briefing": None, "created": time.time(), "map": map_id})
             self._broadcast(room, {"type": "join", "player": p.public()}, skip=p)
-        return 200, {"id": p.id, "token": p.token, "name": p.name, "color": p.color, "room": room}
+        return 200, {"id": p.id, "token": p.token, "name": p.name, "color": p.color, "room": room, "map": map_id}
 
     def open_stream(self, pid, token):
         with self.lock:
@@ -184,7 +194,7 @@ class Hub:
             q = queue.Queue(MAX_QUEUED_EVENTS)
             p.queues.add(q)
             p.gone_since = None
-            snapshot = {"type": "snapshot", "you": p.name, "room": p.room,
+            snapshot = {"type": "snapshot", "you": p.name, "room": p.room, "map": self.rooms.get(p.room, {}).get("map", DEFAULT_MAP),
                         "players": [o.public() for o in self._in_room(p.room)],
                         "briefing": self.rooms.get(p.room, {}).get("briefing"),
                         "clock": self.rooms.get(p.room, {}).get("clock"), "now": int(time.time() * 1000)}
@@ -337,6 +347,7 @@ class Hub:
                 b = info.get("briefing")
                 out.append({
                     "room": code,
+                    "map": info.get("map", DEFAULT_MAP),
                     "created": int(info.get("created", now) * 1000),
                     "briefing": {"by": b["by"], "at": b["at"], "chars": len(b["text"])} if b and b["text"].strip() else None,
                     "players": [{
@@ -891,6 +902,11 @@ class Handler(BaseHTTPRequestHandler):
             if self.limited("tile"):
                 return
             return self.tile(*m.groups())
+        m = re.match(r"^/maptiles/(kolguyev|arland)/([0-5])/(\d{1,3})/(\d{1,3})\.jpg$", path)
+        if m:
+            if self.limited("tile"):
+                return
+            return self.map_tile(*m.groups())
         if self.limited("static"):
             return
         return self.static(path)
@@ -910,7 +926,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/join":
             if self.limited("join"):
                 return
-            return self.send_json(*HUB.join(body.get("name"), body.get("room"), self.client_ip()))
+            return self.send_json(*HUB.join(body.get("name"), body.get("room"), self.client_ip(), body.get("map")))
         pid, token = body.get("id"), body.get("token")
         if path == "/api/item":
             return self.send_json(*HUB.upsert(pid, token, body.get("item")))
@@ -972,6 +988,14 @@ class Handler(BaseHTTPRequestHandler):
         # Map data changes only when it is re-baked (tile URLs carry a version), so browsers keep it for a week.
         cache = "no-store" if path in ADMIN_PAGES else "public, max-age=604800" if path.startswith("/data/") else "no-cache"
         self.send_bytes(200, body, ctype, cache)
+
+    def map_tile(self, map_id, z, x, y):
+        # Kolguyev and Arland tiles are baked files; a tile that isn't there is open sea.
+        path = os.path.join(STATIC, "data", "maps", map_id, "tiles", str(int(z)), str(int(x)), f"{int(y)}.jpg")
+        if not os.path.isfile(path):
+            return self.send_bytes(404, b"", "image/jpeg", "public, max-age=604800")
+        with open(path, "rb") as f:
+            self.send_bytes(200, f.read(), "image/jpeg", "public, max-age=604800")
 
     def tile(self, z, x, y):
         n = 2 ** (7 - int(z))  # tiles per side at this zoom
