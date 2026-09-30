@@ -402,6 +402,7 @@
     { key: 'radio', label: 'Radio network', on: false, icon: '<span class="lg-radio"></span>', legendHtml:
       '<div class="legend-key one"><div><span class="lk-line solid"></span>Both in range of each other</div>' +
       '<div><span class="lk-line dash"></span>Only the radio tower reaches</div></div>' },
+    { key: 'masts', label: 'Radio masts', on: false, icon: '<span class="lg-radio"></span>', countFn: d => d.conflict.filter(c => c.kind === 'Radio tower').length },
     { key: 'mob', label: 'HQ start positions', on: false, icon: badge('⚑', C.mob) },
     { group: 'Terrain', key: 'forest', label: 'Forest', on: false, icon: '<span class="lg-forest"></span>', countText: '', legendHtml:
       '<div class="legend-key one"><div>From the trees in the game: woods where trees or bushes 3 m or taller cover a third or more of the ground. Line of sight uses the real height of every tree.</div></div>' },
@@ -425,6 +426,7 @@
       '<div><span class="lk-sw" style="--c:#ffc53d"></span>Marginal: sloping or trees nearby</div>' +
       '<div><span class="lk-sw" style="--c:#ff5c5c"></span>No-go: steep or trees on the spot</div></div>' },
     { group: 'Resources', key: 'supplies', label: 'Supply stashes', on: false, icon: `<span class="lg-dot" style="--c:${C.supply}"></span>` },
+    { key: 'infinite', label: 'Infinite supply points', on: false, icon: badge('∞', C.supply), countFn: d => d.supplies.filter(s => s.amount === 'Infinite').length },
     { key: 'vehicles', label: 'Vehicle spawns', on: false, icon: `<span class="lg-dot" style="--c:${C.vehicle}"></span>` },
     { key: 'refuel', label: 'Refuel points', on: false, icon: `<span class="lg-dot" style="--c:${C.fuel}"></span>` },
     { key: 'repair', label: 'Repair points', on: false, icon: `<span class="lg-dot" style="--c:${C.repair}"></span>` },
@@ -451,6 +453,57 @@
       (names.length ? `<p class="sub radio-list">${names.map(esc).join(', ')}</p>` : '');
   }
   const zoneLayers = new Map(); // `${idx}:${zone}` -> L.circle
+
+  // Which side holds each Conflict point (and radio tower). Marked by anyone in the room and shared: a player's 'control' item
+  // holds {point name: {s: 'nato' | 'ussr', at: time}}; where two players disagree the newer mark wins.
+  const SIDES = { nato: ['NATO', '#4dabf7'], ussr: ['USSR', '#ff6b6b'] };
+  const controlLayer = L.layerGroup();
+  function controlMarks() {
+    const out = new Map();
+    state.players.forEach(p => {
+      if (!isMine(p.name) && !state.showOthers) return;
+      p.items.forEach(it => {
+        if (it.type !== 'control') return;
+        for (const [name, m] of Object.entries(it.marks || {})) if (!out.has(name) || out.get(name).at < m.at) out.set(name, m);
+      });
+    });
+    return out;
+  }
+  function controlButtons(name) {
+    const cur = controlMarks().get(name);
+    if (!state.me) return '<p class="sub">Join a room to mark who holds this point.</p>';
+    return `<div class="row ctl-row">` + Object.entries(SIDES).map(([k, [label, color]]) =>
+      `<button data-act="ctl" data-name="${esc(name)}" data-side="${k}" aria-pressed="${cur?.s === k}" style="border-color:${color}">${label}</button>`).join('') +
+      `<button data-act="ctl" data-name="${esc(name)}" data-side="" aria-pressed="${!cur}">Unknown</button></div>`;
+  }
+  function syncControl() {
+    controlLayer.clearLayers();
+    const marks = controlMarks();
+    CONFLICT_POINTS.forEach(c => {
+      const m = c && marks.get(c.name);
+      if (!m || !SIDES[m.s]) return;
+      const color = SIDES[m.s][1];
+      controlLayer.addLayer(L.circleMarker(toLL(c.xz), { radius: 15, color, weight: 3, fillColor: color, fillOpacity: 0.3, interactive: false }));
+      controlLayer.addLayer(L.marker(toLL(c.xz), { interactive: false, keyboard: false,
+        icon: L.divIcon({ className: '', iconSize: [0, 0], html: `<span class="ctl-tag" style="background:${color}">${SIDES[m.s][0]}</span>` }) }));
+    });
+  }
+  function setControl(name, side) {
+    if (!state.me) return toast('Join a room to mark who holds a point.');
+    const me = state.players.get(state.me.name), mine = me && [...me.items.values()].find(i => i.type === 'control');
+    const marks = { ...(mine ? mine.marks : {}) };
+    // Clearing removes only your own mark: one somebody else made stays until they clear it (or you mark the point again).
+    if (side) marks[name] = { s: side, at: Date.now() }; else delete marks[name];
+    if (!side && controlMarks().get(name) && !(mine && mine.marks[name])) return toast('Another player marked that one; ask them to clear it.');
+    if (!Object.keys(marks).length) { if (mine) deleteItem(mine.id); return; }
+    saveItem(mine ? { ...mine, marks } : { id: uid(), type: 'control', marks, label: 'Point control', note: '', color: state.me.color });
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-act="ctl"]');
+    if (!b) return;
+    map.closePopup();
+    setControl(b.dataset.name, b.dataset.side);
+  });
 
   function zoneToggles(idx) {
     return `<div class="zone-toggles">` + Object.entries(ZONES).map(([key, z]) =>
@@ -523,7 +576,7 @@
       const [color, ch] = CONFLICT_STYLE[c.kind] || ['#ccc', '?'];
       const sub = `${c.kind}${c.control ? ' · Control point' : ''}`;
       CONFLICT_POINTS[idx] = c;
-      const html = () => popupHtml(c.name, sub, c.xz, radioSummary(idx) + zoneToggles(idx));
+      const html = () => popupHtml(c.name, sub, c.xz, controlButtons(c.name) + radioSummary(idx) + zoneToggles(idx));
       glyphMarker(c.xz, ch, color, `poi${c.control ? ' control' : ''}`, html).addTo(cf);
       if (!townNames.has(simple(c.name))) {
         L.marker(toLL(c.xz), { icon: labelIcon(c.name, 'lbl-conflict'), interactive: false, keyboard: false }).addTo(cf);
@@ -546,6 +599,17 @@
         : { color: '#66d9e8', weight: 1.6, opacity: 0.8, dashArray: '5 6', interactive: false }).addTo(radio);
     }));
 
+    cf.addLayer(controlLayer); // who holds each point, drawn under the base markers (see syncControl)
+
+    // Radio masts: the relay radio towers on their own, each with the 3 km it reaches.
+    const masts = g('masts');
+    d.conflict.forEach(c => {
+      if (c.kind !== 'Radio tower') return;
+      const html = () => popupHtml(c.name, 'Radio tower · relay', c.xz, controlButtons(c.name) + `<p class="sub">Radio range ${fmtRadius(radioRange(c))}</p>`);
+      masts.addLayer(L.circle(toLL(c.xz), { radius: radioRange(c), interactive: false, ...ZONES.radio.style }));
+      glyphMarker(c.xz, CONFLICT_STYLE['Radio tower']?.[1] || '▲', CONFLICT_STYLE['Radio tower']?.[0] || '#e599f7', 'poi', html).addTo(masts);
+    });
+
     const mob = g('mob');
     d.mob.forEach(m => {
       const html = () => popupHtml(m.name, 'Possible HQ / MOB start position', m.xz);
@@ -555,6 +619,10 @@
 
     const sup = g('supplies');
     d.supplies.forEach(s => dot(s.xz, C.supply, 5, () => popupHtml('Supply stash', `${s.amount} supplies · ${s.access} access`, s.xz)).addTo(sup));
+    // The stashes that never run out, on their own layer so they're easy to find.
+    const inf = g('infinite');
+    d.supplies.filter(s => s.amount === 'Infinite').forEach(s =>
+      glyphMarker(s.xz, '∞', C.supply, 'poi', () => popupHtml('Infinite supply point', `Never runs out · ${s.access} access`, s.xz)).addTo(inf));
     const veh = g('vehicles');
     d.vehicles.forEach(v => dot(v.xz, C.vehicle, 4.5, () => popupHtml('Vehicle spawn', '', v.xz)).addTo(veh));
     const fuel = g('refuel');
@@ -579,6 +647,7 @@
     g('paths');
     g('fiaGame');
     d.fiaGame = []; // counted live in the layer list
+    syncControl();
     refLayers.contours = contourLayer;
     refLayers.hillshade = hillshadeLayer;
     refLayers.forest = forestLayer;
@@ -592,7 +661,7 @@
       const row = document.createElement('label');
       row.className = 'layer';
       row.innerHTML = `<input type="checkbox" ${def.on ? 'checked' : ''}><span class="lg">${def.icon}</span><span class="lbl">${def.label}</span>` +
-        `<span class="n"${def.dynamic ? ` id="${def.key}-n"` : ''}>${def.countText ?? d[def.key].length}</span>`;
+        `<span class="n"${def.dynamic ? ` id="${def.key}-n"` : ''}>${def.countText ?? (def.countFn ? def.countFn(d) : d[def.key].length)}</span>`;
       const cb = row.querySelector('input');
       cb.addEventListener('change', () => cb.checked ? refLayers[def.key].addTo(map) : refLayers[def.key].remove());
       box.appendChild(row);
@@ -619,8 +688,8 @@
     es: null,
   };
 
-  const TYPE_NAME = { marker: 'Marker', route: 'Route', range: 'Range line', mortar: 'Mortar', fia: 'FIA caches', emplacement: 'MG nest', construct: 'Construct',
-    arrow: 'Arrow', ambush: 'Ambush', post: 'Range card', sectors: 'Sectors of fire', overwatch: 'Overwatch', aa: 'Enemy AA gun', hulldown: 'Hull-down finder' };
+  const TYPE_NAME = { marker: 'Marker', route: 'Route', range: 'Range line', mortar: 'Mortar', fia: 'FIA caches', control: 'Point control', emplacement: 'MG nest', construct: 'Construct',
+    arrow: 'Arrow', ambush: 'Ambush', post: 'Range card', sectors: 'Sectors of fire', overwatch: 'Overwatch', aa: 'Enemy AA gun', hulldown: 'Hull-down finder', audible: 'Who can hear it' };
   // "wall" is the sandbag line (the original name, kept so older exported plans still import).
   const CONSTRUCT_NAME = { wall: 'Sandbags', wire: 'Barbed wire', roadblock: 'Roadblock', bunker: 'Bunker', checkpoint: 'Checkpoint' };
   const POINT_CONSTRUCTS = ['bunker', 'checkpoint']; // one click drops them
@@ -765,6 +834,7 @@
     { cat: 'plan', name: 'Range lines', test: it => it.type === 'range' },
     { cat: 'plan', name: 'Overwatch', test: it => it.type === 'overwatch' },
     { cat: 'plan', name: 'Hull-down', test: it => it.type === 'hulldown' },
+    { cat: 'plan', name: 'Who can hear it', test: it => it.type === 'audible' },
     { cat: 'plan', name: 'Flight routes', test: it => it.type === 'arrow' && it.kind === 'flight' },
     { cat: 'plan', name: 'Landing zones', test: it => isMarker(it, 'lz') },
     { cat: 'support', name: 'Fire support requests', test: isFireReq },
@@ -777,6 +847,7 @@
     { cat: 'hazards', name: 'Minefields', test: it => isMarker(it, 'mine-at', 'mine-ap') },
     { cat: 'hazards', name: 'Hazards', test: it => isMarker(it, 'blocked', 'bridge', 'danger') },
     { cat: 'intel', name: 'FIA caches', test: it => it.type === 'fia' },
+    { cat: 'intel', name: 'Point control', test: it => it.type === 'control' },
   ];
   const CAT_COLOR = { friendly: '#6cb8ff', enemy: '#ff6b6b', plan: '#c8d96f', defend: '#c8b27c', hazards: '#ffc53d', support: '#ff922b', intel: '#f783ac' };
 
@@ -813,10 +884,12 @@
     if (it.type === 'route') { const rc = routeCheck(it.points); return `${fmtDist(pathLength(it.points))}${rc ? ` · ${fmtTime(rc.walk)}` : ''}`; }
     if (it.type === 'overwatch') { const los = overwatchLos(it.xz, it.range); return `${fmtDist(it.range)}${los ? ` · ${los.pct}% clear` : ''}`; }
     if (it.type === 'hulldown') return `${fmtDist(it.range)} · ${hullOf(it).short}`;
+    if (it.type === 'audible') return `heard ${fmtDist(gunOf(it).range)}`;
     if (isMarker(it, 'lz')) { const c = lzCheck(it.xz); return c ? LZ_WORD[c.verdict] : grid(it.xz); }
     if (it.type === 'range') return `${fmtDist(dist(it.from, it.to))} · ${pad(Math.round(bearing(it.from, it.to)) % 360, 3)}°`;
     if (it.type === 'mortar') return `${it.weapon} · ${(it.targets || []).length} target${(it.targets || []).length === 1 ? '' : 's'}`;
     if (it.type === 'fia') return `${it.caches.length} cache${it.caches.length === 1 ? '' : 's'}`;
+    if (it.type === 'control') { const n = Object.keys(it.marks || {}).length; return `${n} point${n === 1 ? '' : 's'}`; }
     if (it.type === 'emplacement') return `${pad(Math.round(it.dir) % 360, 3)}° · ${it.arc}° · ${fmtDist(it.range)}${it.height ? ` · +${it.height} m` : ''}`;
     if (it.type === 'construct') return it.points ? fmtDist(pathLength(it.points)) : grid(it.xz);
     if (isFireReq(it)) return `${(FIRE[it.fire] || FIRE.he).name} ${it.points ? 'area' : 'point'} · ${fmtAgo(Date.now() - (it.at || Date.now()))}`;
@@ -834,10 +907,11 @@
   function itemAnchor(it) {
     if (it.type === 'ambush') return [(it.from[0] + it.to[0]) / 2, (it.from[1] + it.to[1]) / 2];
     if (it.type === 'arrow') return it.points[it.points.length - 1];
-    if (it.type === 'post' || it.type === 'sectors' || it.type === 'overwatch' || it.type === 'hulldown' || it.type === 'aa') return it.xz;
+    if (it.type === 'post' || it.type === 'sectors' || it.type === 'overwatch' || it.type === 'hulldown' || it.type === 'aa' || it.type === 'audible') return it.xz;
     if (it.type === 'construct') return it.points ? it.points[0] : it.xz;
     if (it.type === 'area') return it.points[0];
     if (it.type === 'fia') return (FIA_KNOWN.find(f => f.name === it.caches[0]) || { xz: [6400, 6400] }).xz;
+    if (it.type === 'control') return (CONFLICT_POINTS.find(c => c && c.name === Object.keys(it.marks || {})[0]) || { xz: [WORLD / 2, WORLD / 2] }).xz;
     return it.type === 'marker' || it.type === 'mortar' || it.type === 'emplacement' ? it.xz : it.type === 'range' ? it.from : it.points[0];
   }
 
@@ -1055,6 +1129,8 @@
       renderOverwatch(p, it, layer, color, html);
     } else if (it.type === 'hulldown') {
       renderHullDown(p, it, layer, color, html);
+    } else if (it.type === 'audible') {
+      renderAudible(p, it, layer, html);
     }
     if (isMine(p.name) && it.xz) enableDrag(p, it, layer);
     p.layers.set(it.id, layer);
@@ -1173,6 +1249,7 @@
     renderContactLog();
     refreshMortarPanel();
     refreshFia();
+    syncControl();
     refreshCoverage();
     refreshThreats();
     refreshFireLabels();
@@ -1472,6 +1549,7 @@
         { tool: 'cover-route', name: 'Route planner', short: 'Route planner', icon: svg('<circle cx="4.5" cy="19" r="2"/><circle cx="19.5" cy="5" r="2"/><path d="M6 17.5c3-1 2-6 6-6s3-5 6-5" stroke-dasharray="3 2.5"/><path d="M3 9c3-3 6-3 8 0" style="color:#ff6b6b"/>', 'color:#8ce99a') },
         { tool: 'lz', name: 'Landing zone check', short: 'LZ check', icon: svg('<circle cx="12" cy="12" r="9"/><path d="M8.5 7.5v9M15.5 7.5v9M8.5 12h7" stroke-width="2.2"/>', 'color:#8ce99a'),
           hint: 'Hover to check a spot · click to mark a landing zone' },
+        { tool: 'audible', name: 'Who can hear it', short: 'Heard from', icon: svg('<path d="M9 18V6l9-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/>', 'color:#b197fc') },
       ] },
     { id: 'support', name: 'Support', key: 'S', color: '#ff922b', title: 'Ask for support: mortar fire missions, gun runs, medevac, pickups and resupply',
       icon: svg('<circle cx="12" cy="12" r="7.5"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/>', 'color:#ff922b'),
@@ -1843,6 +1921,8 @@
         label: `${POST_KIND[side].label} ${n}`, note: '', color: side === 'f' ? state.me.color : ENEMY });
     } else if (tool === 'ambush' || tool === 'sectors') {
       shapeClick(xz);
+    } else if (tool === 'audible') {
+      saveItem({ id: uid(), type: 'audible', xz: roundXZ(xz), gun: state.hearGun, label: GUNS[state.hearGun].name, note: '', color: state.me.color });
     } else if (tool === 'hulldown') {
       const n = [...(state.players.get(state.me.name)?.items.values() || [])].filter(i => i.type === 'hulldown').length + 1;
       saveItem({ id: uid(), type: 'hulldown', xz: roundXZ(xz), range: state.hdRange, veh: state.hdVeh, foe: state.hdFoe, label: `Hull-down ${n}`, note: '', color: state.me.color });
@@ -2052,10 +2132,12 @@
     }
     return undefined;
   }
+  let detailGen = 0; // counts detail-tile arrivals, so results built on the 1 m heights are redone when more arrive
   function afterDetail() {
     lzCache.clear();
+    detailGen++;
     rerenderMortars();
-    state.players.forEach(p => p.items.forEach(it => { if (isMarker(it, 'lz') || airKey(it) || isFireReq(it)) renderItem(p, it); }));
+    state.players.forEach(p => p.items.forEach(it => { if (isMarker(it, 'lz') || airKey(it) || isFireReq(it) || it.type === 'hulldown') renderItem(p, it); }));
     refreshLists();
     if (state.tool === 'lz' || state.tool === 'mortar') updateLive();
   }
@@ -2099,17 +2181,124 @@
     return { min: Math.min(...rings.map(r => r.table[0][0])), max: Math.max(...rings.map(r => r.table[r.table.length - 1][0])) };
   }
 
+  // How each shell flies, from its prefab in the game files (Prefabs/Weapons/Ammo/Ammo_Shell_*.et): muzzle speed (ShellMoveComponent
+  // InitSpeed), drag (AirDrag / Mass) and each charge ring's speed multiplier (SCR_MortarShellGadgetComponent). The engine moves a
+  // shell as a point under gravity with drag k·|v|·v against the air, and wind is the air moving: simulated that way these numbers
+  // reproduce the game's own wind tables (Configs/Weapons/Ammo/WindData) to 0.1% in range, peak height, crosswind drift and
+  // head/tail wind, and the range-table elevations to about 2 mil on average.
+  const GRAV = 9.81;
+  const SHELL_PHYS = {
+    'M252|HE M821': { v0: 66, k: 0.000462 / 4.06, rings: { 0: 1, 1: 1.531, 2: 2.085, 3: 2.541, 4: 2.977 } },
+    'M252|Practice M879': { v0: 66, k: 0.000469 / 4.26, rings: { 0: 1, 1: 1.573, 2: 2.082, 3: 2.532, 4: 2.932 } },
+    'M252|Smoke M819': { v0: 137, k: 0.0009139 / 4.85, rings: { 1: 0.666, 2: 0.959, 3: 1.184, 4: 1.387 } },
+    'M252|Illumination M853A1': { v0: 152, k: 0.001488 / 4, rings: { 1: 0.638, 2: 1, 3: 1.281, 4: 1.596 } },
+    '2B14|HE O-832DU': { v0: 76, k: 0.000615 / 3.1, rings: { 0: 1, 1: 1.321, 2: 1.736, 3: 2.087, 4: 2.455 } },
+    '2B14|Smoke D-832DU': { v0: 71, k: 0.000655 / 3.48, rings: { 0: 1, 1: 1.339, 2: 1.748, 3: 2.086 } },
+    '2B14|Illumination S-832C': { v0: 127, k: 0.001836 / 3.51, rings: { 1: 0.698, 2: 1.111, 3: 1.512, 4: 2.154 } },
+  };
+  // One shot fired at `ang` radians with muzzle speed v: where it comes down to dh m above the mortar. along/across: the wind's
+  // velocity (m/s) along the line of fire (+ = tailwind) and across it (+ = blowing to the right). Returns {range, drift (m to
+  // the right), tof (s)}, or null when it never gets that high.
+  // Stepped with RK4 (four samples of the drag per step), 0.1 s at a time: checked against the engine's own simulation
+  // (GetProjectileSimulationResult, run from Workbench for every shell, ring, elevation 40-88°, target -200..+200 m and
+  // 10 m/s wind from four sides) the elevation corrections agree to 0.05 mil on average and 3.7 mil at worst, and the
+  // crosswind aim-off to 0.34 mil. (Simple one-sample steps at 0.02 s were off by up to 13 mil.)
+  function flight(v, k, ang, dh, along = 0, across = 0) {
+    const dt = 0.1;
+    let x = 0, y = 0, z = 0, vx = 0, vy = v * Math.sin(ang), vz = v * Math.cos(ang), t = 0;
+    const acc = (ux, uy, uz) => { // drag against the moving air, and gravity
+      const rx = ux - across, rz = uz - along, s = Math.sqrt(rx * rx + uy * uy + rz * rz);
+      return [-k * s * rx, -GRAV - k * s * uy, -k * s * rz];
+    };
+    for (;;) {
+      const a1 = acc(vx, vy, vz);
+      const a2 = acc(vx + a1[0] * dt / 2, vy + a1[1] * dt / 2, vz + a1[2] * dt / 2);
+      const a3 = acc(vx + a2[0] * dt / 2, vy + a2[1] * dt / 2, vz + a2[2] * dt / 2);
+      const a4 = acc(vx + a3[0] * dt, vy + a3[1] * dt, vz + a3[2] * dt);
+      const py = y, px = x, pz = z;
+      x += dt * (vx + dt / 6 * (a1[0] + a2[0] + a3[0]));
+      y += dt * (vy + dt / 6 * (a1[1] + a2[1] + a3[1]));
+      z += dt * (vz + dt / 6 * (a1[2] + a2[2] + a3[2]));
+      vx += dt / 6 * (a1[0] + 2 * a2[0] + 2 * a3[0] + a4[0]);
+      vy += dt / 6 * (a1[1] + 2 * a2[1] + 2 * a3[1] + a4[1]);
+      vz += dt / 6 * (a1[2] + 2 * a2[2] + 2 * a3[2] + a4[2]);
+      t += dt;
+      if (vy < 0 && y <= dh) {
+        if (py < dh) return null; // topped out below the target
+        const f = (py - dh) / (py - y);
+        return { range: pz + (z - pz) * f, drift: px + (x - px) * f, tof: t - dt + dt * f };
+      }
+      if (t > 150) return null;
+    }
+  }
+  // The high (plunging) angle that lands d m away, dh m up, in the given wind, or null if the ring can't reach. On the high
+  // branch the range falls as the angle rises, from the flattest angle a mortar table uses (about 44°) up to vertical.
+  const highCache = new Map();
+  function highAngleFor(v, k, d, dh, along, across) {
+    const key = `${v}|${k}|${Math.round(d * 2)}|${Math.round(dh * 4)}|${along.toFixed(2)}|${across.toFixed(2)}`;
+    if (highCache.has(key)) return highCache.get(key);
+    let lo = 44 * Math.PI / 180, hi = 89.5 * Math.PI / 180, res = null;
+    const first = flight(v, k, lo, dh, along, across);
+    if (first && first.range >= d) {
+      for (let i = 0; i < 22; i++) {
+        const mid = (lo + hi) / 2, f = flight(v, k, mid, dh, along, across);
+        if (!f || f.range < d) hi = mid; else lo = mid;
+      }
+      const ang = (lo + hi) / 2;
+      res = { ang, ...flight(v, k, ang, dh, along, across) };
+    }
+    if (highCache.size > 4000) highCache.clear();
+    highCache.set(key, res);
+    return res;
+  }
+  // Wind as the crew enters it (speed m/s, compass direction it blows FROM, as the game's map shows it), split along and across
+  // a line of fire on bearing az. (Live fire confirmed it: the weather's own direction is where the wind blows TOWARD, and the
+  // in-game map shows that + 180.)
+  function windParts(wind, az) {
+    if (!wind || !(wind.s > 0)) return { along: 0, across: 0 };
+    const toward = ((wind.d + 180) - az) * Math.PI / 180;
+    return { along: wind.s * Math.cos(toward), across: wind.s * Math.sin(toward) };
+  }
+
+  // Live fire (reforger-map-tools' firetest: 700 real shells fired in the game on Everon, with every round's launch recorded)
+  // showed the model above IS the game's flight: given a round's real launch speed it lands within 1 m of where the model
+  // says, height differences and wind included. The range tables are a few mils off it (the site's aims landed 6 m long on
+  // average, up to 20 m), so the elevation and flight time now come from the model alone; the tables only say which rings reach.
+  const MUZZLE_H = 1.3; // the shell leaves the barrel this high above the mortar's ground
+  // Where rounds land around the aim: every round leaves at a random speed, the shell's base speed +/- about 1.07 m/s (never
+  // more than 3, the prefab's InitSpeedVariation) times the charge ring's multiplier: measured over 340 live rounds. That
+  // spreads them long and short. The barrel adds a small random direction: its muzzle is set to a group 1 m wide at 48 m
+  // (DispersionDiameter 1, DispersionRange 48), up to 10.4 mil off, spreading rounds sideways and long/short too. (The live
+  // test launched shells directly, so it didn't include the barrel part: that comes from the game's settings.)
+  const SPEED_SD = 1.07;          // m/s on the base speed, one standard deviation
+  const BARREL = 0.5 / 48;        // rad, how far off the barrel can throw a round
+  const P90 = 2.146;              // an ellipse this many standard deviations across holds 90% of the rounds
+  function spreadOf(v, coef, k, ang, dh, along, across, d) {
+    const f = (vv, aa) => flight(vv, k, aa, dh, along, across);
+    const up = f(v + 1, ang), dn = f(v - 1, ang), hi = f(v, ang + 0.002), lo = f(v, ang - 0.002);
+    if (!up || !dn || !hi || !lo) return null;
+    const dRdv = (up.range - dn.range) / 2, dRda = (hi.range - lo.range) / 0.004;
+    const barrel = BARREL / 2; // the spread of a direction picked evenly inside the barrel's cone, along one axis
+    const sdLong = Math.hypot(dRdv * SPEED_SD * coef, dRda * barrel);
+    const sdSide = d * barrel / Math.cos(ang); // a sideways tilt of a steep barrel turns the shot further
+    return { long: P90 * sdLong, side: P90 * sdSide };
+  }
+
   // Firing solution from mortar to target for every ring that can reach it.
   // Table rows: [range m, elevation mil, time of flight s, elevation change in mil per 100 m of height difference].
-  function solve(w, s, from, to) {
+  // With the shell's physics (SHELL_PHYS) the elevation, flight time and crosswind aim-off come from the model: the high angle
+  // that lands on the target from the muzzle, with the height difference and the wind. The table sets each ring's reach.
+  function solve(w, s, from, to, wind = null) {
     const W = weaponDef(w), rings = shellDef(w, s);
     const d = dist(from, to);
     // Exact ground at the mortar; at the target, the roof if it's on a building (that's where the rounds land).
     const hFrom = groundFine(from), imp = impactHeight(to), hTo = imp.h;
     const dh = hFrom != null && hTo != null ? hTo - hFrom : 0;   // + means target is higher
     const az = bearing(from, to);
-    const out = { d, az, azMil: az * (W ? W.milsPerCircle : 6400) / 360, hFrom, hTo, dh, roof: imp.roof, rings: [] };
+    const mpc = W ? W.milsPerCircle : 6400;
+    const out = { d, az, azMil: az * mpc / 360, hFrom, hTo, dh, roof: imp.roof, rings: [], wind: wind && wind.s > 0 ? wind : null };
     if (!rings) return out;
+    const phys = SHELL_PHYS[`${w}|${s}`], { along, across } = windParts(wind, az);
     for (const [ring, def] of Object.entries(rings)) {
       const t = def.table;
       if (d < t[0][0] || d > t[t.length - 1][0]) continue;
@@ -2118,11 +2307,27 @@
       const k = b[0] === a[0] ? 0 : (d - a[0]) / (b[0] - a[0]);
       const lerp = j => a[j] + (b[j] - a[j]) * k;
       // Higher target -> lower elevation (flatter shot); lower target -> higher elevation.
-      const elev = lerp(1) - dh * lerp(3) / 100;
-      out.rings.push({ ring: +ring, elev, tof: lerp(2), dispersion: def.dispersion });
+      // (without the model for a shell: the table's own straight-line correction)
+      let elev = lerp(1) - dh * lerp(3) / 100, tof = lerp(2), azAdj = 0, spread = null;
+      if (phys && phys.rings[ring]) {
+        const coef = phys.rings[ring], v = phys.v0 * coef;
+        const real = highAngleFor(v, phys.k, d, dh - MUZZLE_H, along, across);
+        if (!real) continue; // too high up, or into too strong a headwind, for this ring
+        elev = real.ang * mpc / (2 * Math.PI);
+        tof = real.tof;
+        azAdj = -Math.atan2(real.drift, d) * mpc / (2 * Math.PI); // aim into the crosswind by what it would blow the round
+        spread = spreadOf(v, coef, phys.k, real.ang, dh - MUZZLE_H, along, across, d);
+      }
+      if (elev > def.table[0][1] + 40) continue; // steeper than the tube goes: too close for this ring
+      // dispersion: one number for the texts and friendly warnings (the ellipse's longer half); spread: the ellipse, 90% of rounds
+      out.rings.push({ ring: +ring, elev, tof, azMil: ((out.azMil + azAdj) % mpc + mpc) % mpc, azAdj,
+        dispersion: spread ? Math.round(Math.max(spread.long, spread.side)) : def.dispersion,
+        spread: spread && { long: Math.round(spread.long), side: Math.round(spread.side), az } });
     }
     out.rings.sort((x, y) => x.ring - y.ring);
     out.best = out.rings[0] || null; // lowest ring that reaches = tightest dispersion
+    out.mapAzMil = out.azMil; // the bearing on the map; azMil becomes what to set on the sight, aimed off for crosswind
+    if (out.best) out.azMil = out.best.azMil;
     return out;
   }
 
@@ -2163,20 +2368,30 @@
     if (!sol.best) return `Out of range · ${fmtDist(sol.d)}`;
     const b = sol.best;
     return short
-      ? `Ring ${b.ring} · ${Math.round(b.elev)} mil · Az ${Math.round(sol.azMil)}`
+      ? `Ring ${b.ring} · ${Math.round(b.elev)} mil · Az ${Math.round(sol.azMil)} · ${b.tof.toFixed(1)} s`
       : `Ring ${b.ring} · Elev ${Math.round(b.elev)} mil · Az ${az} · ${fmtDist(sol.d)} · Δh ${dh}${sol.roof ? ` (a roof, ${Math.round(sol.roof)} m up)` : ''} · ${b.tof.toFixed(1)} s`;
   }
 
   function solutionTable(sol) {
     if (!sol.rings.length) return '';
-    return `<table class="fire"><tr><th>Ring</th><th>Elev</th><th>Time</th><th>Spread</th></tr>` +
-      sol.rings.map(r => `<tr class="${r === sol.best ? 'best' : ''}"><td>${r.ring}</td><td>${Math.round(r.elev)} mil</td><td>${r.tof.toFixed(1)} s</td><td>±${r.dispersion} m</td></tr>`).join('') +
+    const az = !!sol.wind; // with wind each ring aims off differently
+    return `<table class="fire"><tr><th>Ring</th><th>Elev</th>${az ? '<th>Az</th>' : ''}<th>Time</th><th>Spread</th></tr>` +
+      sol.rings.map(r => `<tr class="${r === sol.best ? 'best' : ''}"><td>${r.ring}</td><td>${Math.round(r.elev)} mil</td>` +
+        `${az ? `<td>${Math.round(r.azMil)}</td>` : ''}<td>${r.tof.toFixed(1)} s</td><td>${r.spread ? `±${r.spread.long} / ±${r.spread.side} m` : `±${r.dispersion} m`}</td></tr>`).join('') +
       `</table>`;
+  }
+  // "Wind 6 m/s from 240° · aim 4 mil left" for the ring used
+  function windLine(sol) {
+    if (!sol.wind || !sol.best) return '';
+    const a = Math.round(sol.best.azAdj);
+    return `<p class="sub">Wind ${sol.wind.s} m/s from ${pad(Math.round(sol.wind.d) % 360, 3)}° · ` +
+      `${a ? `aim ${Math.abs(a)} mil ${a < 0 ? 'left' : 'right'}` : 'no aim-off needed'} (included above)</p>`;
   }
 
   function mortarInfoHtml(m) {
     const W = weaponDef(m.weapon), lim = shellLimits(m.weapon, m.shell), alt = heightAt(m.xz);
-    let html = `<p><b>${esc(W ? W.label : m.weapon)}</b> · ${esc(m.shell)}</p>`;
+    let html = `<p><b>${esc(W ? W.label : m.weapon)}</b> · ${esc(m.shell)}</p>` +
+      (m.wind ? `<div class="sub">Wind ${m.wind.s} m/s from ${pad(Math.round(m.wind.d) % 360, 3)}° (in its solutions)</div>` : '');
     if (myMortar()?.id !== m.id) {
       const on = state.followMortar === m.id;
       html += `<div class="row"><button data-follow-mortar="${on ? '' : esc(m.id)}" aria-pressed="${on}">` +
@@ -2184,6 +2399,8 @@
     }
     if (alt != null) html += `<div class="sub">Altitude ${Math.round(alt)} m</div>`;
     if (lim) html += `<div class="sub">Reach ${fmtDist(lim.min)} – ${fmtDist(lim.max)}</div>`;
+    html += `<div class="sub">Heard firing ${fmtDist(GUNS.mortar.range)} away · its ${esc(m.shell)} rounds landing ${fmtDist(impactHeard(m.shell))}</div>` +
+      `<div class="row"><button data-act="hear-mortar" aria-pressed="${state.hearMortar}">${state.hearMortar ? 'Hide' : 'Show'} sound ranges on the map</button></div>`;
     const reqs = allVisibleItems(isFireReq);
     if (reqs.length && TABLES) {
       html += '<table class="fire trp-table"><tr><th>Fire request</th><th>Shell</th><th>Solution</th></tr>' + reqs.map(({ p, it }) => {
@@ -2195,33 +2412,47 @@
     return html;
   }
 
-  // Where rounds land around an aim point. The target zone is the spread (the range table's average dispersion for the
-  // ring used), shaded red. For HE, a round landing on its edge kills KILL_RADIUS further out (dashed red, the kill
-  // zone) and endangers DANGER_RADIUS further out (dashed yellow, the danger zone). Smoke, illumination and practice
-  // rounds aren't lethal, so they show only the spread, in their own colour.
+  // Where rounds land around an aim point. The target zone is the spread, shaded red: with the shell's physics an ellipse
+  // along the line of fire holding 90% of the rounds (see spreadOf), otherwise a circle the range table's average dispersion
+  // across. For HE, a round landing on its edge kills KILL_RADIUS further out (dashed red, the kill zone) and endangers
+  // DANGER_RADIUS further out (dashed yellow, the danger zone). Smoke, illumination and practice rounds aren't lethal, so
+  // they show only the spread, in their own colour.
   const isLethal = shell => /^HE/.test(shell || '');
   const shellColor = shell => (/^Smoke/.test(shell) ? FIRE.smoke.color : /^Illum/.test(shell) ? FIRE.illum.color : '#adb5bd');
-  function impactZones(layer, xz, spread, lethal, color) {
+  // An ellipse around xz, `long` m along bearing az and `side` m across it (half-lengths), grown by `grow` m all round.
+  function ellipseLL(xz, sh, grow = 0) {
+    const a = sh.az * Math.PI / 180, L1 = sh.long + grow, S1 = sh.side + grow, pts = [];
+    for (let i = 0; i < 48; i++) {
+      const t = i / 48 * 2 * Math.PI, u = L1 * Math.cos(t), s = S1 * Math.sin(t);
+      pts.push(toLL([xz[0] + u * Math.sin(a) + s * Math.cos(a), xz[1] + u * Math.cos(a) - s * Math.sin(a)]));
+    }
+    return pts;
+  }
+  function impactZones(layer, xz, spread, lethal, color, shape = null) {
+    const zone = (grow, style) => (shape ? L.polygon(ellipseLL(xz, shape, grow), style) : L.circle(toLL(xz), { radius: spread + grow, ...style }));
     if (lethal) {
-      layer.addLayer(L.circle(toLL(xz), { radius: spread + DANGER_RADIUS, color: '#ffd43b', weight: 1.8, dashArray: '6 5', fillColor: '#ffd43b', fillOpacity: 0.12, interactive: false }));
-      layer.addLayer(L.circle(toLL(xz), { radius: spread + KILL_RADIUS, color: '#ff5c5c', weight: 1.8, dashArray: '6 5', fillColor: '#ff5c5c', fillOpacity: 0.1, interactive: false }));
-      if (spread) layer.addLayer(L.circle(toLL(xz), { radius: spread, color: '#ff2b2b', weight: 2, fillColor: '#ff2b2b', fillOpacity: 0.35, interactive: false }));
+      layer.addLayer(zone(DANGER_RADIUS, { color: '#ffd43b', weight: 1.8, dashArray: '6 5', fillColor: '#ffd43b', fillOpacity: 0.12, interactive: false }));
+      layer.addLayer(zone(KILL_RADIUS, { color: '#ff5c5c', weight: 1.8, dashArray: '6 5', fillColor: '#ff5c5c', fillOpacity: 0.1, interactive: false }));
+      if (spread) layer.addLayer(zone(0, { color: '#ff2b2b', weight: 2, fillColor: '#ff2b2b', fillOpacity: 0.35, interactive: false }));
     } else if (spread) {
-      layer.addLayer(L.circle(toLL(xz), { radius: spread, color, weight: 1.8, dashArray: '5 4', fillColor: color, fillOpacity: 0.16, interactive: false }));
+      layer.addLayer(zone(0, { color, weight: 1.8, dashArray: '5 4', fillColor: color, fillOpacity: 0.16, interactive: false }));
     }
   }
-  // "Target 14 m · kill 34 m · danger 38 m" (or the spread for other shells), and any friendlies inside the danger zone.
-  function impactText(shell, spread, xz) {
-    if (!isLethal(shell)) return { zone: `Rounds land within about ${spread} m`, near: [] };
-    return { zone: `Target zone ${spread} m · kill zone ${spread + KILL_RADIUS} m · danger zone ${spread + DANGER_RADIUS} m`,
-      near: friendliesNear({ xz }, spread + DANGER_RADIUS) };
+  // "9 in 10 rounds land within 45 m long or short and 12 m left or right · kill zone 20 m beyond · danger zone 35 m beyond"
+  // (or the circle's size without the physics), and any friendlies inside the danger zone.
+  function impactText(shell, spread, xz, shape = null) {
+    const where = shape ? `9 in 10 rounds land within ${shape.long} m long or short and ${shape.side} m left or right` : null;
+    if (!isLethal(shell)) return { zone: where || `Rounds land within about ${spread} m`, near: [] };
+    return { zone: where ? `${where} · kill zone ${KILL_RADIUS} m beyond that · danger zone ${DANGER_RADIUS} m beyond`
+      : `Target zone ${spread} m · kill zone ${spread + KILL_RADIUS} m · danger zone ${spread + DANGER_RADIUS} m`,
+    near: friendliesNear({ xz }, spread + DANGER_RADIUS) };
   }
   const friendlyWarning = near => (near.length
     ? `<p><b class="rc-no">Friendlies in the danger zone</b>: ${near.slice(0, 6).map(x => `${esc(x.name)} ${x.d < 1 ? '(inside)' : fmtDist(x.d)}`).join(', ')}</p>` : '');
 
   function targetPopup(owner, m, idx) {
     const t = m.targets[idx];
-    const sol = solve(m.weapon, m.shell, m.xz, t);
+    const sol = solve(m.weapon, m.shell, m.xz, t, m.wind);
     const W = weaponDef(m.weapon);
     const dh = sol.hTo != null ? `${sol.dh >= 0 ? '+' : '−'}${Math.abs(Math.round(sol.dh))} m` : '—';
     let extra = `<div class="stats">` +
@@ -2231,10 +2462,10 @@
       `<div class="sub" style="margin-top:5px">${pad(Math.round(sol.az) % 360, 3)}° · ${W ? W.milsPerCircle : 6400}-mil scale` +
       (sol.hTo != null ? ` · target ${Math.round(sol.hTo)} m, mortar ${Math.round(sol.hFrom)} m` : '') + `</div>`;
     if (sol.best) {
-      const z = impactText(m.shell, sol.best.dispersion, t);
+      const z = impactText(m.shell, sol.best.dispersion, t, sol.best.spread);
       extra += `<p>${z.zone}</p>${friendlyWarning(z.near)}`;
     }
-    extra += sol.rings.length ? solutionTable(sol) : `<p style="color:var(--danger)">Out of range for ${esc(m.shell)}</p>`;
+    extra += sol.rings.length ? solutionTable(sol) + windLine(sol) : `<p style="color:var(--danger)">Out of range for ${esc(m.shell)}</p>`;
     if (sol.best) extra += nudgeTable(nudges(m, m.shell, t, sol), `Adjust ${NUDGE_M} m · ring ${sol.best.ring}`);
     if (isMine(owner)) extra += `<div class="row"><button class="danger" data-act="del-target" data-idx="${idx}">Remove target</button></div>`;
     return popupHtml(`Target ${idx + 1}`, `${m.weapon} ${m.shell} · by ${owner}${isMine(owner) ? ' (you)' : ''}`, t, extra);
@@ -2252,14 +2483,21 @@
       layer.addLayer(L.marker(toLL([m.xz[0], m.xz[1] + max]), { interactive: false, keyboard: false,
         icon: L.divIcon({ className: '', iconSize: [0, 0], html: `<span class="ring-label">R${ring} ${fmtDist(max)}</span>` }) }));
     });
+    // how far away its firing is heard (the game's mortar shot sound reaches 2 km), when the viewer asks for it
+    if (state.hearMortar) {
+      layer.addLayer(L.circle(center, { radius: GUNS.mortar.range, color: '#b197fc', weight: 1.6, dashArray: '3 6', fillColor: '#b197fc', fillOpacity: 0.05, interactive: false }));
+      layer.addLayer(L.marker(toLL([m.xz[0], m.xz[1] - GUNS.mortar.range]), { interactive: false, keyboard: false,
+        icon: L.divIcon({ className: '', iconSize: [0, 0], html: `<span class="ring-label">Heard ${fmtDist(GUNS.mortar.range)}</span>` }) }));
+    }
     const lim = shellLimits(m.weapon, m.shell);
     if (lim) layer.addLayer(L.circle(center, { radius: lim.min, color: '#ff6b6b', weight: 1.2, dashArray: '2 4', fill: true, fillOpacity: 0.08, interactive: false }));
 
     (m.targets || []).forEach((t, idx) => {
-      const sol = solve(m.weapon, m.shell, m.xz, t);
+      const sol = solve(m.weapon, m.shell, m.xz, t, m.wind);
       const ok = !!sol.best;
       layer.addLayer(L.polyline([center, toLL(t)], { color: ok ? color : '#ff6b6b', weight: 1.5, opacity: 0.8, dashArray: '2 5', interactive: false }));
-      if (ok) impactZones(layer, t, sol.best.dispersion, isLethal(m.shell), shellColor(m.shell));
+      if (ok) impactZones(layer, t, sol.best.dispersion, isLethal(m.shell), shellColor(m.shell), sol.best.spread);
+      if (ok && state.hearMortar) layer.addLayer(L.circle(toLL(t), { radius: impactHeard(m.shell), color: '#b197fc', weight: 1.2, dashArray: '2 6', fill: false, interactive: false }));
       // The mortar's crew (its owner, or anyone showing its solutions) can drag a target to correct fire; the label
       // follows with the new solution and the move is saved for everyone on release.
       const crew = mine || state.followMortar === m.id;
@@ -2268,7 +2506,7 @@
       tm.bindTooltip(tLabel(sol), { permanent: true, direction: 'right', offset: [12, 0], className: 'item-label' });
       if (crew) {
         tm.on('dragstart', () => dragStart(m.id));
-        tm.on('drag', () => tm.setTooltipContent(tLabel(solve(m.weapon, m.shell, m.xz, toXZ(tm.getLatLng())))));
+        tm.on('drag', () => tm.setTooltipContent(tLabel(solve(m.weapon, m.shell, m.xz, toXZ(tm.getLatLng()), m.wind))));
         tm.on('dragend', () => { dragEnd(); moveTarget(p, m, idx, toXZ(tm.getLatLng())); });
       }
       bindInfo(tm, () => targetPopup(p.name, p.items.get(m.id) || m, idx), () => t);
@@ -2301,13 +2539,13 @@
     const on = state.tool === 'mortar' && m && !state.mortarPlacing && lastCursor;
     mortarGhost.setLatLngs(on ? [toLL(m.xz), toLL(lastCursor)] : []);
     mortarGhostZones.clearLayers();
-    const sol = on && TABLES && solve(m.weapon, m.shell, m.xz, lastCursor);
-    if (sol && sol.best) impactZones(mortarGhostZones, lastCursor, sol.best.dispersion, isLethal(m.shell), shellColor(m.shell));
+    const sol = on && TABLES && solve(m.weapon, m.shell, m.xz, lastCursor, m.wind);
+    if (sol && sol.best) impactZones(mortarGhostZones, lastCursor, sol.best.dispersion, isLethal(m.shell), shellColor(m.shell), sol.best.spread);
   }
   function mortarLive(el) {
     const m = myMortar();
     if (!m || state.mortarPlacing || !lastCursor || !TABLES) return false;
-    const sol = solve(m.weapon, m.shell, m.xz, lastCursor);
+    const sol = solve(m.weapon, m.shell, m.xz, lastCursor, m.wind);
     el.textContent = fmtSolution(sol);
     el.style.color = sol.best ? '' : 'var(--danger)';
     return true;
@@ -2321,6 +2559,7 @@
       saveItem({
         id: m ? m.id : uid(), type: 'mortar', xz: roundXZ(xz), weapon: state.mortarWeapon, shell: state.mortarShell,
         targets: m ? m.targets : [], label: m ? m.label : 'Mortar', note: m ? m.note : '', color: m ? m.color : state.me.color,
+        ...(readWindInputs() ? { wind: readWindInputs() } : {}),
       });
       updateHint();
       return;
@@ -2353,10 +2592,55 @@
   $('#mortar-weapon').addEventListener('change', onMortarSelect);
   $('#mortar-shell').addEventListener('change', onMortarSelect);
 
+  // Wind, as the in-game map shows it: saved on your mortar so everyone showing its solutions gets the same numbers.
+  state.mortarWind = null;
+  function readWindInputs() {
+    const s = Math.min(Math.max(+$('#mortar-wind-s').value || 0, 0), 40), d = ((+$('#mortar-wind-d').value || 0) % 360 + 360) % 360;
+    return s > 0 ? { s, d } : null;
+  }
+  function onWindChange() {
+    state.mortarWind = readWindInputs();
+    const m = myMortar();
+    if (m) {
+      const { wind, ...rest } = m;
+      saveItem(state.mortarWind ? { ...rest, wind: state.mortarWind } : rest);
+    }
+    updateLive();
+  }
+  $('#mortar-wind-s').addEventListener('change', onWindChange);
+  $('#mortar-wind-d').addEventListener('change', onWindChange);
+  // Sound: how far every mortar's firing is heard (2 km) and how far its rounds landing are heard, around each target.
+  // Only on this screen, remembered in this browser; switched from the Mortar panel or any mortar's popup.
+  // Impacts, from the shells' sound files (Sounds/Weapons/Ammo/MortarShells): HE 2 km, practice 1.7 km, smoke 200 m;
+  // illumination: the flare, 1.1 km (Sounds/Ammo/Flares).
+  const impactHeard = shell => (/^HE/.test(shell) ? 2000 : /^Practice/.test(shell) ? 1700 : /^Smoke/.test(shell) ? 200 : 1100);
+  const HEAR_KEY = 'everon-map-mortar-hear';
+  state.hearMortar = (() => { try { return localStorage.getItem(HEAR_KEY) === '1'; } catch { return false; } })();
+  function setHearMortar(on) {
+    state.hearMortar = on;
+    $('#mortar-hear').checked = on;
+    try { localStorage.setItem(HEAR_KEY, on ? '1' : '0'); } catch { /* storage unavailable */ }
+    state.players.forEach(p => p.items.forEach(it => { if (it.type === 'mortar') renderItem(p, it); }));
+  }
+  $('#mortar-hear').checked = state.hearMortar;
+  $('#mortar-hear').addEventListener('change', e => setHearMortar(e.target.checked));
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-act="hear-mortar"]');
+    if (!b) return;
+    map.closePopup();
+    setHearMortar(!state.hearMortar);
+  });
+
   function refreshMortarPanel() {
     const m = myMortar();
     if (m && TABLES && (m.weapon !== state.mortarWeapon || m.shell !== state.mortarShell)) {
       state.mortarWeapon = m.weapon; state.mortarShell = m.shell; fillMortarSelects();
+    }
+    // show the wind saved on your mortar, unless you're typing in the boxes
+    if (m && !$('#mortar-wind').contains(document.activeElement)) {
+      state.mortarWind = m.wind || null;
+      $('#mortar-wind-s').value = m.wind ? m.wind.s : 0;
+      $('#mortar-wind-d').value = m.wind ? m.wind.d : 0;
     }
     const status = $('#mortar-status');
     $('#mortar-actions').classList.toggle('hidden', !m);
@@ -2371,13 +2655,14 @@
         `<div><span class="k">Reach</span><span class="v">${lim ? `${(lim.max / 1000).toFixed(1)} km` : '—'}</span></div></div>` +
         (m.targets.length ? '' : '<div class="empty" style="margin-top:8px">No targets yet.</div>');
       $('#mortar-targets').innerHTML = m.targets.map((t, i) => {
-        const sol = solve(m.weapon, m.shell, m.xz, t), b = sol.best;
+        const sol = solve(m.weapon, m.shell, m.xz, t, m.wind), b = sol.best;
         const head = `<div class="tgt-head"><span class="id">T${i + 1}</span><span>${grid(t)}</span><span>·</span><span>${fmtDist(sol.d)}</span>` +
           `<span class="sp"></span><button data-act="del-target" data-idx="${i}" title="Remove target" aria-label="Remove target">✕</button></div>`;
         const body = b
           ? `<div class="fire-now"><div><span class="k">Ring</span><span class="v">${b.ring}</span></div>` +
             `<div><span class="k">Elevation</span><span class="v">${Math.round(b.elev)}<small>mil</small></span></div>` +
-            `<div><span class="k">Azimuth</span><span class="v">${Math.round(sol.azMil)}<small>mil</small></span></div></div>` + targetSub(m.shell, b.dispersion, t)
+            `<div><span class="k">Azimuth</span><span class="v">${Math.round(sol.azMil)}<small>mil</small></span></div>` +
+            `<div><span class="k">Time</span><span class="v">${b.tof.toFixed(1)}<small>s</small></span></div></div>` + targetSub(m.shell, b.dispersion, t, b.spread)
           : `<div class="fire-now bad">Out of range (max ${fmtDist(lim ? lim.max : 0)})</div>`;
         return `<li data-idx="${i}">${head}${body}</li>`;
       }).join('');
@@ -2386,8 +2671,8 @@
     if (state.tool === 'mortar') { updateHint(); updateMortarGhost(); }
   }
 
-  function targetSub(shell, spread, xz) {
-    const z = impactText(shell, spread, xz);
+  function targetSub(shell, spread, xz, shape) {
+    const z = impactText(shell, spread, xz, shape);
     return `<div class="fire-sub">${z.zone}</div>` +
       (z.near.length ? `<div class="fire-sub warn">Friendlies in the danger zone: ${z.near.slice(0, 3).map(x => `${esc(x.name)} ${fmtDist(x.d)}`).join(', ')}</div>` : '');
   }
@@ -2411,8 +2696,9 @@
         const body = b
           ? `<div class="fire-now"><div><span class="k">Ring</span><span class="v">${b.ring}</span></div>` +
             `<div><span class="k">Elevation</span><span class="v">${Math.round(b.elev)}<small>mil</small></span></div>` +
-            `<div><span class="k">Azimuth</span><span class="v">${Math.round(sol.azMil)}<small>mil</small></span></div></div>` +
-            `<div class="req-foot"><span class="fire-sub">${esc(shell)} · ${b.tof.toFixed(1)} s · asked ${fmtAgo(Date.now() - (it.at || Date.now()))}</span>${add}</div>`
+            `<div><span class="k">Azimuth</span><span class="v">${Math.round(sol.azMil)}<small>mil</small></span></div>` +
+            `<div><span class="k">Time</span><span class="v">${b.tof.toFixed(1)}<small>s</small></span></div></div>` +
+            `<div class="req-foot"><span class="fire-sub">${esc(shell)} · asked ${fmtAgo(Date.now() - (it.at || Date.now()))}</span>${add}</div>`
           : `<div class="req-foot"><span class="fire-now bad">Out of range for ${esc(shell)}${lim ? ` (${fmtDist(lim.min)}–${fmtDist(lim.max)})` : ''}</span>${add}</div>`;
         return `<li data-req="${esc(it.id)}">${head}${body}</li>`;
       }).join('');
@@ -2872,11 +3158,26 @@
   }
 
   // Option picker under the toolbar for the Plan tools; keys 1-4 pick too.
+  // Who can hear it: how far the game plays a weapon's shot. From the game's sound files (Sounds/Weapons/.../*_Shot.acp): each
+  // shot's loudest layer uses a shared volume setting whose outer range is where the engine stops playing it (the volume falls
+  // off as 1/distance until then). Beyond it nobody hears the shot.
+  const GUNS = {
+    rifle: { name: 'Rifle or light MG', range: 3300, of: 'M16A2, AK-74, AKS-74U, M249, RPK-74 (5.56 / 5.45 mm)' },
+    'rifle-s': { name: 'Suppressed rifle', range: 3700, of: 'M16A2, AK-74, AKS-74U with a suppressor',
+      note: 'The suppressor changes how the shot sounds, not how far the game carries it: the bullet is still supersonic, and its sound setting reaches 3.7 km.' },
+    mg: { name: '7.62 MG or rifle', range: 3900, of: 'PKM, PKT, M60, M240, UK-59, SVD, M21, vz. 58' },
+    hmg: { name: 'Heavy MG or cannon', range: 4800, of: 'M2 .50 cal and NSV on tripods, KPVT (BTR-70, BRDM-2), M242 25 mm (LAV-25)' },
+    launcher: { name: 'RPG or LAW', range: 4800, of: 'RPG-7, M72 LAW' },
+    gl: { name: 'Grenade launcher', range: 3300, of: 'M203, GP-25' },
+    pistol: { name: 'Pistol', range: 3300, of: 'M9, PM' },
+    mortar: { name: 'Mortar', range: 2000, of: 'M252, 2B14 firing (their HE rounds landing also carry 2 km)' },
+  };
   const REACH = [[400, '400 m'], [800, '800 m'], [1500, '1.5 km']];
   const HELI_ALTS = [[30, '30 m'], [100, '100 m'], [200, '200 m']];
   const EYES = [[0.5, 'Prone'], [1, 'Crouched'], [1.6, 'Standing'], [2.2, 'Vehicle']]; // eye height above the ground, m
   state.profFrom = 1.6; state.profTo = 1.6;
   state.hdFoe = 's'; state.hdVeh = 'btr70'; state.hdRange = 800;
+  state.hearGun = 'rifle';
   state.heliAlt = 100;
   state.routeMode = 'foot';
   state.swim = false;
@@ -2893,6 +3194,7 @@
     infantry: [{ label: 'I am', key: 'posUnit', options: [['inf', 'Infantry'], ['arm', 'Armour']] },
       { label: 'My range card', key: 'posRange', options: [[0, 'Off'], ...REACH] }],
     overwatch: { label: 'Overwatch · look out to', key: 'owRange', options: REACH },
+    audible: { label: 'Weapon', key: 'hearGun', options: Object.entries(GUNS).map(([k, g]) => [k, g.name]) },
     hulldown: [{ label: 'Enemy', key: 'hdFoe', options: [['s', 'Soldier'], ['v', 'Vehicle']] },
       { label: 'My vehicle', key: 'hdVeh', options: [['btr70', 'BTR-70'], ['brdm2', 'BRDM-2'], ['lav25', 'LAV-25']] },
       { label: 'Look out to', key: 'hdRange', options: REACH }],
@@ -2916,6 +3218,7 @@
     if (t === 'vehicle-view-f') return state.armourRange ? 'Click where our vehicle is' : 'Click to mark friendly armour';
     if (t === 'overwatch') return 'Click the objective to find where it can be seen from';
     if (t === 'hulldown') return 'Click where the enemy is · shows where your vehicle can see them with only its turret above the ridge';
+    if (t === 'audible') return 'Click where the shooting is · shows how far away it can be heard';
     if (t === 'profile') return draw ? 'Click the target' : 'Click the start point';
     if (t === 'radio') return 'Click where the radio backpack is';
     if (t === 'air-cas') return state.casShape === 'area' ? 'Hold the mouse button and circle the target area; let go and it is sent'
@@ -3611,7 +3914,9 @@
     const a = losGrid(it.xz, 0, 360, it.range, true, fh, v.sights, true), b = losGrid(it.xz, 0, 360, it.range, true, fh, v.hull, true);
     if (!a || !b) return null;
     if (a.cell !== b.cell || a.W !== b.W || a.H !== b.H) return { pending: true }; // one of them is still being worked out in full
-    const key = `${it.xz}|${it.range}|${it.veh}|${it.foe}`; // the vehicle name picks the heights
+    // Ground and slope come from the engine's 1 m terrain (groundFine) where its tiles have arrived, else the 10 m heights;
+    // the result is worked out again when more tiles land (afterDetail bumps detailGen).
+    const key = `${it.xz}|${it.range}|${it.veh}|${it.foe}|${detailGen}`; // the vehicle name picks the heights
     const hit = hdCache.get(key);
     if (hit && hit.a === a && hit.b === b) return hit.res;
     const cells = new Uint8Array(a.W * a.H); // 0 no, 1 hull-down, 2 turret only through trees, 3 defilade
@@ -3624,10 +3929,10 @@
       if (d < HD_MIN) continue;
       total++;
       if (hull !== LOS_HIDDEN || sees === LOS_HIDDEN) continue;
-      const h = heightAt(xz);
+      const h = groundFine(xz);
       if (h == null || h < 0.5 || isForest(xz)) continue;
-      const dx = heightAt([xz[0] + 5, xz[1]]) - heightAt([xz[0] - 5, xz[1]]), dz = heightAt([xz[0], xz[1] + 5]) - heightAt([xz[0], xz[1] - 5]);
-      if (Math.hypot(dx, dz) / 10 > HD_SLOPE) continue;
+      const dx = groundFine([xz[0] + 3, xz[1]]) - groundFine([xz[0] - 3, xz[1]]), dz = groundFine([xz[0], xz[1] + 3]) - groundFine([xz[0], xz[1] - 3]);
+      if (Math.hypot(dx, dz) / 6 > HD_SLOPE) continue;
       cells[i] = sees === LOS_CLEAR ? 1 : 2;
       if (sees === LOS_CLEAR) { n++; spots.push({ xz, d, h }); }
     }
@@ -3639,7 +3944,7 @@
       for (let z = Math.max(0, cz - r); z <= Math.min(a.H - 1, cz + r); z++) for (let x = Math.max(0, cx - r); x <= Math.min(a.W - 1, cx + r); x++) {
         const j = z * a.W + x;
         if (cells[j] || a.cells[j] !== LOS_HIDDEN || b.cells[j] !== LOS_HIDDEN || Math.hypot(x - cx, z - cz) * a.cell > HD_BACK) continue;
-        const q = [a.minX + (x + 0.5) * a.cell, a.maxZ - (z + 0.5) * a.cell], h = heightAt(q);
+        const q = [a.minX + (x + 0.5) * a.cell, a.maxZ - (z + 0.5) * a.cell], h = groundFine(q);
         if (dist(q, it.xz) < HD_MIN || h == null || h < 0.5 || isForest(q)) continue;
         cells[j] = 3;
       }
@@ -4370,7 +4675,7 @@
   function fireSolution(m, req) {
     const f = FIRE[req.fire] || FIRE.he;
     const shell = Object.keys(weaponDef(m.weapon)?.shells || {}).find(s => f.shell.test(s)) || m.shell;
-    return { shell, sol: solve(m.weapon, shell, m.xz, fireAim(req)) };
+    return { shell, sol: solve(m.weapon, shell, m.xz, fireAim(req), m.wind) };
   }
   const fireAim = req => (req.points ? polyCentroid(req.points) : req.xz);
   // A point request's circles (see impactZones): target zone = the mortar's spread, kill zone KILL_RADIUS and danger
@@ -4391,7 +4696,7 @@
   }
   function fireZones(req) {
     const s = fireSpread(req), target = s ? s.sol.best.dispersion : 0;
-    return { s, target, kill: target + KILL_RADIUS, danger: target + DANGER_RADIUS };
+    return { s, target, shape: s ? s.sol.best.spread : null, kill: target + KILL_RADIUS, danger: target + DANGER_RADIUS };
   }
   // Friendly markings a request would put in danger: inside an area or within DANGER_RADIUS of it, or inside a point's
   // danger zone.
@@ -4410,7 +4715,8 @@
       bindInfo(poly, html);
       layer.addLayer(poly);
     } else {
-      impactZones(layer, c, fireZones(it).target, f === FIRE.he, f.color);
+      const z = fireZones(it);
+      impactZones(layer, c, z.target, f === FIRE.he, f.color, z.shape);
     }
     const m = L.marker(toLL(c), { keyboard: false, riseOnHover: true, zIndexOffset: 400, icon: L.divIcon({ className: 'fire-glyph', iconSize: [0, 0],
       html: `<svg viewBox="0 0 24 24" style="--c:${f.color}"><circle cx="12" cy="12" r="8"/><path d="M12 1v7M12 16v7M1 12h7M16 12h7"/></svg>` }) });
@@ -4426,7 +4732,7 @@
   function nudges(m, shell, xz, sol) {
     const circle = weaponDef(m.weapon)?.milsPerCircle || 6400, ring = sol.best.ring, d = NUDGE_M;
     return [['North', 0, d], ['South', 0, -d], ['East', d, 0], ['West', -d, 0]].map(([dir, dx, dz]) => {
-      const s2 = solve(m.weapon, shell, m.xz, [xz[0] + dx, xz[1] + dz]), r = s2.rings.find(q => q.ring === ring);
+      const s2 = solve(m.weapon, shell, m.xz, [xz[0] + dx, xz[1] + dz], m.wind), r = s2.rings.find(q => q.ring === ring);
       const daz = ((s2.azMil - sol.azMil + circle / 2) % circle + circle) % circle - circle / 2;
       return { dir, elev: r ? r.elev - sol.best.elev : null, az: daz };
     });
@@ -4470,7 +4776,7 @@
     }
     const c = fireAim(it), ends = areaEnds(it.points, c);
     const row = (name, xz) => {
-      const sol = solve(s.m.weapon, s.shell, s.m.xz, xz);
+      const sol = solve(s.m.weapon, s.shell, s.m.xz, xz, s.m.wind);
       return `<tr><td>${name}<div class="sub">${grid(xz, 4)} · ${fmtDist(sol.d)}</div></td><td>${fmtSolution(sol, true)}</td></tr>`;
     };
     return `<h4 class="pop-h">Across the area · ${who}, ${esc(s.shell)}</h4><table class="fire trp-table"><tr><th>Aim</th><th>Solution</th></tr>` +
@@ -4482,7 +4788,8 @@
     if (it.points) {
       const xs = it.points.map(q => q[0]), zs = it.points.map(q => q[1]);
       size = ['Across', `${Math.round(Math.max(...xs) - Math.min(...xs))} × ${Math.round(Math.max(...zs) - Math.min(...zs))} m`];
-    } else size = he ? [z.target ? 'Target / kill / danger' : 'Kill / danger', `${z.target ? `${z.target} / ` : ''}${z.kill} / ${z.danger} m`]
+    } else if (z.shape) size = ['Spread (9 in 10)', `±${z.shape.long} m long · ±${z.shape.side} m side`];
+    else size = he ? [z.target ? 'Target / kill / danger' : 'Kill / danger', `${z.target ? `${z.target} / ` : ''}${z.kill} / ${z.danger} m`]
       : ['Spread', z.target ? `±${z.target} m` : '—'];
     let html = `<div class="stats"><div><span class="k">Fire</span><span class="v">${f.name}</span></div>` +
       `<div><span class="k">${size[0]}</span><span class="v">${size[1]}</span></div>` +
@@ -4844,8 +5151,29 @@
   };
   const hazardIcon = kind => L.divIcon({ className: `hazard-glyph hz-${kind}`, iconSize: [0, 0], html: `<div><svg viewBox="0 0 24 24">${HAZARD_SVG[kind]}</svg></div>` });
 
+  // --- Who can hear it (GUNS is defined with the tool options, above) -----------------------------------------------------
+  const gunOf = it => GUNS[it.gun] || GUNS.rifle;
+  const HEAR_COLOR = '#b197fc';
+  function renderAudible(p, it, layer, html) {
+    const g = gunOf(it);
+    layer.addLayer(L.circle(toLL(it.xz), { radius: g.range, color: HEAR_COLOR, weight: 1.6, dashArray: '3 6', fillColor: HEAR_COLOR, fillOpacity: 0.05, interactive: false }));
+    const m = L.marker(toLL(it.xz), { icon: glyphIcon('♪', HEAR_COLOR), keyboard: false, zIndexOffset: 300 });
+    const name = it.label || g.name;
+    m.bindTooltip(esc(`${name} · heard ${fmtDist(g.range)}${isMine(p.name) ? '' : ` (${p.name})`}`), { direction: 'right', offset: [12, 0], className: 'item-label' });
+    bindInfo(m, html, () => it.xz);
+    layer.addLayer(m);
+  }
+  function audibleHtml(it) {
+    const g = gunOf(it);
+    return `<div class="stats"><div><span class="k">Weapon</span><span class="v">${esc(g.name)}</span></div>` +
+      `<div><span class="k">Heard out to</span><span class="v">${fmtDist(g.range)}</span></div></div>` +
+      `<p class="sub">${esc(g.of)}.</p>` + (g.note ? `<p class="sub">${esc(g.note)}</p>` : '') +
+      `<p class="sub">The farthest the game plays the shot, from its sound files. It is faint near the edge, and wind, hills and buildings are not counted.</p>`;
+  }
+
   // Popup details for the planning and hazard markings
   function planPopupHtml(owner, it) {
+    if (it.type === 'audible') return audibleHtml(it);
     if (it.type === 'overwatch') return overwatchHtml(it);
     if (it.type === 'hulldown') return hullDownHtml(it);
     if (isMarker(it, 'lz')) return lzHtml(owner, it);
@@ -5190,7 +5518,7 @@
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      const items = (Array.isArray(data) ? data : data.items || []).filter(it => it && ['marker', 'route', 'range', 'mortar', 'fia', 'emplacement', 'construct', 'area', 'arrow', 'ambush', 'post', 'sectors', 'overwatch', 'hulldown', 'aa'].includes(it.type));
+      const items = (Array.isArray(data) ? data : data.items || []).filter(it => it && ['marker', 'route', 'range', 'mortar', 'fia', 'emplacement', 'construct', 'area', 'arrow', 'ambush', 'post', 'sectors', 'overwatch', 'hulldown', 'aa', 'control', 'audible'].includes(it.type));
       if (!items.length) throw new Error('No markings found in that file.');
       for (const it of items) {
         // One mortar and one FIA list per player: imported ones replace (mortar) or merge into (FIA) yours.

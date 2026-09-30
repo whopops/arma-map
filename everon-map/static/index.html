@@ -76,6 +76,11 @@
               <label class="field"><span>Weapon</span><select id="mortar-weapon"></select></label>
               <label class="field"><span>Shell</span><select id="mortar-shell"></select></label>
             </div>
+            <div class="pair" id="mortar-wind" title="Read it off the in-game map (weather). Leave at 0 for no wind.">
+              <label class="field"><span>Wind m/s</span><input id="mortar-wind-s" type="number" min="0" max="40" step="1" value="0" inputmode="numeric"></label>
+              <label class="field"><span>Wind from °</span><input id="mortar-wind-d" type="number" min="0" max="360" step="5" value="0" inputmode="numeric"></label>
+            </div>
+            <label class="switch mortar-hear"><input type="checkbox" id="mortar-hear"><span>Show sound ranges (firing heard 2 km, impacts by shell)</span></label>
             <div id="mortar-status"></div>
             <ul id="mortar-targets"></ul>
             <div class="row" id="mortar-actions">

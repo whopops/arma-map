@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "everon-map",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["everon-map/server.py", "--port", "8765"],
+      "port": 8765
+    }
+  ]
+}

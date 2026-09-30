@@ -584,7 +584,7 @@ table.trp-table .trees { color: #ffde32; }
 .tgt-head .sp { flex: 1; }
 .tgt-head button { padding: 0 5px; border: none; background: none; color: var(--faint); }
 .tgt-head button:hover { color: var(--danger); background: none; }
-.fire-now { display: grid; grid-template-columns: .7fr 1fr 1fr; gap: 6px; margin-top: 6px; }
+.fire-now { display: grid; grid-template-columns: .55fr 1fr 1fr .8fr; gap: 6px; margin-top: 6px; }
 .fire-now .k { display: block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
 .fire-now .v { font: 700 18px/1.2 var(--mono); color: var(--accent); }
 .fire-now .v small { font-size: 11px; font-weight: 500; color: var(--muted); margin-left: 2px; }
@@ -901,3 +901,12 @@ table.fire tr.best td:last-child { border-radius: 0 5px 5px 0; }
 .lk-line.road-street { border-top: 3px solid #fff3bf; }
 .lk-line.road-dirt { border-top: 3px solid #d9a066; }
 .lk-line.road-path { border-top: 2px dashed #e9ecef; }
+
+/* who holds a Conflict point (NATO / USSR buttons in its popup, and the tag drawn on the map) */
+.ctl-row { gap: 6px; }
+.ctl-row button { border-width: 2px; }
+.ctl-row button[aria-pressed="true"] { background: #2b3844; font-weight: 650; }
+.ctl-tag { position: absolute; transform: translate(-50%, 16px); padding: 0 5px; border-radius: 3px; color: #0b1014; font: 700 10px/14px system-ui, sans-serif; letter-spacing: .04em; white-space: nowrap; }
+
+/* mortar panel: the "can be heard" switch under the wind boxes */
+.mortar-hear { display: flex; gap: 8px; align-items: center; margin: 6px 0 2px; font-size: 13px; }

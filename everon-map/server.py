@@ -85,7 +85,8 @@ ADMIN_MIN_PASSWORD = 12
 MAX_BRIEFING_CHARS = 6000
 CLOCK_RATES = {0, 1, 2, 3, 4, 6, 8, 12, 24, 48}  # game seconds per real second the room can pick
 ITEM_TYPES = {"marker", "route", "range", "mortar", "fia", "emplacement", "construct", "area",
-              "arrow", "ambush", "post", "sectors", "overwatch", "hulldown", "aa"}
+              "arrow", "ambush", "post", "sectors", "overwatch", "hulldown", "aa", "control", "audible"}
+HEARD_GUNS = {"rifle", "rifle-s", "mg", "hmg", "launcher", "gl", "pistol", "mortar"}
 AIR_STATUSES = {"requested", "ack", "enroute", "done"}
 MORTAR_WEAPONS = {"M252", "2B14"}
 MAX_MORTAR_TARGETS = 30
@@ -541,6 +542,12 @@ def validate_item(item):
             return "Bad mortar shell."
         if not isinstance(targets, list) or len(targets) > MAX_MORTAR_TARGETS or not all(_is_point(p) for p in targets):
             return "Bad mortar targets."
+        # Wind the crew has read off the in-game map: speed in m/s and the compass direction it blows from
+        wind = item.get("wind")
+        if wind is not None and not (isinstance(wind, dict) and set(wind) <= {"s", "d"} and all(
+                isinstance(wind.get(k), (int, float)) and not isinstance(wind.get(k), bool) for k in ("s", "d"))
+                and 0 <= wind["s"] <= 40 and 0 <= wind["d"] <= 360):
+            return "Bad wind."
     if t == "emplacement":
         if not _is_point(item.get("xz")) or item.get("kind") not in {"mg"}:
             return "Bad emplacement."
@@ -570,6 +577,17 @@ def validate_item(item):
         caches = item.get("caches")
         if not isinstance(caches, list) or len(caches) > 40 or not all(isinstance(c, str) and 0 < len(c) <= 60 for c in caches):
             return "Bad FIA cache list."
+    if t == "audible":
+        if not _is_point(item.get("xz")) or item.get("gun") not in HEARD_GUNS:
+            return "Bad gunfire marking."
+    if t == "control":
+        # Which side holds each Conflict point: {point name: {"s": "nato" | "ussr", "at": when it was marked}}
+        marks = item.get("marks")
+        if not isinstance(marks, dict) or len(marks) > 60 or not all(
+                isinstance(k, str) and 0 < len(k) <= 60 and isinstance(v, dict) and v.get("s") in ("nato", "ussr")
+                and isinstance(v.get("at"), (int, float)) and not isinstance(v.get("at"), bool)
+                for k, v in marks.items()):
+            return "Bad point control list."
     return None
 
 

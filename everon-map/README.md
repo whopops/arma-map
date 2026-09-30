@@ -126,7 +126,7 @@ Dragging with the **middle mouse button** pans the map whatever tool is active.
 |---|---|---|
 | **Friendly** (blue) | F | 1 My position · 2 Infantry · 3 Armour · 4 Advance arrow · 5 Rally point · 6 Objective · 7 Radio backpack · 8 AA gun · 9 Mortar |
 | **Enemy** (red) | E | 1 Contact report · 2 Infantry · 3 Armour · 4 Sniper · 5 Enemy roadblock / ambush · 6 Enemy in area · 7 Approach arrow · 8 Patrol route · 9 Enemy line of sight · 0 AA gun |
-| **Plan** (green) | P | 1 Marker · 2 Route · 3 Ambush · 4 Range line · 5 Elevation profile · 6 Hull-down finder · 7 Overwatch finder · 8 Route planner · 9 Landing zone check |
+| **Plan** (green) | P | 1 Marker · 2 Route · 3 Ambush · 4 Range line · 5 Elevation profile · 6 Hull-down finder · 7 Overwatch finder · 8 Route planner · 9 Landing zone check · 0 Who can hear it |
 | **Support** (orange) | S | 1 Fire support request · 2 Gun run (CAS) · 3 Medevac · 4 Pickup / insertion · 5 Resupply drop |
 | **Defend** (khaki) | D | 1 Target reference point (TRP) · 2 Sectors of fire · 3 MG nest · 4 Bunker · 5 Sandbags · 6 Barbed wire · 7 Checkpoint · 8 Roadblock |
 | **Hazards** (amber) | H | 1 AT minefield · 2 AP minefield · 3 Blocked or mined road · 4 Bridge out |
@@ -162,13 +162,33 @@ Esc, double-click or right-click finishes.
   elevation in mils corrected for the height difference (from the game's own 1 m terrain; a target on a building is aimed at its roof, where the rounds land), azimuth in degrees and mils (6400 for M252, 6000 for 2B14) and
   flight time; its details list every ring that can reach it, and how many mils of elevation and azimuth move the rounds
   50 m north / south and east / west on the recommended ring.
+  Elevation, flight time and aim-off come from the game's own flight model: each shell's muzzle speed, charge-ring
+  multipliers and air drag come from its prefab in the game files, and a shell is simulated under gravity with drag against
+  the moving air, from the muzzle (1.3 m up) to the target's height, in the wind. That reproduces the game's own wind
+  tables (Configs/Weapons/Ammo/WindData) to about 0.1% and the engine's own shell simulation (the `ballistics` job in
+  reforger-map-tools, 54,684 shots) to 0.05 mil on average. It was then checked with live fire: `firetest.py` in
+  reforger-map-tools fires real shells in the game on Everon, with the game's own weather and terrain, and records every
+  round's launch. Over 700 rounds, flown from its real launch the model lands within a median 0.3 m of where the round
+  did, with targets up to 260 m below or 190 m above the mortar and 8-10 m/s wind from every side. The range tables the
+  site used before are a few mils off that (their aims landed 6 m long on average, up to 20 m), so they now only set
+  which rings reach. A crosswind is aimed off on the azimuth. Enter the wind in the Mortar panel as the in-game map shows
+  it (m/s, and the direction it blows from; live fire confirmed the map shows where the wind comes from); it is saved on
+  your mortar, so anyone showing its solutions gets the same numbers. "Show sound ranges" (the Mortar panel, or any
+  mortar's popup) draws how far every mortar's firing is heard (2 km) and, around each target, how far its rounds landing
+  are heard (HE 2 km, practice 1.7 km, smoke 200 m, illumination 1.1 km).
   To correct fire, drag a target: its label shows the new solution as you drag, and dropping it saves the move for
   everyone. The mortar's owner and anyone showing its solutions can drag its targets.
   Each target also shows where the rounds will land, the same way as a fire support pin: with an HE shell, a shaded
-  red target zone the size of the ring's spread, a dashed red kill zone 20 m beyond it and a dashed yellow danger
-  zone 35 m beyond it (a round landing on the target zone's edge); with smoke, illumination or practice rounds, just
-  the spread. The circles show while you aim too. A target's popup and its entry in the Mortar panel give the zone
-  sizes and warn about any friendlies inside the danger zone.
+  red target zone where 9 in 10 rounds land, a dashed red kill zone 20 m beyond it and a dashed yellow danger zone 35 m
+  beyond it (a round landing on the target zone's edge); with smoke, illumination or practice rounds, just the spread.
+  The target zone is an ellipse along the line of fire, worked out for that shot: every round leaves at a random speed
+  (the shell's base speed ±1.07 m/s, one standard deviation and never more than 3, times the ring's multiplier:
+  measured over the live-fire rounds), which throws it long or short, and the barrel adds a small random direction (its
+  muzzle is set to a group 1 m wide at 48 m), which spreads rounds sideways too. The barrel part is from the game's
+  settings; the live test launched shells directly, so it didn't include it. The game's "random" speed drifts smoothly
+  with time rather than jumping from round to round, so a quick salvo tends to land as a tight group shifted long or
+  short together. The zones show while you aim too. A target's popup lists each ring's spread (long / side), and its
+  entry in the Mortar panel gives the zone sizes, the flight time, and warns about any friendlies inside the danger zone.
 
 **Enemy**
 - Contact report: click where you saw the enemy and fill in the optional report: what it is (infantry, vehicle, armour,
@@ -222,6 +242,11 @@ Esc, double-click or right-click finishes.
   50% are left out. The popup gives the share of ground and the closest spots at least 150 m out, with grid and height.
   The sights heights are the real vehicles' overall heights (2.32, 2.31 and 2.69 m); where the hull ends and the turret
   begins is estimated, since the game's own numbers aren't published. Change `HULL` in `static/app.js` to tune them.
+  Ground height and slope come from the game's 1 m terrain once its tiles have loaded (the 10 m heights until then).
+- Who can hear it (P then 0): pick the weapon and click where the shooting is. A dashed purple circle shows how far away
+  the game plays that shot, from its sound files: rifles, light MGs, pistols and grenade launchers 3.3 km, suppressed
+  rifles 3.7 km (still supersonic), 7.62 MGs and rifles 3.9 km, heavy MGs and cannons (M2, NSV, KPVT on the BTR-70 and
+  BRDM-2, M242 on the LAV-25) and RPG / LAW 4.8 km, mortars 2 km. It is faint near the edge; hills and wind aren't counted.
 - Overwatch finder: pick how far out to look (400 m, 800 m or 1.5 km) and click an objective. Ground from which a
   crouched observer can see a standing soldier on the objective is tinted in your colour (yellow if only through
   trees); ground that can't see it is left unshaded. The popup gives the share of ground with a clear view, the
