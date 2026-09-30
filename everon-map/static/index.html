@@ -189,8 +189,8 @@
             <span class="ld-opts">
               <button type="button" data-los-mode="full" role="radio" title="Every building, wall and tree from the game, at 0.5 m">Full</button>
               <button type="button" data-los-mode="visual" role="radio" title="On trial: plants as see-through as in game">Visual</button>
-              <button type="button" data-los-mode="profiles" role="radio" title="On trial: every plant blocks by the share of its outline measured from game pictures taken at 25 to 300 m">Measured</button>
-              <button type="button" data-los-mode="light" role="radio" title="10 m squares, quick">Light</button>
+              <button type="button" data-los-mode="profiles" role="radio" title="0.5 m resolution, slow">Measured</button>
+              <button type="button" data-los-mode="light" role="radio" title="10 m resolution, fast">Light</button>
             </span>
             <div id="los-strength" class="ld-strength hidden">
               <label for="los-strength-range" title="How strongly the measured leaves block. 1.0 is what the pictures showed; lower it if trees block less in game than on the map.">Foliage strength</label>
@@ -198,7 +198,6 @@
               <output id="los-strength-out">1.0</output>
             </div>
             <div id="los-note" class="ld-note"></div>
-            <div id="los-caveat" class="ld-note hidden">Measured at Ultra object draw distance, 2560x1440, 40° lens: lower settings swap to denser far models sooner. The bottom 1.7 m of each plant was seen against terrain, so close bush values there are the least certain (±15-20%). Thin or see-through leaf edges count as fully blocking, which probably overstates what a player sees.</div>
           </div>
           <div id="layers"></div>
           <label class="switch"><input type="checkbox" id="show-grid" checked><span>Grid lines</span></label>
@@ -208,7 +207,6 @@
       <footer>
         Data: POIs from <a href="https://reforger.recoil.org/everon/" target="_blank" rel="noopener">reforger.recoil.org</a>,
         place names from <a href="https://www.izurvive.com/reforger_everon/" target="_blank" rel="noopener">iZurvive</a>,
-        heightmap from <a href="https://mortards.net/" target="_blank" rel="noopener">mortards.net</a>,
         firing tables from <a href="https://github.com/147888sf/ArmA-Reforger-mortar-calculator" target="_blank" rel="noopener">147888sf</a>.
         Positions may lag game updates.
       </footer>

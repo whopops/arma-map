@@ -8,13 +8,14 @@
   // ---------------------------------------------------------------------------
   const OFFSET = 50;
   const SCALE = 12.501;
-  // The maps a room can be opened on (the server keeps the same list). size: the world's side in metres. Everon's data
-  // sits where it always did; the others' lives in data/maps/<id>/ (roads.json, light/, los/, foliage/, tiles/), as baked
-  // by reforger-map-tools. plants: this map's plant list for the measured-profiles line of sight, when its trees have
-  // been baked.
+  // The maps a room can be opened on (the server keeps the same list). size: the world's side in metres. Every map's
+  // data lives in data/maps/<id>/ (roads.json, places.json, light/, los/, plants/, foliage.json, foliage/, tiles/), as
+  // baked by reforger-map-tools; only Everon's satellite tiles come from elsewhere (the server's /tiles/ cache).
+  // poi: extra reference layers (Conflict bases, caves, supplies...), Everon only so far. plants/plantsDir: the
+  // plant list and tile files the Visual and Measured line of sight read.
   const MAPS = {
-    everon: { id: 'everon', name: 'Everon', size: 12800, legacy: true, tiles: '/tiles/{z}/{x}/{y}.jpg',
-      foliage: 'data/maps/everon/foliage/foliage_profiles.json', plants: 'data/maps/everon/foliage/plants.json' },
+    everon: { id: 'everon', name: 'Everon', size: 12800, dir: 'data/maps/everon', tiles: '/tiles/{z}/{x}/{y}.jpg', poi: 'data/everon.json',
+      foliage: 'data/maps/everon/foliage/foliage_profiles.json', plants: 'data/maps/everon/foliage.json', plantsDir: 'data/maps/everon/plants' },
     kolguyev: { id: 'kolguyev', name: 'Kolguyev', size: 12800, dir: 'data/maps/kolguyev', tiles: '/maptiles/kolguyev/{z}/{x}/{y}.jpg',
       foliage: 'data/maps/kolguyev/foliage/foliage_profiles.json', plants: 'data/maps/kolguyev/foliage.json', plantsDir: 'data/maps/kolguyev/plants' },
     arland: { id: 'arland', name: 'Arland', size: 4096, dir: 'data/maps/arland', tiles: '/maptiles/arland/{z}/{x}/{y}.jpg',
@@ -22,7 +23,7 @@
   };
   let MAP = MAPS.everon;
   let WORLD = MAP.size;
-  const mapLosDir = () => (MAP.legacy ? 'data/los' : `${MAP.dir}/los`);
+  const mapLosDir = () => `${MAP.dir}/los`;
   const CRS = L.Util.extend({}, L.CRS, {
     projection: L.Projection.LonLat,
     transformation: new L.Transformation(1 / SCALE, 0, -1 / SCALE, 0),
@@ -2655,11 +2656,14 @@
   // Visual needs Everon's own plant files; Measured needs a plant list for the map (MAP.plants), so on a map whose
   // trees haven't been baked yet only Full and Light are offered.
   const WORKER_MODES = ['full', 'visual', 'profiles'];
-  const modeAvailable = m => m === 'light' || (fullSupported() && (m === 'full' || m === 'visual' || (m === 'profiles' && !!MAP.plants)));
+  // Full and Visual are deprecated: their code stays (the worker still runs them if asked) but they can't be chosen, and
+  // a choice saved in someone's browser is ignored. Measured is the default on computers, Light on phones and tablets.
+  const DEPRECATED_MODES = ['full', 'visual'];
+  const modeAvailable = m => !DEPRECATED_MODES.includes(m) && (m === 'light' || (fullSupported() && m === 'profiles' && !!MAP.plants));
   function defaultLosMode() {
     const weak = (navigator.deviceMemory && navigator.deviceMemory < 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4)
       || matchMedia('(pointer: coarse)').matches; // phones and tablets
-    return fullSupported() && !weak ? 'full' : 'light';
+    return fullSupported() && !weak && MAP.plants ? 'profiles' : 'light';
   }
   const LOS_STRENGTH_KEY = 'everon-map-los-strength';
   // How strongly the measured leaves block (1 = as photographed), for the Measured model only.
@@ -2674,7 +2678,7 @@
   // What the worker needs to find this map's files.
   const workerCfg = () => ({
     size: WORLD, losDir: mapLosDir(),
-    visual: MAP.legacy ? { foliage: 'data/foliage.json', plants: 'data/plants' } : { foliage: `${MAP.dir}/foliage.json`, plants: `${MAP.dir}/plants` },
+    visual: { foliage: `${MAP.dir}/foliage.json`, plants: `${MAP.dir}/plants` },
     profiles: MAP.plants ? { json: MAP.foliage, plants: MAP.plants, dir: MAP.plantsDir || 'data/plants' } : null,
   });
   function losGrid(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
@@ -2727,17 +2731,15 @@
       b.classList.toggle('sel', on);
       b.setAttribute('aria-checked', on);
       b.disabled = !modeAvailable(b.dataset.losMode);
-      b.title = b.disabled && WORKER_MODES.includes(b.dataset.losMode) && fullSupported() ? `${b.dataset.losMode === 'profiles' ? 'Measured' : 'Visual'} needs a browser that can run it in the background` : b.title;
+      b.hidden = DEPRECATED_MODES.includes(b.dataset.losMode);
+      if (b.disabled && b.dataset.losMode === 'profiles' && fullSupported()) b.title = 'Needs this map’s trees, which have not been baked';
     });
     const measured = state.losMode === 'profiles';
     $('#los-strength').classList.toggle('hidden', !measured);
-    $('#los-caveat').classList.toggle('hidden', !measured);
-    $('#los-note').textContent = WORKER_MODES.includes(state.losMode) && fullError ? 'Full detail could not load, so Light is shown.'
-      : WORKER_MODES.includes(state.losMode) && fullWanted.size ? 'Working out full detail…'
-      : state.losMode === 'full' ? '0.5 m detail from the game.'
-      : state.losMode === 'visual' ? 'On trial: plants as see-through as in game.'
-      : measured ? 'On trial: each plant blocks by what was measured from game pictures.'
-      : '10 m. Quick, for phones.';
+    $('#los-note').textContent = WORKER_MODES.includes(state.losMode) && fullError ? 'Measured could not load, so Light is shown.'
+      : WORKER_MODES.includes(state.losMode) && fullWanted.size ? 'Working it out…'
+      : measured ? '0.5 m resolution, slow.'
+      : '10 m resolution, fast.';
   }
   $('#los-detail').addEventListener('click', e => {
     const b = e.target.closest('[data-los-mode]');
@@ -5609,7 +5611,7 @@
   const ROAD_STYLE = [{ color: '#ffd43b', weight: 5 }, { color: '#fff3bf', weight: 3.5 }, { color: '#d9a066', weight: 3 }, { color: '#e9ecef', weight: 2, dash: '5 4' }];
   let ROADS = null;
   function loadRoads() {
-    fetch(MAP.legacy ? 'data/roads.json' : `${MAP.dir}/roads.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => {
+    fetch(`${MAP.dir}/roads.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => {
       ROADS = d;
       // dark casing first so every kind reads on top of any map, then the colours, main roads last (on top)
       const line = (e, w, color, dash) => L.polyline(e[3].map(toLL), { color, weight: w, opacity: 0.95, lineCap: 'round', lineJoin: 'round', dashArray: dash, interactive: false });
@@ -5640,14 +5642,17 @@
     if (MAP !== def || !tileLayer) { MAP = def; showMapBase(); }
     if (!modeAvailable(state.losMode)) state.losMode = defaultLosMode();
     renderLosDetail();
-    // Everon: the full reference file. Another map: its town and landmark names, from the game's map descriptors.
-    (def.legacy ? fetch('data/everon.json').then(r => r.json())
-      : fetch(`${def.dir}/places.json`).then(r => r.json()).then(p => ({ ...emptyReference(), towns: p.towns || [], landmarks: p.landmarks || [] })).catch(() => emptyReference()))
+    // Town and landmark names come from the game's map descriptors (places.json); a map with a reference file of its own
+    // (Everon's bases, caves, supplies...) keeps everything else from it.
+    Promise.all([
+      def.poi ? fetch(def.poi).then(r => r.json()) : Promise.resolve(emptyReference()),
+      fetch(`${def.dir}/places.json`).then(r => r.json()).catch(() => null),
+    ]).then(([ref, places]) => (places ? { ...ref, towns: places.towns || ref.towns, landmarks: places.landmarks || ref.landmarks } : ref))
       .then(d => { buildReference(d); refreshFia(); loadRoads(); })
       .catch(err => { console.error(err); toast('Could not load reference data.', 6000); });
     // the line-of-sight index says how big the 10 m grids are, so it comes first
     loadDetailIndex().then(ix => {
-      if (!def.legacy && ix && ix.light) HN = ix.light.cols;
+      if (ix && ix.light) HN = ix.light.cols;
       loadLight(def);
     });
     return true;
@@ -5665,7 +5670,7 @@
   // The 10 m data files are gzipped (about a seventh of the download) and unpacked here.
   // name: height, forest, canopy, buildings, lz (every map), foliage, clutter (Everon's own files only).
   function lightBin(name) {
-    const url = MAP.legacy ? `data/light/everon-${name}.bin.gz?v=${DATA_V}` : `${MAP.dir}/light/${name}.bin.gz?v=${detailV || DATA_V}`;
+    const url = `${MAP.dir}/light/${name}.bin.gz?v=${detailV || DATA_V}`;
     return fetch(url).then(r => {
       if (!r.ok) throw new Error(`${name}: ${r.status}`);
       return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();

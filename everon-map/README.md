@@ -1,4 +1,4 @@
-# Everon Field Map
+﻿# Everon Field Map
 
 A shared tactical map of Everon (Arma Reforger) for planning with your squad.
 
@@ -105,12 +105,10 @@ its window. Only a hash of the password is kept in memory.
 - **Helicopter landing** layer: shades the map green (good), amber (marginal) and red (no-go) for landing at every
   10 m, with the same rules as the Landing zone check (worked out ahead from the game's own terrain and objects). It
   also shows whenever the Landing zone check tool is active.
-- **Roads** layer: the island's road network, traced from a printed topographic map of Everon (`tools/extract_roads.py`,
-  then `tools/link_roads.py`; put the picture at `tools/roads/Everon-1989.jpg`, it is not kept in the repo). Main roads in
-  yellow, streets in cream, dirt roads in tan and foot paths as white dashes: about 290 km in all, in `static/data/roads.json`.
-  Lines are smoothed and joined at their junctions; a road that stopped short because a label or icon was drawn over it is
-  joined to the road it was heading for (58 gaps closed), and foot paths are tied to the roads and paths they meet. About
-  245 km is one connected network. Foot paths are found from their dashes, so some faint ones are missing. Vehicles can use
+- **Roads** layer: the map's road network from the game's own map data (`static/data/maps/<map>/roads.json`, baked by
+  reforger-map-tools; the old Everon network traced from a printed map, `tools/extract_roads.py` and `tools/link_roads.py`,
+  is no longer used). Main roads in yellow, streets in cream, dirt roads in tan and foot paths as white dashes. Roads are
+  only joined where their surfaces actually touch. Vehicles can use
   foot paths but they're the least preferred. This is the network the vehicle route planner will run on.
 - **Hill shading** layer: lights the terrain from the north-west so ridges, valleys and dead ground stand out.
 - **Contour lines** layer: elevation lines drawn from the terrain heightmap (every 50 m zoomed out, 20 m mid-zoom, 10 m
@@ -328,7 +326,10 @@ Esc, double-click or right-click finishes.
 
 All line of sight comes from the game itself: terrain, buildings, walls, rocks, trees and bushes were measured in
 Arma Reforger Tools with the engine's own rays (`tools/workbench`, baked by `tools/bake_los.py`). Pick the detail
-under **Map layers → Line-of-sight detail**:
+under **Map layers → Line-of-sight detail**. **Full** and **Visual** are deprecated: they can't be chosen any more (a choice
+saved in a browser is ignored) but their code is still in `static/los-worker.js` and `static/app.js`. **Measured** is now
+the default on computers and **Light** on phones and tablets. The descriptions of Full and Visual below are kept for
+reference:
 
 - **Full** (the default on computers): every object at 0.5 m, worked out in a background thread so the map never
   freezes. Buildings, walls, rocks and trunks block; foliage blocks too, but there's open space under tree crowns, so
@@ -348,9 +349,11 @@ under **Map layers → Line-of-sight detail**:
   denser models further away, so far trees block more). Plants are counted once per sight line and multiplied:
   what's left visible = the product of (1 - strength × cover). **Foliage strength** (0 to 1.5, shown only in this mode)
   scales it; if trees block less in game than on the map, lower it. Yellow and the thresholds are Visual's. The measured
-  caveats show under the switch: Ultra draw distance at 2560x1440 and a 40° lens, and thin leaf edges count as fully
-  blocking, so it probably overstates what a player sees. It needs the map's plants (position, ground height, scale, kind)
-  (Everon's are in `static/data/plants/`, the other maps' in `static/data/maps/<map>/plants/`).
+  caveats: measured at Ultra draw distance, 2560x1440 and a 40° lens (lower settings swap to denser far models sooner);
+  the bottom 1.7 m of each plant was seen against terrain, so close bush values there are the least certain (±15-20%); and
+  thin leaf edges count as fully blocking, so it probably overstates what a player sees. (These used to show under the
+  switch; the switch now just says 0.5 m resolution, slow, and 10 m resolution, fast.) It needs the map's plants (position, ground height, scale, kind)
+  (`static/data/maps/<map>/plants/`).
 - **Light** (the default on phones and tablets): 10 m squares, under 4 MB for the whole island, instant. Every
   tree and bush from Visual is averaged into each square at seven heights (`tools/bake_light_foliage.py`), so woods
   thin the view the further it runs through them, faster in thick undergrowth and dense crowns, and at the height
@@ -400,21 +403,20 @@ anyone who joins that room later gets the same map (their own pick is ignored), 
 code. Existing links and rooms without a pick open on Everon. A page shows one map: joining a room on another map after
 the first reloads it.
 
-Each map has its own satellite picture, roads, terrain and line-of-sight data. Where they live:
+Each map has its own satellite picture, roads, terrain and line-of-sight data, all under `static/data/maps/<map>/`:
 
-| | Everon | Kolguyev, Arland |
-|---|---|---|
-| Satellite tiles | `/tiles/` (cached from reforger.recoil.org) | `static/data/maps/<map>/tiles/`, served at `/maptiles/<map>/` |
-| Roads | `static/data/roads.json` (the game's road pieces, `tools/import_game_roads.py`) | `static/data/maps/<map>/roads.json` (the game's own 2D map data) |
-| Line of sight | `static/data/los/` | `static/data/maps/<map>/los/` (`index.json` gives the grid and the terrain unit: 1 cm on Everon and Arland, 2 cm on Kolguyev) |
-| 10 m grids | `static/data/light/everon-*.bin.gz` (1280 cells a side) | `static/data/maps/<map>/light/*.bin.gz` (1300 cells on Kolguyev, 450 on Arland; taken from `los/index.json`) |
-| Plants / profiles | `static/data/plants/`, `static/data/maps/everon/foliage/` | `static/data/maps/<map>/foliage/foliage_profiles.json` |
+| | |
+|---|---|
+| `tiles/` | Satellite tiles, served at `/maptiles/<map>/`. Everon's are not there: they still come from the server's `/tiles/` cache (cached from reforger.recoil.org) |
+| `roads.json`, `places.json` | The road network and the town and landmark names, from the game's own map data |
+| `los/` | 500 m line-of-sight tiles; `index.json` gives the grid and the terrain unit (1 cm on Everon and Arland, 2 cm on Kolguyev) |
+| `light/` | The 10 m grids (height, forest, canopy, buildings, landing zones, foliage, clutter); their size (1300 cells a side on Everon and Kolguyev, 450 on Arland) comes from `los/index.json` |
+| `plants/`, `foliage.json` | Every tree and bush (position, ground height, scale, kind) and how see-through each kind is, for Visual and Measured |
+| `foliage/foliage_profiles.json` | The measured plant profiles for Measured |
 
-`tools/import_map_data.py` copies a map's baked data in from `reforger-map-tools`. What doesn't exist yet for Kolguyev and
-Arland: Conflict bases, caves, supplies, vehicle spawns and FIA caches (those layers are empty; towns and landmarks come
-from the game's map descriptors, `places.json`). Their trees (`plants/` and `foliage.json`, per-plant position, ground
-height, scale and kind) are baked, so all four line-of-sight options work there. The `MAPS` table at the top of `static/app.js` and `MAPS` in `server.py` list the maps.
-
+`tools/import_map_data.py` copies a map's baked data in from `reforger-map-tools`. Everon also reads `static/data/everon.json`
+for its bases, caves, supplies, vehicle spawns and FIA cache spots; Kolguyev and Arland have no such file yet, so those
+layers are empty there. The `MAPS` table at the top of `static/app.js` and `MAPS` in `server.py` list the maps.
 ## Multiplayer
 - Everyone enters a username and a **room code** each visit; nothing is remembered in the browser. Only people who use the
   same room code see each other and each other's markings, so several squads can share one server. "New code" makes up

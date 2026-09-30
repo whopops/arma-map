@@ -1,25 +1,26 @@
 """Bring a map's baked data from reforger-map-tools into the site.
 
-reforger-map-tools writes, per map, out/<slug>/<build>/site/ with roads.json, los/, light/, tiles/ and foliage/.
-This copies what the site uses to static/data/maps/<id>/ (the layout app.js's MAPS table expects):
+reforger-map-tools writes, per map, out/<slug>/<build>/site/ with roads.json, places.json, foliage.json, plants/, los/,
+light/, tiles/ and foliage/. This copies what the site uses to static/data/maps/<id>/ (the layout app.js's MAPS table
+expects):
 
-    kolguyev, arland   roads.json, los/ (500 m tiles + index.json), light/ (10 m grids), tiles/ (satellite),
-                       foliage/foliage_profiles.json
-    everon             only foliage/foliage_profiles.json and foliage/plants.json. Everon's satellite tiles, line-of-sight
-                       tiles and light grids stay where they always were (the new ones are byte-identical), and so do its
-                       roads (from the game's own road pieces, tools/import_game_roads.py).
+    roads.json                the road network
+    places.json               town and landmark names
+    foliage.json, plants/     every tree and bush (position, ground height, scale, kind) and how see-through each kind is
+    los/                      500 m line-of-sight tiles and index.json
+    light/                    10 m grids (height, forest, canopy, buildings, lz, foliage, clutter)
+    foliage/foliage_profiles.json   the measured plant profiles for the Measured line of sight
+    tiles/                    satellite tiles, for every map but Everon (its come from the server's /tiles/ cache;
+                              pass --tiles to copy those too)
 
-plants.json is the plant list the Measured line of sight reads: {"kinds": [prefab, ...] in the order of the kind numbers
-stored in each plant tile, "tiles": [...], "margin": m, "dir": folder of the plant tiles}. For Everon it's made from
-tools/foliage/plants.csv and static/data/foliage.json (the tiles data/plants/ already holds). For another map it comes
-from that map's own tree bake; until there is one, that map has no plants.json and app.js's MAPS entry says plants: null.
+foliage_shots.csv, the raw measurements, is a working file and isn't copied.
 
-Run:  python tools/import_map_data.py [--src <reforger-map-tools/out>] [--build 24903726] [map ...]
+Files of the same size that are already there are left alone, so a re-run is quick.
+
+Run:  python tools/import_map_data.py [--src <reforger-map-tools/out>] [--build 24903726] [--tiles] [map ...]
 """
 
 import argparse
-import csv
-import json
 import os
 import shutil
 import sys
@@ -46,24 +47,12 @@ def copy_file(src, dst):
     print(f'  {os.path.relpath(dst, DATA)}: {os.path.getsize(dst) / 1e6:.2f} MB')
 
 
-def everon_plants_json(dst):
-    with open(os.path.join(HERE, 'foliage', 'plants.csv'), encoding='utf8') as f:
-        kinds = [r['prefab'] for r in csv.DictReader(f)]
-    with open(os.path.join(DATA, 'foliage.json'), encoding='utf8') as f:
-        old = json.load(f)
-    out = {'note': "Everon's plants: kind = row of tools/foliage/plants.csv; tile files in data/plants/",
-           'dir': 'data/plants', 'margin': old['margin'], 'tiles': old['tiles'], 'kinds': kinds}
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    with open(dst, 'w', encoding='utf8') as f:
-        json.dump(out, f, separators=(',', ':'))
-    print(f'  {os.path.relpath(dst, DATA)}: {len(kinds)} kinds, {len(out["tiles"])} tiles')
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('maps', nargs='*', default=list(SLUGS), help='everon, kolguyev, arland (default: all)')
     ap.add_argument('--src', default=os.path.expanduser('~/Projects/reforger-map-tools/out'))
     ap.add_argument('--build', default='24903726')
+    ap.add_argument('--tiles', action='store_true', help="also copy Everon's satellite tiles")
     args = ap.parse_args()
     for m in args.maps:
         if m not in SLUGS:
@@ -74,16 +63,10 @@ def main():
         out = os.path.join(DATA, 'maps', m)
         print(m)
         copy_file(os.path.join(site, 'foliage', 'foliage_profiles.json'), os.path.join(out, 'foliage', 'foliage_profiles.json'))
-        if m == 'everon':
-            everon_plants_json(os.path.join(out, 'foliage', 'plants.json'))
-            continue
-        copy_file(os.path.join(site, 'roads.json'), os.path.join(out, 'roads.json'))
-        copy_file(os.path.join(site, 'places.json'), os.path.join(out, 'places.json'))
-        copy_file(os.path.join(site, 'foliage.json'), os.path.join(out, 'foliage.json'))  # plant kinds, tiles, units
-        copy_tree(os.path.join(site, 'plants'), os.path.join(out, 'plants'))
-        copy_tree(os.path.join(site, 'los'), os.path.join(out, 'los'))
-        copy_tree(os.path.join(site, 'light'), os.path.join(out, 'light'))
-        copy_tree(os.path.join(site, 'tiles'), os.path.join(out, 'tiles'))
+        for name in ('roads.json', 'places.json', 'foliage.json'):
+            copy_file(os.path.join(site, name), os.path.join(out, name))
+        for name in ('plants', 'los', 'light') + (('tiles',) if m != 'everon' or args.tiles else ()):
+            copy_tree(os.path.join(site, name), os.path.join(out, name))
 
 
 if __name__ == '__main__':
