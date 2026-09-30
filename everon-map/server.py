@@ -23,6 +23,7 @@ import argparse
 import collections
 import hashlib
 import ipaddress
+import gzip
 import json
 import math
 import mimetypes
@@ -51,6 +52,8 @@ TILE_UPSTREAM = "https://reforger.recoil.org/map-tiles/everon/{z}/{x}/{y}/tile.j
 # static/data/maps/<map>/tiles/ (see the /maptiles/ route).
 MAPS = ("everon", "kolguyev", "arland")
 DEFAULT_MAP = "everon"
+GZIP_TYPES = {"text/html", "text/css", "application/javascript", "application/json"}
+_gzip_cache = {}  # file -> (modified time, gzipped bytes), so each file is compressed once
 
 GRACE_SECONDS = 15          # how long a dropped connection may reconnect before its markings vanish
 KEEPALIVE_SECONDS = 5
@@ -831,9 +834,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def send_bytes(self, code, body, ctype, cache="no-cache"):
+    def send_bytes(self, code, body, ctype, cache="no-cache", gzipped=False):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if gzipped:
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache)
         self.end_headers()
@@ -987,7 +993,15 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
         # Map data changes only when it is re-baked (tile URLs carry a version), so browsers keep it for a week.
         cache = "no-store" if path in ADMIN_PAGES else "public, max-age=604800" if path.startswith("/data/") else "no-cache"
-        self.send_bytes(200, body, ctype, cache)
+        # Text (pages, scripts, styles, JSON) is sent gzipped to browsers that accept it; .gz data and JPEGs already are.
+        gz = ctype in GZIP_TYPES and len(body) > 1000 and "gzip" in (self.headers.get("Accept-Encoding") or "")
+        if gz:
+            stamp = os.path.getmtime(full)
+            hit = _gzip_cache.get(full)
+            if not hit or hit[0] != stamp:
+                hit = _gzip_cache[full] = (stamp, gzip.compress(body, 6))
+            body = hit[1]
+        self.send_bytes(200, body, ctype, cache, gz)
 
     def map_tile(self, map_id, z, x, y):
         # Kolguyev and Arland tiles are baked files; a tile that isn't there is open sea.
