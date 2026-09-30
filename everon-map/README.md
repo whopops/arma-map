@@ -1,6 +1,6 @@
-﻿# Everon Field Map
+﻿# Arma Reforger Maps
 
-A shared tactical map of Everon (Arma Reforger) for planning with your squad.
+Shared tactical maps of Arma Reforger (Everon, Kolguyev and Arland) for planning with your squad.
 
 ## Start it
 

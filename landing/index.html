@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arma Reforger Maps</title>
+<meta name="description" content="Shared tactical maps of Arma Reforger for planning with your squad, and a 3D explorer.">
+<script>
+  // Old shared links pointed at the field map on this address (/#room=...): send them on to it.
+  if (/^#room=/.test(location.hash)) location.replace('/map' + location.hash);
+</script>
+<style>
+  :root { --bg: #0e1317; --text: #e7ecef; --muted: #b4c0ca; --accent: #c8d96f; --accent-ink: #182006; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+
+  /* The picture is 16:9 and always fills the window, cropping the top (sky and trees) before the map in his hand.
+     Everything clickable is placed in percentages of the picture, so it stays on the right spot at any window size. */
+  .view { position: fixed; inset: 0; overflow: hidden; } /* clips the picture so a phone doesn't widen the page to fit it */
+  .stage {
+    position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: max(100vw, 100vh * 16 / 9); height: max(100vh, 100vw * 9 / 16);
+    background: url(home.webp) center / 100% 100% no-repeat;
+  }
+  /* on a tall window keep the map in his hand (37% across the picture) in the middle of the screen */
+  @media (max-aspect-ratio: 1/1) {
+    .stage { left: calc(50vw - 0.375 * 100vh * 16 / 9); transform: none; }
+  }
+  .shade { position: fixed; inset: 0; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(6, 9, 12, .72), rgba(6, 9, 12, 0) 34%, rgba(6, 9, 12, 0) 62%, rgba(6, 9, 12, .55)); }
+
+  header { position: fixed; top: 0; left: 0; right: 0; padding: 26px 16px 0; text-align: center; pointer-events: none; }
+  h1 { margin: 0; font-size: clamp(26px, 5vw, 46px); letter-spacing: .03em; text-shadow: 0 2px 14px rgba(0, 0, 0, .7); }
+  header p { margin: 4px 0 0; color: var(--muted); text-shadow: 0 1px 8px rgba(0, 0, 0, .8); }
+
+  /* the folded map in his hand: click it to open the field map */
+  .map-link {
+    position: absolute; left: 29.8%; top: 83.4%; width: 15.6%; height: 16.6%;
+    clip-path: polygon(0% 16%, 76% 0%, 93% 8%, 100% 71%, 88% 100%, 34% 100%);
+    background: rgba(200, 217, 111, .0); transition: background .2s;
+    cursor: pointer; outline: none;
+  }
+  .map-link:hover, .map-link:focus-visible { background: rgba(200, 217, 111, .38); }
+  .map-hint {
+    position: absolute; left: 37.4%; top: 82.6%; transform: translate(-50%, -100%);
+    padding: 7px 14px; border-radius: 999px; white-space: nowrap; pointer-events: none;
+    background: var(--accent); color: var(--accent-ink); font-weight: 650; font-size: clamp(13px, 1.5vw, 17px);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, .5); animation: nudge 2.2s ease-in-out infinite;
+  }
+  .map-hint::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: var(--accent); }
+  @keyframes nudge { 50% { transform: translate(-50%, calc(-100% - 6px)); } }
+  @media (prefers-reduced-motion: reduce) { .map-hint { animation: none; } }
+
+  /* the 3D explorer: a small box in the corner */
+  .three-d {
+    position: fixed; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 12px; padding: 12px 16px; width: min(300px, calc(100vw - 32px));
+    background: rgba(20, 26, 32, .86); border: 1px solid #35414c; border-radius: 12px; backdrop-filter: blur(6px);
+    color: inherit; text-decoration: none; transition: border-color .15s, background .15s;
+  }
+  .three-d:hover, .three-d:focus-visible { border-color: var(--accent); background: rgba(28, 36, 44, .94); outline: none; }
+  .three-d svg { width: 30px; height: 30px; flex: none; stroke: var(--accent); fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .three-d b { display: block; font-size: 16px; }
+  .three-d span { display: block; color: var(--muted); font-size: 13px; line-height: 1.35; }
+
+  .note { position: fixed; left: 16px; bottom: 12px; max-width: min(420px, calc(100vw - 350px)); margin: 0; color: rgba(231, 236, 239, .6); font-size: 12px; text-shadow: 0 1px 6px rgba(0, 0, 0, .8); }
+  @media (max-width: 720px) { .note { display: none; } }
+  /* on a phone the map in his hand is at the very bottom, so the 3D box moves up under the title */
+  @media (max-aspect-ratio: 1/1) { .three-d { bottom: auto; top: 104px; right: 16px; left: 16px; width: auto; } }
+</style>
+</head>
+<body>
+  <div class="view"><div class="stage">
+    <a class="map-link" href="/map" aria-label="Open the field map"></a>
+    <div class="map-hint">Open the field map</div>
+  </div></div>
+  <div class="shade"></div>
+  <header>
+    <h1>Arma Reforger Maps</h1>
+    <p>Click the map to plan with your squad.</p>
+  </header>
+  <a class="three-d" href="/3d/">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 19 6-9 4 5 3-4 7 8H2z"/><circle cx="17" cy="6" r="2"/></svg>
+    <div><b>3D Map</b><span>Fly or walk around in 3D. Best on a desktop.</span></div>
+  </a>
+  <p class="note">Map data exported from Arma Reforger. Not affiliated with or endorsed by Bohemia Interactive.</p>
+</body>
+</html>

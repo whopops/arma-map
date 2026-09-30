@@ -1,4 +1,4 @@
-"""Everon Field Map - local server.
+"""Arma Reforger Maps - local server.
 
 Serves the web app, caches map tiles on disk, and relays shared markings
 between connected players in the same room. Nothing about players is stored:
@@ -1146,7 +1146,7 @@ class Server(ThreadingHTTPServer):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Everon Field Map server")
+    ap = argparse.ArgumentParser(description="Arma Reforger Maps server")
     ap.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 to let others on your network connect")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--admin-password", default=os.environ.get("EVERON_ADMIN_PASSWORD", ""),
@@ -1172,7 +1172,7 @@ def main():
     threading.Thread(target=HUB.reap, daemon=True).start()
     srv = Server((args.host, args.port), Handler)
     shown = "localhost" if args.host in ("127.0.0.1", "0.0.0.0") else args.host
-    print(f"Everon Field Map running at http://{shown}:{args.port}/  (Ctrl+C to stop)", flush=True)
+    print(f"Arma Reforger Maps running at http://{shown}:{args.port}/  (Ctrl+C to stop)", flush=True)
     where = f"  (only from {args.admin_allow})" if ADMIN_ALLOW else ""
     if args.admin_password:
         print(f"Admin view: http://{shown}:{args.port}/admin  (password from --admin-password / EVERON_ADMIN_PASSWORD){where}", flush=True)

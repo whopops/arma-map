@@ -1,4 +1,4 @@
-/* Everon Field Map - client */
+/* Arma Reforger Maps - client */
 (() => {
   'use strict';
 
