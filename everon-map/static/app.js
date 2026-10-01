@@ -68,7 +68,9 @@
     maxBounds: worldBounds.pad(0.25),
     maxBoundsViscosity: 0.8,
   });
-  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  // The zoom buttons live in the right-hand column, above the game clock and the squad pop-out.
+  const zoomEl = L.control.zoom({ position: 'bottomright' }).addTo(map).getContainer();
+  $('#right-dock').insertBefore(zoomEl, $('#clock-wrap'));
 
   const BLANK_TILE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   const MapTiles = L.TileLayer.extend({
@@ -333,11 +335,13 @@
   });
   const labelIcon = (text, cls) => L.divIcon({ className: `map-label ${cls}`, iconSize: [0, 0], html: `<span>${esc(text)}</span>` });
 
-  // Popups pan into the part of the map not covered by the sidebar and toolbar.
+  // Popups pan into the part of the map not covered by the sidebar, toolbar and open right-hand panels.
   function popup() {
-    const sb = $('#sidebar');
-    const left = window.innerWidth > 720 && !sb.classList.contains('collapsed') ? sb.getBoundingClientRect().right + 16 : 16;
-    return L.popup({ maxWidth: 300, autoPanPaddingTopLeft: [left, 80], autoPanPaddingBottomRight: [60, 70] });
+    const sb = $('#sidebar'), wide = window.innerWidth > 720;
+    const left = wide && !sb.classList.contains('collapsed') ? sb.getBoundingClientRect().right + 16 : 16;
+    const open = wide ? ['#mortar-panel', '#squad-panel'].map(s => $(s)).filter(el => !el.classList.contains('hidden')) : [];
+    const right = open.length ? window.innerWidth - Math.min(...open.map(el => el.getBoundingClientRect().left)) + 16 : 60;
+    return L.popup({ maxWidth: 280, autoPanPaddingTopLeft: [left, 120], autoPanPaddingBottomRight: [right, 70] });
   }
 
   // Fly to a spot and open its popup when the flight ends (or after 1.2 s if the animation is held up).
@@ -405,7 +409,7 @@
     { key: 'masts', label: 'Radio masts', on: false, icon: '<span class="lg-radio"></span>', countFn: d => d.conflict.filter(c => c.kind === 'Radio tower').length },
     { key: 'mob', label: 'HQ start positions', on: false, icon: badge('⚑', C.mob) },
     { group: 'Terrain', key: 'forest', label: 'Forest', on: false, icon: '<span class="lg-forest"></span>', countText: '', legendHtml:
-      '<div class="legend-key one"><div>From the trees in the game: woods where trees or bushes 3 m or taller cover a third or more of the ground. Line of sight uses the real height of every tree.</div></div>' },
+      '<div class="legend-key one"><div>Ground ⅓+ covered by trees or bushes 3 m+. Line of sight uses each tree\'s real height.</div></div>' },
     { key: 'roads', label: 'Roads', on: false, icon: '<span class="lg-road"></span>', countText: '', legendHtml:
       '<div class="legend-key one"><div><span class="lk-line road-main"></span>Main road</div>' +
       '<div><span class="lk-line road-street"></span>Street</div>' +
@@ -1490,7 +1494,7 @@
   const mineSvg = kind => `<span class="mine-glyph mine-${kind} mini"><div><span>${kind.toUpperCase()}</span></div></span>`;
   const FINISH = 'Backspace undoes a point · Enter or double-click to finish';
   const TOOLBOX = [
-    { id: 'friendly', name: 'Friendly', key: 'F', color: '#6cb8ff', title: 'Your squad: positions, units and where you are going',
+    { id: 'friendly', name: 'Friendly', key: 'F', color: '#6cb8ff', title: 'Your positions, units and routes',
       icon: svg('<rect x="3" y="6" width="18" height="12" rx="1"/><path d="M3 6l18 12M21 6L3 18"/>'),
       items: [
         { tool: 'infantry', name: 'My position', icon: unitSvg('inf', 'f', true) },
@@ -1507,7 +1511,7 @@
         { tool: 'aa-f', name: 'AA gun', icon: '<span class="mi-badge" style="--c:#6cb8ff">AA</span>', hint: 'Click to mark a friendly AA gun' },
         { tool: 'mortar', name: 'Mortar', icon: svg('<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4.5M12 17.5V22M2 12h4.5M17.5 12H22"/>') },
       ] },
-    { id: 'enemy', name: 'Enemy', key: 'E', color: '#ff6b6b', title: 'What you know about the enemy: sightings, units, positions, movement and what they can see',
+    { id: 'enemy', name: 'Enemy', key: 'E', color: '#ff6b6b', title: 'Enemy sightings, units, movement and sight lines',
       icon: svg('<path d="M12 2.5L21.5 12 12 21.5 2.5 12z"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/>'),
       items: [
         { tool: 'contact', name: 'Contact report', short: 'Contact', icon: svg('<path d="M12 3l9 9-9 9-9-9z" fill="rgba(255,92,92,.35)"/><path d="M12 8v5M12 16v.1"/>', 'color:#ff5c5c') },
@@ -1530,7 +1534,7 @@
         '-',
         { tool: 'aa-e', name: 'AA gun', short: 'Enemy AA', icon: '<span class="mi-badge" style="--c:#ff5c5c">AA</span>' },
       ] },
-    { id: 'plan', name: 'Plan', key: 'P', color: '#c8d96f', title: 'Markers, routes, ambushes, range lines, route planning and landing zones',
+    { id: 'plan', name: 'Plan', key: 'P', color: '#c8d96f', title: 'Markers, routes, ambushes, range and terrain tools',
       icon: svg('<path d="M4 20l6-6 4 3 6-9"/><path d="M15 8h5v5"/>'),
       items: [
         { tool: 'marker', name: 'Marker', icon: svg('<path d="M12 21s-6.5-5.6-6.5-10.5a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/>'),
@@ -1542,7 +1546,7 @@
         { tool: 'range', name: 'Range line', icon: svg('<circle cx="5" cy="19" r="2"/><path d="M7 17L15.5 8.5" stroke-dasharray="2.5 2.5"/><circle cx="18" cy="6" r="3.2"/>'),
           hint: 'Click the start point, then the target' },
         { tool: 'profile', name: 'Elevation profile', short: 'Profile', icon: svg('<path d="M2 19l5.5-8 4 5 4.5-10L22 19z"/><path d="M2 21h20" stroke-dasharray="2 2.5"/>'),
-          hint: 'Click the start point, then the target · a side-on view of the ground between them, with line of sight' },
+          hint: 'Click the start, then the target · side-on view with line of sight' },
         '-',
         { tool: 'hulldown', name: 'Hull-down finder', short: 'Hull-down', icon: svg('<path d="M2 17c4 0 5-6 10-6s6 6 10 6" /><rect x="8" y="12" width="8" height="3.4" rx="1" fill="currentColor" stroke="none"/><path d="M16 13.4h4"/>', 'color:#8ce99a') },
         { tool: 'overwatch', name: 'Overwatch finder', short: 'Overwatch', icon: svg('<circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/>', 'color:#8ce99a') },
@@ -1551,7 +1555,7 @@
           hint: 'Hover to check a spot · click to mark a landing zone' },
         { tool: 'audible', name: 'Who can hear it', short: 'Heard from', icon: svg('<path d="M9 18V6l9-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/>', 'color:#b197fc') },
       ] },
-    { id: 'support', name: 'Support', key: 'S', color: '#ff922b', title: 'Ask for support: mortar fire missions, gun runs, medevac, pickups and resupply',
+    { id: 'support', name: 'Support', key: 'S', color: '#ff922b', title: 'Fire missions, gun runs, medevac, pickups, resupply',
       icon: svg('<circle cx="12" cy="12" r="7.5"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/>', 'color:#ff922b'),
       items: [
         { tool: 'fire-support', name: 'Fire support request', short: 'Fire request', icon: '<svg class="area-ico fire" viewBox="0 0 24 24"><path d="M4 8l7-5 9 4-1.5 11L8 21 3 15z"/><path class="x" d="M8 8l8 8M16 8l-8 8"/></svg>' },
@@ -1559,7 +1563,7 @@
         ...Object.entries(AIR).map(([tool, a]) => ({ tool, name: a.name, short: a.short, icon: `<span class="mi-badge" style="--c:${a.color}">${a.badge}</span>`,
           hint: tool === 'air-cas' ? null : `Click where the ${a.where}, then fill in the request` })),
       ] },
-    { id: 'defend', name: 'Defend', key: 'D', color: '#c8b27c', title: 'Holding a position: reference points, sectors of fire and fortifications',
+    { id: 'defend', name: 'Defend', key: 'D', color: '#c8b27c', title: 'TRPs, sectors of fire, fortifications',
       icon: svg('<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/>'),
       items: [
         { tool: 'trp', name: 'Target reference point', short: 'TRP', icon: svg('<path d="M12 3l9.5 17h-19z"/><path d="M12 10v6M9 13h6"/>'),
@@ -1578,7 +1582,7 @@
         { tool: 'roadblock', name: 'Roadblock', icon: svg('<path d="M2 20h20" stroke-dasharray="2 2.5"/><path d="M7 7l-4 11M7 7l4 11M1.5 14h11M17 7l-4 11M17 7l4 11M11.5 14h11"/>'),
           hint: `Click along the line of tank traps · ${FINISH}` },
       ] },
-    { id: 'hazards', name: 'Hazards', key: 'H', color: '#ffc53d', title: 'Dangers to everyone: minefields, blocked roads, bridges out',
+    { id: 'hazards', name: 'Hazards', key: 'H', color: '#ffc53d', title: 'Minefields, blocked roads, bridges out',
       icon: svg('<path d="M12 3.5L21.5 20h-19z"/><path d="M12 10v4.5M12 17.2v.1"/>'),
       items: [
         { tool: 'mine-at', name: 'AT minefield', icon: mineSvg('at'), hint: 'Click to drop an anti-tank minefield (10 m kill radius)' },
@@ -1633,7 +1637,7 @@
     isLassoTool(tool) ? map.dragging.disable() : map.dragging.enable();
     cancelLasso();
     if (tool !== 'mortar') state.mortarPlacing = false;
-    else setMortarPanel(true);
+    else if (solutionMortar()) setMortarPanel(true);
     updateHint();
     map.closePopup();
     updateLive();
@@ -2395,11 +2399,11 @@
     if (myMortar()?.id !== m.id) {
       const on = state.followMortar === m.id;
       html += `<div class="row"><button data-follow-mortar="${on ? '' : esc(m.id)}" aria-pressed="${on}">` +
-        `${on ? 'Stop showing its solutions' : 'Show its solutions on my map'}</button></div>`;
+        `${on ? 'Stop using its solutions' : 'Use its solutions'}</button></div>`;
     }
     if (alt != null) html += `<div class="sub">Altitude ${Math.round(alt)} m</div>`;
     if (lim) html += `<div class="sub">Reach ${fmtDist(lim.min)} – ${fmtDist(lim.max)}</div>`;
-    html += `<div class="sub">Heard firing ${fmtDist(GUNS.mortar.range)} away · its ${esc(m.shell)} rounds landing ${fmtDist(impactHeard(m.shell))} (${esc(NOISE.find(n => n[0] === state.noise)[1].toLowerCase())} background)</div>` +
+    html += `<div class="sub">Heard: firing ${fmtDist(GUNS.mortar.range)} · impacts ${fmtDist(impactHeard(m.shell))} (${esc(NOISE.find(n => n[0] === state.noise)[1].toLowerCase())})</div>` +
       `<div class="row"><button data-act="hear-mortar" aria-pressed="${state.hearMortar}">${state.hearMortar ? 'Hide' : 'Show'} sound ranges on the map</button></div>`;
     const reqs = allVisibleItems(isFireReq);
     if (reqs.length && TABLES) {
@@ -2438,12 +2442,12 @@
       layer.addLayer(zone(0, { color, weight: 1.8, dashArray: '5 4', fillColor: color, fillOpacity: 0.16, interactive: false }));
     }
   }
-  // "9 in 10 rounds land within 45 m long or short and 12 m left or right · kill zone 20 m beyond · danger zone 35 m beyond"
+  // "90% land ±45 m long/short, ±12 m left/right · kill +20 m · danger +35 m"
   // (or the circle's size without the physics), and any friendlies inside the danger zone.
   function impactText(shell, spread, xz, shape = null) {
-    const where = shape ? `9 in 10 rounds land within ${shape.long} m long or short and ${shape.side} m left or right` : null;
+    const where = shape ? `90% land ±${shape.long} m long/short, ±${shape.side} m left/right` : null;
     if (!isLethal(shell)) return { zone: where || `Rounds land within about ${spread} m`, near: [] };
-    return { zone: where ? `${where} · kill zone ${KILL_RADIUS} m beyond that · danger zone ${DANGER_RADIUS} m beyond`
+    return { zone: where ? `${where} · kill +${KILL_RADIUS} m · danger +${DANGER_RADIUS} m`
       : `Target zone ${spread} m · kill zone ${spread + KILL_RADIUS} m · danger zone ${spread + DANGER_RADIUS} m`,
     near: friendliesNear({ xz }, spread + DANGER_RADIUS) };
   }
@@ -2556,8 +2560,10 @@
     const m = myMortar();
     if (!m || state.mortarPlacing) {
       state.mortarPlacing = false;
+      // a second quick click before the first mortar comes back from the server moves it, rather than adding another
+      if (!m && !state.newMortarId) state.newMortarId = uid();
       saveItem({
-        id: m ? m.id : uid(), type: 'mortar', xz: roundXZ(xz), weapon: state.mortarWeapon, shell: state.mortarShell,
+        id: m ? m.id : state.newMortarId, type: 'mortar', xz: roundXZ(xz), weapon: state.mortarWeapon, shell: state.mortarShell,
         targets: m ? m.targets : [], label: m ? m.label : 'Mortar', note: m ? m.note : '', color: m ? m.color : state.me.color,
         ...(readWindInputs() ? { wind: readWindInputs() } : {}),
       });
@@ -2649,11 +2655,9 @@
       $('#mortar-targets').innerHTML = '';
     } else {
       const lim = shellLimits(m.weapon, m.shell), alt = heightAt(m.xz);
-      status.innerHTML = `<div class="stats">` +
-        `<div><span class="k">Position</span><span class="v">${grid(m.xz)}</span></div>` +
-        `<div><span class="k">Altitude</span><span class="v">${alt != null ? Math.round(alt) + ' m' : '—'}</span></div>` +
-        `<div><span class="k">Reach</span><span class="v">${lim ? `${(lim.max / 1000).toFixed(1)} km` : '—'}</span></div></div>` +
-        (m.targets.length ? '' : '<div class="empty" style="margin-top:8px">No targets yet.</div>');
+      status.innerHTML = `<div class="mp-pos"><span>Mortar</span><b>${grid(m.xz)}</b><span>${alt != null ? Math.round(alt) + ' m' : '—'}</span>` +
+        `<span>reach ${lim ? `${(lim.max / 1000).toFixed(1)} km` : '—'}</span></div>` +
+        (m.targets.length ? '' : '<div class="empty" style="margin-top:6px">No targets yet. Click the map with the mortar tool.</div>');
       $('#mortar-targets').innerHTML = m.targets.map((t, i) => {
         const sol = solve(m.weapon, m.shell, m.xz, t, m.wind), b = sol.best;
         const head = `<div class="tgt-head"><span class="id">T${i + 1}</span><span>${grid(t)}</span><span>·</span><span>${fmtDist(sol.d)}</span>` +
@@ -2668,6 +2672,11 @@
       }).join('');
     }
     refreshFireRequests(solutionMortar());
+    const has = !!solutionMortar();
+    if (has && !hadMortar) mortarWanted = true; // the first mortar placed or followed opens the panel
+    hadMortar = has;
+    if (m) state.newMortarId = null;
+    syncMortarPanel();
     if (state.tool === 'mortar') { updateHint(); updateMortarGhost(); }
   }
 
@@ -3024,8 +3033,7 @@
     $('#los-strength').classList.toggle('hidden', !measured);
     $('#los-note').textContent = WORKER_MODES.includes(state.losMode) && fullError ? 'Measured could not load, so Light is shown.'
       : WORKER_MODES.includes(state.losMode) && fullWanted.size ? 'Working it out…'
-      : measured ? '0.5 m resolution, slow.'
-      : '10 m resolution, fast.';
+      : '';
   }
   $('#los-detail').addEventListener('click', e => {
     const b = e.target.closest('[data-los-mode]');
@@ -3188,7 +3196,7 @@
   const GUNS = {
     rifle: { name: 'Rifle or light MG', get range() { return heardAt('rifle'); }, of: 'M16A2, AK-74, AKS-74U, M249, RPK-74 (5.56 / 5.45 mm)' },
     'rifle-s': { name: 'Suppressed rifle', get range() { return heardAt('rifle-s'); }, of: 'M16A2, AK-74, AKS-74U with a suppressor',
-      note: 'A suppressor takes about 5 dB off the muzzle blast in the game. The supersonic crack of the bullet is not counted here.' },
+      note: 'Suppressor: about −5 dB off the blast. Bullet crack not counted.' },
     mg: { name: '7.62 MG or rifle', get range() { return heardAt('mg'); }, of: 'PKM, PKT, M60, M240, UK-59, SVD, M21, vz. 58' },
     hmg: { name: 'Heavy MG or cannon', get range() { return heardAt('hmg'); }, of: 'M2 .50 cal and NSV on tripods, KPVT (BTR-70, BRDM-2), M242 25 mm (LAV-25)' },
     launcher: { name: 'RPG or LAW', get range() { return heardAt('launcher'); }, of: 'RPG-7, M72 LAW' },
@@ -3227,7 +3235,8 @@
     infantry: [{ label: 'I am', key: 'posUnit', options: [['inf', 'Infantry'], ['arm', 'Armour']] },
       { label: 'My range card', key: 'posRange', options: [[0, 'Off'], ...REACH] }],
     overwatch: { label: 'Overwatch · look out to', key: 'owRange', options: REACH },
-    audible: [{ label: 'Weapon', key: 'hearGun', options: Object.entries(GUNS).map(([k, g]) => [k, g.name]) },
+    // grenade launcher, heavy MG, launchers and mortar are kept in GUNS (old markings, mortar sound rings) but not offered
+    audible: [{ label: 'Weapon', key: 'hearGun', options: ['rifle', 'rifle-s', 'mg', 'pistol'].map(k => [k, GUNS[k].name]) },
       { label: 'Background noise', key: 'noise', options: NOISE }],
     hulldown: [{ label: 'Enemy', key: 'hdFoe', options: [['s', 'Soldier'], ['v', 'Vehicle']] },
       { label: 'My vehicle', key: 'hdVeh', options: [['btr70', 'BTR-70'], ['brdm2', 'BRDM-2'], ['lav25', 'LAV-25']] },
@@ -3251,7 +3260,7 @@
     if (t === 'sectors') return !d ? 'Click the centre of your position' : 'Move to set size and rotation · click to set';
     if (t === 'vehicle-view-f') return state.armourRange ? 'Click where our vehicle is' : 'Click to mark friendly armour';
     if (t === 'overwatch') return 'Click the objective to find where it can be seen from';
-    if (t === 'hulldown') return 'Click where the enemy is · shows where your vehicle can see them with only its turret above the ridge';
+    if (t === 'hulldown') return 'Click the enemy · finds spots where only your turret clears the ridge';
     if (t === 'audible') return 'Click where the shooting is · shows how far away it can be heard';
     if (t === 'profile') return draw ? 'Click the target' : 'Click the start point';
     if (t === 'radio') return 'Click where the radio backpack is';
@@ -3304,9 +3313,13 @@
     toolbarEl.classList.remove('no-keys', 'icons-only');
     if (innerWidth > 720) {
       // the buttons' own widths (an open menu hangs outside the toolbar, so its scroll width can't be used)
-      // (padding and border 12 px, 2 px gaps between buttons)
-      const tight = () => [...toolbarEl.children].reduce((w, el) => w + el.getBoundingClientRect().width + 2, 10) >
-        toolbarEl.getBoundingClientRect().width + 0.5;
+      // plus the toolbar's padding, border and gaps, read from its style
+      const tight = () => {
+        const cs = getComputedStyle(toolbarEl), kids = [...toolbarEl.children];
+        const extra = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth) +
+          (parseFloat(cs.columnGap) || 0) * (kids.length - 1);
+        return kids.reduce((w, el) => w + el.getBoundingClientRect().width, extra) > toolbarEl.getBoundingClientRect().width + 0.5;
+      };
       if (tight()) toolbarEl.classList.add('no-keys');
       if (tight()) { toolbarEl.classList.remove('no-keys'); toolbarEl.classList.add('icons-only'); }
     }
@@ -3732,7 +3745,7 @@
     return { pts, D, eye, tgt, h1, h2, block, view: los ? losAt(los, to) : undefined };
   }
   function sightHtml(pr) {
-    if (!pr) return '<p class="sub">The profile needs the terrain heights, which are still loading.</p>';
+    if (!pr) return '<p class="sub">Terrain still loading…</p>';
     const { pts, D, eye, tgt, block, view } = pr;
     const W = 300, H = 96;
     const lo = Math.floor(Math.min(...pts.map(s => s.g), eye, tgt) - 1);
@@ -3833,7 +3846,7 @@
       `<div class="profile-axis"><span>Start</span><span>${fmtDist(rc.total)}</span></div></div>`;
   }
   function routeCheckHtml(rc) {
-    if (!rc) return '<p class="sub">Terrain heights still loading.</p>';
+    if (!rc) return '<p class="sub">Terrain still loading…</p>';
     let html = `<div class="stats wrap"><div><span class="k">On foot</span><span class="v">${fmtTime(rc.walk)}</span></div>` +
       `<div><span class="k">Vehicle</span><span class="v">${fmtTime(rc.drive)}</span></div>` +
       `<div><span class="k">Up / down</span><span class="v">${Math.round(rc.climb)} / ${Math.round(rc.descent)} m</span></div></div>` +
@@ -3916,7 +3929,7 @@
   }
   function overwatchHtml(it) {
     const los = overwatchLos(it.xz, it.range), alt = heightAt(it.xz);
-    if (!los) return '<p class="sub">The overwatch finder needs the terrain heights, which are still loading.</p>';
+    if (!los) return '<p class="sub">Terrain still loading…</p>';
     const { near, high } = clearSpots(los, it.xz);
     const spot = s => `<b>${fmtDist(s.d)} ${compass(bearing(it.xz, s.xz))}</b> of it, grid ${grid(s.xz)} (${Math.round(s.h - alt) >= 0 ? '+' : ''}${Math.round(s.h - alt)} m)`;
     return `<div class="stats"><div><span class="k">Reach</span><span class="v">${fmtDist(it.range)}</span></div>` +
@@ -4018,7 +4031,7 @@
   }
   function hullDownHtml(it) {
     const r = hullDown(it), v = hullOf(it), alt = heightAt(it.xz);
-    if (!r) return '<p class="sub">The hull-down finder needs the terrain heights, which are still loading.</p>';
+    if (!r) return '<p class="sub">Terrain still loading…</p>';
     if (r.pending) return '<p class="sub">Working out the view…</p>';
     // Firing spots at least OW_MIN out, closest first, keeping each 80 m from the last one listed.
     const list = [];
@@ -4029,7 +4042,7 @@
       `<div><span class="k">Hull-down ground</span><span class="v">${r.total ? (r.n / r.total * 100).toFixed(1) : 0}%</span></div></div>` +
       (list.length ? `<p>Closest hull-down spots beyond ${OW_MIN} m:</p><ul class="hd-list">${list.map(spot).join('')}</ul>`
         : `<p><b class="rc-no">No hull-down ground</b> ${OW_MIN} m to ${fmtDist(it.range)} out.</p>`) +
-      `<p class="sub">Green: turret in view, hull hidden (hull ${v.hull} m, sights ${v.sights} m). Yellow: turret seen only through trees. Blue: hidden from them, ${HD_BACK} m back from a hull-down spot.</p>`;
+      `<p class="sub">Green: turret seen, hull hidden (hull ${v.hull} m, sights ${v.sights} m) · yellow: through trees · blue: hidden, within ${HD_BACK} m of green</p>`;
   }
 
   // --- Route planner (foot): the quickest way on foot around marked enemies ---------------------------------------
@@ -4043,15 +4056,15 @@
   const airRouting = () => state.tool === 'heli-route' || (state.tool === 'cover-route' && state.routeMode === 'air');
   function coverHint() {
     if (airRouting()) {
-      return !coverDraft ? 'Click where the flight starts (snaps to landing zones) · it keeps a wide berth of marked enemies and AA'
-        : !coverDraft.pts ? 'Click where the flight ends' : 'Save it from its popup, or click to start another';
+      return !coverDraft ? 'Click the start (snaps to LZs) · avoids marked enemies and AA'
+        : !coverDraft.pts ? 'Click where the flight ends' : 'Save from the popup, or click to start again';
     }
     if (state.tool === 'cover-route' && state.routeMode === 'vehicle') {
-      return !coverDraft ? 'Click where the drive starts · the quickest way by road, keeping out of sight of marked enemies'
-        : !coverDraft.pts ? 'Click where the drive ends' : 'Save it from its popup, or click to start another';
+      return !coverDraft ? 'Click the start · quickest drive out of sight of marked enemies'
+        : !coverDraft.pts ? 'Click where the drive ends' : 'Save from the popup, or click to start again';
     }
-    return !coverDraft ? 'Click where the route starts · the quickest way on foot around marked enemies'
-      : !coverDraft.pts ? 'Click where the route ends' : 'Save it from its popup, or click to start another';
+    return !coverDraft ? 'Click the start · quickest foot route around marked enemies'
+      : !coverDraft.pts ? 'Click where the route ends' : 'Save from the popup, or click to start again';
   }
   function cancelCoverDraft() {
     if (!coverDraft) return;
@@ -4442,7 +4455,7 @@
           `${rc.seenTrees ? `, <span class="rc-trees">through trees for ${fmtDist(rc.seenTrees)}</span>` : ''}.` : '<span class="sub">Mark enemies to see where it is exposed.</span>'}</p>` +
           `<p class="sub">Climbs ${Math.round(rc.climb)} m, descends ${Math.round(rc.descent)} m; steepest stretch ${Math.round(rc.steep * 100)}%.</p>` : '') +
         '<div class="row"><button data-cover="save">Save as route</button><button data-cover="discard">Discard</button></div>' +
-        `<p class="sub">Main roads ${ROAD_KMH[0]}, streets ${ROAD_KMH[1]}, dirt roads ${ROAD_KMH[2]}, foot paths ${ROAD_KMH[3]} (avoided unless they save a lot) and across country ${Math.round(OFFROAD_MS * 3.6)} km/h, slower on slopes. Off-road stays under ${SLOPE_LIMIT_DEG}° (green); red is over it. Re-plans when enemies change.</p>`);
+        `<p class="sub">Speeds: main ${ROAD_KMH[0]} · street ${ROAD_KMH[1]} · dirt ${ROAD_KMH[2]} · path ${ROAD_KMH[3]} (avoided) · off-road ${Math.round(OFFROAD_MS * 3.6)} km/h, slower uphill. Red: over ${SLOPE_LIMIT_DEG}°. Re-plans when enemies change.</p>`);
       d.layer.removeLayer(line); // the foot route's dashes; a drive is drawn solid, green, and red where too steep
       const vlayer = L.layerGroup().addTo(d.layer);
       drawDrive(vlayer, d.pts, dr.steep, { bubblingMouseEvents: false, interactive: true });
@@ -4615,7 +4628,7 @@
   }
   function lzHtml(owner, it) {
     const c = lzCheck(it.xz);
-    if (!c) return '<p class="sub">The landing zone check needs the terrain heights, which are still loading.</p>';
+    if (!c) return '<p class="sub">Terrain still loading…</p>';
     let html = `<p class="lz-verdict" style="--c:${LZ_COLOR[c.verdict]}"><b>${LZ_WORD[c.verdict]}</b>${c.reasons.length ? `: ${c.reasons.join(', ')}` : ''}</p>` +
       `<div class="stats"><div><span class="k">Slope</span><span class="v">${Math.round(c.deg)}°</span></div>` +
       `<div><span class="k">Obstacles</span><span class="v">${c.spot ? 'On the spot' : c.rotor ? 'Under the rotor' : c.near ? 'Close by' : 'Clear'}</span></div>` +
@@ -4909,7 +4922,7 @@
     return `<div class="stats"><div><span class="k">Facing</span><span class="v">${pad(Math.round(it.dir) % 360, 3)}°</span></div>` +
       `<div><span class="k">Arc</span><span class="v">${it.arc}°</span></div><div><span class="k">Range</span><span class="v">${fmtDist(it.range)}</span></div></div>` +
       (los ? `<p><b class="rc-no">Sees a helicopter over ${los.pct}%</b> of its arc${los.treePct ? `, ${los.treePct}% more only through trees` : ''}</p>` : '') +
-      `<p class="sub">Helicopter at ${state.heliAlt} m. Unshaded ground in the arc is hidden from the gun.</p>`;
+      `<p class="sub">Helicopter at ${state.heliAlt} m · unshaded = hidden from the gun</p>`;
   }
   let aaDraft = null; // {xz, layer, sector, los, raf}
   function aaClick(xz) {
@@ -5203,8 +5216,9 @@
     return `<div class="stats"><div><span class="k">Weapon</span><span class="v">${esc(g.name)}</span></div>` +
       `<div><span class="k">Heard out to</span><span class="v">${fmtDist(g.range)}</span></div></div>` +
       `<p class="sub">${esc(g.of)}.</p>` + (g.note ? `<p class="sub">${esc(g.note)}</p>` : '') +
-      `<p class="sub">Where the muzzle blast drops below the ${esc(NOISE.find(n => n[0] === state.noise)[1].toLowerCase())} background noise (${NOISE_LUFS[state.noise]} LUFS), worked out from the game's sound files. ` +
-      `Quieter wind hears farther: ${NOISE.map(([k, n]) => `${n.toLowerCase()} ${fmtDist(REACH_M[it.gun in REACH_M ? it.gun : 'rifle'][k])}`).join(', ')}. Hills, trees and buildings are not counted, and the bullet's own crack is not.</p>`;
+      `<p class="sub">Muzzle blast against ${esc(NOISE.find(n => n[0] === state.noise)[1].toLowerCase())} noise (${NOISE_LUFS[state.noise]} LUFS), from the game's sound files. ` +
+
+      `${NOISE.filter(([k]) => k !== state.noise).map(([k, n]) => `${n} ${fmtDist(REACH_M[it.gun in REACH_M ? it.gun : 'rifle'][k])}`).join(' · ')}. Ignores terrain, trees, buildings and the bullet's crack.</p>`;
   }
 
   // Popup details for the planning and hazard markings
@@ -5250,8 +5264,8 @@
         `<tr><td><span class="sec-id" style="--c:${SECTOR_COLORS[r.i % SECTOR_COLORS.length]}">${SECTOR_LETTERS[r.i]}</span></td>` +
         `<td>${degs(r.a)}°–${degs(r.b, true)}°<br><span class="sub">${mil(r.a)}–${mil(r.b, true)} mil</span></td><td>${seen(r)}</td><td>${esc((it.names || [])[r.i] || '—')}</td></tr>`).join('') + '</table>' +
         (notes ? `<div class="sec-notes">${notes}</div>` : '') +
-        '<p class="sub">Sees: the share of the sector\'s ground a gunner can see. Enemy and TRPs listed under it.</p>' +
-        (isMine(owner) ? '<p class="sub">Edit to assign who covers each sector, or to raise the position.</p>' : '');
+        '<p class="sub">Sees: % of the sector\'s ground the gunner can see.</p>' +
+        (isMine(owner) ? '<p class="sub">Edit to assign gunners or raise the position.</p>' : '');
     }
     if (it.type === 'ambush') {
       return `<p><b>Kill zone ${fmtDist(dist(it.from, it.to))}</b> · road runs ${pad(Math.round(bearing(it.from, it.to)) % 360, 3)}°</p>` +
@@ -5580,15 +5594,24 @@
 
   // The mortar panel on the right: closed to a tab until you open it or pick the mortar tool; remembered in this browser.
   const MORTAR_PANEL_KEY = 'everon-map-mortar-panel';
-  function setMortarPanel(open) {
+  // There is nothing in it until you have a mortar or follow a team's, so the tab and panel stay hidden until then;
+  // the first mortar you place or follow opens the panel.
+  let mortarWanted = (() => { try { return localStorage.getItem(MORTAR_PANEL_KEY) === 'open'; } catch { return false; } })();
+  let hadMortar = false;
+  function syncMortarPanel() {
+    const has = !!solutionMortar(), open = has && mortarWanted;
     $('#mortar-panel').classList.toggle('hidden', !open);
-    $('#mortar-tab').classList.toggle('hidden', open);
+    $('#mortar-tab').classList.toggle('hidden', open || !has);
     $('#mortar-tab').setAttribute('aria-expanded', open);
+  }
+  function setMortarPanel(open) {
+    mortarWanted = open;
+    syncMortarPanel();
     try { localStorage.setItem(MORTAR_PANEL_KEY, open ? 'open' : 'closed'); } catch { /* storage unavailable */ }
   }
   $('#mortar-tab').addEventListener('click', () => setMortarPanel(true));
   $('#mortar-close').addEventListener('click', () => setMortarPanel(false));
-  setMortarPanel((() => { try { return localStorage.getItem(MORTAR_PANEL_KEY) === 'open'; } catch { return false; } })());
+  syncMortarPanel();
 
   // Squad pop-out (bottom right): players and the briefing, one tab at a time. Folds to a tab showing the player count
   // (and a dot when the briefing changed); open or closed and which tab are remembered in this browser.
@@ -5741,7 +5764,7 @@
       $('#clock-time').textContent = 'Set time';
       $('#clock-sky').textContent = '';
       glyph.className = 'clock-glyph none';
-      $('#clock-read').innerHTML = '<p class="sub">Enter the time on your in-game watch to track it here, with the sun and moon.</p>';
+      $('#clock-read').innerHTML = '<p class="sub">Enter your in-game watch time to track the sun and moon.</p>';
       return;
     }
     const S = gameAt(), b = Sky.bodies(S, clock), lt = Sky.light(b);
