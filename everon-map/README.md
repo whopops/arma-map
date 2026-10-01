@@ -1,493 +1,294 @@
-﻿# Arma Reforger Maps
+# Arma Reforger Maps
 
-Shared tactical maps of Arma Reforger (Everon, Kolguyev and Arland) for planning with your squad.
+A shared tactical map of Arma Reforger (Everon, Kolguyev, Arland) for planning with your squad in the browser. Map
+data, terrain, line of sight, mortar ballistics and sound ranges are all measured from the game itself.
 
-## Start it
+- [Using the map](#using-the-map)
+- [How the numbers are worked out](#how-the-numbers-are-worked-out)
+- [Hosting it on a website](#hosting-it-on-a-website)
+- [Admin view](#admin-view)
+- [Data and files](#data-and-files)
 
-Double-click **Start Everon Map.cmd**, or run:
+## Using the map
+
+### Joining
+
+Open the site, pick a username and a **room code**. Everyone who uses the same code sees the same markings, live.
+**New code** makes a random one. **Invite** (next to your name, top left) copies a link that fills the code in. The
+first person into a room picks its map; anyone who joins later gets that map.
+
+Nothing is stored for you: your markings disappear when you close the tab (or within ~16 s if your browser drops).
+Use **Export plan** / **Import plan** (My markings) to keep a plan between sessions.
+
+### Layout
+
+- **Left sidebar**: you and your room, search (places, bases, caches, everyone's markings), **My markings**, **FIA caches
+  this game** and **Map layers**. Sections open and close from their headings. **Ctrl+K** finds any tool, layer or action.
+- **Toolbar** (top): Select plus six menus.
+- **Right column**: the **Mortar** panel at the top (only once you've placed or followed a mortar). At the bottom,
+  from the top down: zoom buttons, **game clock**, **Squad** (Players, Contacts, Briefing).
+- **Bottom**: grid reference under the cursor. Right-click anywhere for that spot's grid.
+
+### Toolbar
+
+**Select** (Q): click anything for details; drag your own markings to move them. Press a menu's letter, then a tool's
+number (e.g. **E then 1** = contact report). Esc returns to Select. Middle-drag pans with any tool. Tool options appear
+under the toolbar (number keys pick them). Drawn tools take a click per point: Backspace undoes, Enter / double-click /
+right-click finishes.
+
+| Menu | Key | Tools |
+|---|---|---|
+| Friendly | F | 1 My position · 2 Infantry · 3 Armour · 4 Advance arrow · 5 Rally point · 6 Objective · 7 Radio backpack · 8 AA gun · 9 Mortar |
+| Enemy | E | 1 Contact report · 2 Infantry · 3 Armour · 4 Sniper · 5 Roadblock / ambush · 6 Enemy in area · 7 Approach arrow · 8 Patrol route · 9 Enemy line of sight · 0 AA gun |
+| Plan | P | 1 Marker · 2 Route · 3 Ambush · 4 Range line · 5 Elevation profile · 6 Hull-down finder · 7 Overwatch finder · 8 Route planner · 9 Landing zone check · 0 Who can hear it |
+| Support | S | 1 Fire support request · 2 Gun run (CAS) · 3 Medevac · 4 Pickup / insertion · 5 Resupply drop |
+| Defend | D | 1 TRP · 2 Sectors of fire · 3 MG nest · 4 Bunker · 5 Sandbags · 6 Barbed wire · 7 Checkpoint · 8 Roadblock |
+| Hazards | H | 1 AT minefield · 2 AP minefield · 3 Blocked or mined road · 4 Bridge out |
+
+### Friendly
+
+- **My position**: one per player. Pick Infantry or Armour and an optional **range card** (400 m, 800 m, 1.5 km) that
+  shades what you can see. Range cards combine: cyan is seen by at least one, dark ground inside their reach is hidden
+  from all of them.
+- **Infantry / Armour**: unit symbols that time out (never, 5, 15, 30 min). Armour can carry a range card from its
+  sights (2 m up).
+- **Advance arrow, Rally point, Objective, AA gun**: plain markings.
+- **Radio backpack**: optional 50 m spawn circle; turns red ("spawn blocked") when a marked enemy is inside.
+- **Mortar**: see [Mortar](#mortar).
+
+### Enemy
+
+- **Contact report**: what, how many, doing what, heading, kit. Pulses for a minute, times out (15 min by default), and
+  is stamped with the game time. **It moved** leaves a dotted track. The Squad panel's Contacts tab lists live contacts
+  with distance and bearing from you.
+- **Infantry, Armour, Sniper, Roadblock / ambush**: one click. All count as enemy positions for route exposure,
+  route planning and radio spawn blocking.
+- **Enemy in area**: hold the mouse button and circle the area.
+- **Approach arrow, Patrol route**: drawn point by point.
+- **Enemy line of sight**: soldier (eyes 1 m) or vehicle (2 m) and a reach; red is seen, yellow through trees.
+- **AA gun**: click, aim, click. Covers 160° to 1.5 km; red is where it sees a helicopter at the chosen height (30, 100,
+  200 m).
+
+### Plan
+
+- **Marker**: label, note, colour and type (point, objective, rally, danger).
+- **Route**: time on foot and by vehicle, climb, height profile, legs, and where marked enemies can see it.
+- **Ambush**: linear or L-shaped; click both ends of the kill zone, then your side. Drag its handles to adjust.
+- **Range line / Elevation profile**: distance and bearing, plus a side-on view of ground, trees and buildings with the
+  sight line. Profile lets you pick eye heights (prone, crouched, standing, vehicle).
+- **Hull-down finder**: pick enemy, your vehicle (BTR-70, BRDM-2, LAV-25) and reach, click the enemy. Green: turret
+  seen, hull hidden. Yellow: through trees. Blue: hidden ground within 30 m of green, to wait in. The popup lists the
+  closest spots. Hull heights are estimates (`HULL` in `static/app.js`).
+- **Overwatch finder**: click an objective; tinted ground can see a standing soldier on it.
+- **Route planner**: Foot, Vehicle or Air; click start and end.
+  - Foot: quickest jog (3.33 m/s, slowed by slopes) that stays out of enemy sight and keeps clear of marked enemies and
+    minefields. Optional swimming.
+  - Vehicle: quickest drive on the road network (estimated speeds in `ROAD_KMH`), optionally cross-country.
+  - Air: snaps to landing zones and keeps a wide berth of enemies and AA.
+  - Save as a route; saved routes re-plan when enemy markings change.
+- **Landing zone check**: hover for a live verdict, click to mark an LZ. Checks slope, obstacles on and around the
+  touchdown spot, uneven ground and clear approach directions, using the game's 1 m terrain and 0.5 m objects. Suggests
+  the nearest good spot within 150 m.
+- **Who can hear it**: pick a weapon (rifle / light MG, suppressed rifle, 7.62 MG, pistol) and background noise, click
+  where the shooting is. A purple circle shows how far the muzzle blast carries. See [Sound](#sound).
+
+### Support
+
+- **Fire support request**: Area (circle it) or Point, and HE, Smoke or Illumination. Shows the target, kill and danger
+  zones, friendlies inside them, and a firing solution from every mortar. Mortar crews clear it with **Mission
+  complete**.
+- **Gun run (CAS)**: sent at once as "CAS 1"; add details later with Edit. Point or area. Warns about friendlies within
+  100 m.
+- **Medevac, Pickup, Resupply**: short form, then anyone can mark it Acknowledged, En route or Complete. Medevac and
+  pickup show the landing zone check for their spot.
+
+### Defend
+
+- **TRP**: numbered; shows distance and bearing from the nearest range card and whether each card can see it.
+- **Sectors of fire**: 3, 4, 6 or 8 sectors; name who covers each and raise the position. Shows dead ground and enemies
+  per sector.
+- **MG nest**: arc 30-120° and height; shows line of sight while you aim.
+- **Bunker, Checkpoint, Sandbags, Barbed wire, Roadblock**: plain markings.
+
+### Hazards
+
+AT minefield (10 m kill radius), AP minefield, blocked or mined road, bridge out.
+
+### Mortar
+
+Place a mortar (F then 9; M252 or 2B14, any shell) and the Mortar panel opens. Rings show each charge's reach.
+Click to add targets (up to 30); each gets ring, elevation and azimuth in mils, and flight time, plus where 90% of
+rounds land and the kill (+20 m) and danger (+35 m) zones for HE. Move the mouse for a live solution. Drag a target to
+correct fire.
+
+- **Wind**: enter it as the in-game map shows it (m/s, direction it comes from). It's saved on the mortar.
+- **Noise and sound ranges**: Noise (Still, Breeze, Windy, Storm) sets how far firing and impacts are heard; **Show
+  sound ranges** draws them.
+- **Fire requests**: every request on the map is solved for your mortar and listed in the panel (+ adds it as a
+  target).
+- **Mortar teams**: click a teammate's mortar and pick **Use its solutions** so everyone reads the same numbers.
+
+### Map layers
+
+- **Places**: towns (34), landmarks (135), caves & hideouts (11, approximate).
+- **Conflict**: bases, capture points and radio towers. Click one for its cap zone (50 m), build zone (100 m) and radio
+  range. Also: radio network links, radio masts and HQ start positions.
+- **Terrain**: forest, roads, foot paths, hill shading, contour lines (10-50 m; the cursor readout then shows height).
+- **Planning overlays**: line-of-sight shading and helicopter landing (good, marginal, no-go).
+- **Resources**: supply stashes, infinite supply points (Everon), vehicle spawns, refuel and repair points.
+- **Line of sight**: Measured (0.5 m, the default on computers) or Light (10 m, the default on phones). **Foliage
+  strength** tunes how much leaves block in Measured.
+
+### Other
+
+- **Game clock**: enter your in-game watch time and speed; the room shares it. Shows light level, sun and moon, and
+  sunrise, sunset and first/last light. Set the date and latitude under "Date and latitude" to match your server.
+- **Briefing**: one shared text per room (Squad → Briefing), with a template.
+- **FIA caches this game**: type or paste grids (6 or 8 digit, or X/Z metres); each snaps to the nearest of the 25
+  known spots and pulses pink for everyone. Or click a spot under "Show all possible cache spots".
+
+## How the numbers are worked out
+
+### Line of sight
+
+Terrain, buildings, walls, rocks, trees and bushes were measured in Arma Reforger Tools with the engine's own rays
+(`tools/workbench`, baked by `tools/bake_los.py`).
+
+- **The object data**: checked against 20,000 of the game's own sight lines, it agrees 95% of the time (terrain
+  alone: 66%). Those rays ignore leaves, so foliage is measured separately.
+- **Measured**: every plant blocks by how much of its outline the game actually draws, photographed from 8 sides at
+  ranges up to 300 m (`tools/foliage`). It probably overstates foliage a little; lower Foliage strength if trees block
+  less in game.
+- **Light**: every tree averaged into 10 m squares at seven heights. Agrees with the detailed model on 91% of ground.
+
+Full and Visual modes are retired but their code remains in `static/los-worker.js`. Grass, clutter and see-through
+fences don't block.
+
+### Mortar
+
+Each shell is flown under gravity and drag in the wind, from the muzzle (1.3 m up) to the target's height. Speeds,
+charge multipliers and drag come from the game's prefabs.
+
+- **Matches the game's physics:** it reproduces the game's wind tables to ~0.1% and its own shell simulation to 0.05
+  mil.
+- **Checked with live fire:** over 700 real shells fired in game, it predicts the landing within a median 0.3 m of
+  each round's real launch.
+- **Firing tables only pick the rings:** the in-game tables are 1-20 mil off, so they're only used to decide which
+  rings reach.
+- **Spread:** comes from the game's launch-speed variation (±1.07 m/s) and barrel dispersion.
+
+### Sound
+
+A shot is heard while its loudest 50 ms of muzzle blast is above the background noise in some third-octave band.
+
+- **Loudness at the gun:** from the game's amplitude configs; the shot is assumed to be that loud 2 m away.
+- **Fall-off:** 6 dB per doubling of distance, plus air absorption.
+- **Noise floor:** the game's wind and ambience recordings (−40 LUFS at full wind). The four noise levels are
+  estimates.
+- **Heard ranges in a breeze** (−50 LUFS): rifle 555 m, suppressed 310 m, 7.62 MG 695 m, mortar firing 330 m, HE
+  impact 475 m.
+- **Not counted:** hills, trees, buildings and the bullet's supersonic crack. The game's AI hears shots to 500 m
+  (suppressed 100 m), the same order.
+
+Scripts are in `reforger-map-tools/audible`; the data is in `everon_los/everon-data/sound`.
+
+## Hosting it on a website
+
+The site is one Python program (`server.py`, Python 3.9+, standard library only) that serves the page and the live
+updates (Server-Sent Events). Run it behind an HTTPS reverse proxy.
+
+### Run it
+
+```bash
+python server.py --behind-proxy
+```
+
+It listens on `127.0.0.1:8765` (change with `--host` / `--port`). For a quick local test, run `python server.py` (or
+double-click **Start Everon Map.cmd**) and open http://localhost:8765/.
+
+| Option | Environment variable | Purpose |
+|---|---|---|
+| `--behind-proxy` | | Read players' real addresses from `X-Forwarded-For` (only trusted from this machine or a private network). Needed for bans and limits to work behind a proxy. |
+| `--admin-password` | `EVERON_ADMIN_PASSWORD` | Admin password, 12+ characters. If unset, a random one is printed at each start. Prefer the variable: command lines are visible to other users. |
+| `--admin-allow` | `EVERON_ADMIN_ALLOW` | Addresses or networks allowed to open the admin view, comma-separated. Elsewhere it answers "Not found". |
+| `--host`, `--port` | | Where to listen (default `127.0.0.1:8765`). |
+
+### Reverse proxy
+
+Serve over **HTTPS**: session tokens travel with every request. The page calls absolute paths (`/api/…`, `/tiles/…`,
+`/maptiles/…`, `/data/…`, `/admin`), so give it its own domain or subdomain, or forward all of those. Disable response
+buffering so live updates arrive at once. Caddy example:
 
 ```
-python server.py
+maps.example.com {
+    reverse_proxy 127.0.0.1:8765 {
+        flush_interval -1
+    }
+}
 ```
 
-Then open http://localhost:8765/. Needs Python 3.9+ and nothing else. Map imagery is downloaded
-the first time you view an area and cached in `tile_cache/`, so it works offline for areas you've already seen.
+### Run it as a service (Linux)
 
-To let friends on your network join, run `python server.py --host 0.0.0.0` and give them
-`http://<your-PC's-IP>:8765/`. For internet hosting, put it behind any host that supports long-lived
-HTTP connections (it uses Server-Sent Events).
+```ini
+# /etc/systemd/system/everon-map.service
+[Service]
+User=everon
+WorkingDirectory=/opt/everon-map
+EnvironmentFile=/etc/everon-map.env
+ExecStart=/usr/bin/python3 server.py --behind-proxy
+Restart=always
 
-### Putting it on the internet
+[Install]
+WantedBy=multi-user.target
+```
 
-- Serve it over **HTTPS** through a reverse proxy (Caddy, nginx, or your host's), and keep the server itself on
-  `127.0.0.1` so only the proxy can reach it. Start it with `--behind-proxy` (see the Admin view below). Players'
-  session tokens travel in every request, so plain HTTP over the internet would let anyone on the path take over a
-  player.
-- Set a long, random admin password in `EVERON_ADMIN_PASSWORD`, and limit the admin view to your own address with
-  `--admin-allow` (see "Keeping the admin view safe" below).
-- The room code is the only thing that keeps a room private: anyone who has it can join and see everything. Use the
-  **New code** button (12 million possible codes) rather than something guessable like "alpha".
-- The server protects itself: per-address rate limits on requests and joins, at most 12 players per address, 60 per
-  room and 1000 in all, 500 markings and 2 MB per player, 600 open connections, and a 60 s timeout on stalled
-  requests. A player whose connection can't keep up is dropped and reconnects on its own. A proxy can add its own
-  per-address connection limits on top.
-- Pages are sent with a strict Content-Security-Policy (only the app's own scripts run; no framing by other sites),
-  and every marking is checked by the server before it's shared.
+To update: pull the repo, copy it over the live folder and restart the service. Keep `bans.json` and `tile_cache/` (both
+are untracked on purpose).
+
+### Built-in protection
+
+- **Rate limits** per address on requests and joins.
+- **Player caps:** 12 players per address, 60 per room, 1000 in total.
+- **Marking caps:** 500 markings and 2 MB per player.
+- **Connection caps:** 600 open connections, and a 60 s timeout on stalled requests.
+- **Checks on everything shared:** every marking is validated by the server, and pages get a strict
+  Content-Security-Policy.
+- **Room codes are the only privacy**, so use **New code** rather than a guessable word.
+
+The map data comes from Bohemia Interactive's game; check their content rules before hosting publicly.
 
 ## Admin view
 
-Open http://localhost:8765/admin to see every active room, who is in it (IP address, connected or reconnecting, when
-they joined, how many markings they have) and whether the room has a briefing. It refreshes every 4 seconds.
+Open `/admin` and sign in. It lists every room and its players (address, connection state, markings, briefing),
+refreshing every 4 s.
 
-- **Kick** removes a player and their markings; they can rejoin straight away.
-- **Ban 24 h** / **Ban** block the player's IP address for 24 hours or until you lift it. Everyone connected from that
-  address is removed (in any room) and can't join again. Bans are listed under "Banned addresses" with a "Lift ban"
-  button, and are saved in `bans.json` next to the server so they survive a restart. People on the same network share
-  an address, so a ban hits all of them. An IPv6 player is banned by their whole `/64` (the block one home or phone
-  gets), since they can switch to any address inside it.
-- **Close room** removes everyone in a room, with their markings and the briefing.
-- Removed players see why on the join screen ("You were removed…", "The admin closed this room", or how long a ban has
-  left).
-- If the server runs behind a reverse proxy (most hosting), start it with `--behind-proxy` so players' real addresses
-  are read from the proxy's `X-Forwarded-For` header. Without it everyone shows the proxy's address, and one ban would
-  block everybody. The header is only believed when the connection comes from this machine or a private network (where
-  the proxy is), so someone reaching the server directly can't fake their address.
+- **Kick**: removes a player and their markings; they can rejoin.
+- **Ban 24 h / Ban**: blocks the address (IPv6: its /64). Bans are kept in `bans.json` and survive restarts.
+- **Close room**: removes everyone, their markings and the briefing. Removed players see why on the join screen.
 
-### Keeping the admin view safe
+Security:
+- **Lockouts:** 5 wrong passwords lock an address out for 5 minutes. 30 from all addresses within 15 minutes pause
+  sign-in for everyone.
+- **Sessions:** they live in page memory only (no cookies), are tied to your address, and end after 30 minutes idle or
+  12 hours. At most 10 exist at once.
+- **Audit log:** sign-ins, failures, kicks, bans and closed rooms go to the server log. An unknown sign-in means the
+  password is out, so change it.
 
-It is password protected. Set the password in the `EVERON_ADMIN_PASSWORD` environment variable (or with
-`--admin-password "…"`, but other users of the machine can see command lines). It must be at least 12 characters, or
-the server won't start. If you don't set one, the server makes up a random one each time it starts and prints it in
-its window. Only a hash of the password is kept in memory.
+## Data and files
 
-- **Limit where it can be used** (strongly recommended on the internet): `--admin-allow 203.0.113.7` (your home IP),
-  or several addresses and networks separated by commas, or `EVERON_ADMIN_ALLOW`. From anywhere else `/admin` and
-  its API answer "Not found", even to the right password.
-- **Guessing gets nowhere**: 5 wrong passwords lock that address (or IPv6 /64) out for 5 minutes, and 30 wrong
-  passwords from all addresses together within 15 minutes pause sign-in for everyone until the 15 minutes are up. An
-  admin already signed in carries on, and restarting the server clears the pause.
-- **Sessions**: signing in gives the page a token kept only in that page's memory (nothing in cookies or storage). It
-  only works from the address that signed in, ends after 30 minutes with the page closed or 12 hours in all, and ends
-  at once when you sign out or close the tab. At most 10 sessions exist at a time.
-- **Audit log**: sign-ins, sign-outs, wrong passwords, lockouts, kicks, bans, lifted bans and closed rooms are printed
-  in the server window with the time and the admin's address. A "signed in" line you don't recognise means the
-  password is out: restart the server with a new one.
-- There's no way to sign in with cookies, so another website can't make your browser act as the admin, and the
-  admin page can't be shown inside another site.
-
-## Map
-
-- Everon satellite map with a 1 km / 100 m grid and grid labels
-- Live cursor readout: 6- and 8-digit grid plus exact X/Z metres
-- Right-click anywhere for that spot's grid reference
-- **Game clock** (top right): type the time from your in-game watch and pick the speed; everyone in the room then sees
-  the same time running. The panel shows how light it is (day, low sun, twilight, night, moonlit), a 24 h bar, the sun's
-  height and bearing, sunrise, sunset, first and last light (with the real minutes until each at the speed set), and the
-  moon's phase, height and rise and set. It takes the game's time as local solar time (12:00 is when the sun is highest)
-  and the date and latitude under "Date and latitude" (year 2035, 21 June, 49°N until you change them: match your
-  server's, which the map can't read). The moon follows the real calendar for that date. Contact reports are stamped with
-  this time.
-
-**Reference layers** (Map layers section; toggle each one)
-- Towns: all 34 named settlements
-- Landmarks: 136 hills, ridges, valleys, bays, lakes, islands, ruins and points of interest
-- Caves & hideouts: 11 community-reported caves, bunkers and camp spots (approximate 100 m squares)
-- Conflict: 39 bases, capture and control points and radio towers, colour-coded by type, plus 25 HQ start positions
-- Click any Conflict point for switches that draw its **cap zone** (50 m, yellow), **build zone** (100 m, dashed blue)
-  and **radio range** (2 km for bases, 3 km for radio towers, dotted purple). The popup also lists every point linked to
-  it by radio. Only you see these circles, and they hide with the Conflict layer.
-- **Radio network** layer: lines between every pair of Conflict points that can reach each other by radio. Solid white
-  means both are in range of each other; dashed cyan means only the radio tower's longer 3 km range reaches. In Conflict
-  you can only capture points connected to your radio network, so this shows how you can advance.
-- **Forest** layer: the woods, from the game's own trees: every 10 m square where trees or bushes 3 m or taller
-  cover a third or more of the ground, outlined in green with a light hatch. Line of sight doesn't rely on this
-  outline; it uses the real height of every tree.
-- **Helicopter landing** layer: shades the map green (good), amber (marginal) and red (no-go) for landing at every
-  10 m, with the same rules as the Landing zone check (worked out ahead from the game's own terrain and objects). It
-  also shows whenever the Landing zone check tool is active.
-- **Roads** layer: the map's road network from the game's own map data (`static/data/maps/<map>/roads.json`, baked by
-  reforger-map-tools; the old Everon network traced from a printed map, `tools/extract_roads.py` and `tools/link_roads.py`,
-  is no longer used). Main roads in yellow, streets in cream, dirt roads in tan and foot paths as white dashes. Roads are
-  only joined where their surfaces actually touch. Vehicles can use
-  foot paths but they're the least preferred. This is the network the vehicle route planner will run on.
-- **Hill shading** layer: lights the terrain from the north-west so ridges, valleys and dead ground stand out.
-- **Contour lines** layer: elevation lines drawn from the terrain heightmap (every 50 m zoomed out, 20 m mid-zoom, 10 m
-  zoomed in, with every fifth line brighter). While it's on, the grid readout also shows the ground height under the cursor.
-- Supplies (185, with amount and foot/vehicle access), vehicle spawns (172), refuel (19), repair (8), FIA hidden caches (25)
-
-## Toolbar
-
-**Select** (Q) is the normal mode: click anything for details, and drag your own markings to move them. The other tools
-sit in six colour-coded menus. Press a menu's letter to open it, then the number next to a tool
-(for example **E then 1** is a contact report). Esc goes back to Select, and **Ctrl+K** finds any tool by name.
-Dragging with the **middle mouse button** pans the map whatever tool is active.
-
-| Menu | Key | Tools (number in the menu) |
-|---|---|---|
-| **Friendly** (blue) | F | 1 My position · 2 Infantry · 3 Armour · 4 Advance arrow · 5 Rally point · 6 Objective · 7 Radio backpack · 8 AA gun · 9 Mortar |
-| **Enemy** (red) | E | 1 Contact report · 2 Infantry · 3 Armour · 4 Sniper · 5 Enemy roadblock / ambush · 6 Enemy in area · 7 Approach arrow · 8 Patrol route · 9 Enemy line of sight · 0 AA gun |
-| **Plan** (green) | P | 1 Marker · 2 Route · 3 Ambush · 4 Range line · 5 Elevation profile · 6 Hull-down finder · 7 Overwatch finder · 8 Route planner · 9 Landing zone check · 0 Who can hear it |
-| **Support** (orange) | S | 1 Fire support request · 2 Gun run (CAS) · 3 Medevac · 4 Pickup / insertion · 5 Resupply drop |
-| **Defend** (khaki) | D | 1 Target reference point (TRP) · 2 Sectors of fire · 3 MG nest · 4 Bunker · 5 Sandbags · 6 Barbed wire · 7 Checkpoint · 8 Roadblock |
-| **Hazards** (amber) | H | 1 AT minefield · 2 AP minefield · 3 Blocked or mined road · 4 Bridge out |
-
-Some tools show options under the toolbar; pick them with the mouse or the number keys while the tool is active.
-Drawn tools (routes, arrows, sandbags, wire) take a click per point: Backspace undoes a point, and Enter,
-Esc, double-click or right-click finishes.
-
-**Friendly**
-- My position: one per player, in blue with a white border and your name under it; clicking again moves it. It carries a
-  range card (rings and line of sight): pick its reach in the options (Off, 400 m, 800 m or 1.5 km); changing it
-  updates your marker straight away. Pick Infantry or Armour in the options too: armour shows the armour symbol and
-  its range card sees from a vehicle's sights (2 m up, trees within 15 m ignored). Players with a position show a
-  symbol in the Players list; click them to jump to it. Players whose position has a range card also get an eye
-  button there: click it to hide or show that player's line of sight on your map only, so you can check who sees what.
-- Infantry: a NATO-style symbol (a blue rectangle with an X; the enemy's are red diamonds). The options set when new
-  ones time out: never, 5, 15 or 30 minutes. They fade after a third of that time and disappear for everyone at the
-  end; edit one to change its timeout (counted from then).
-- Armour: the armour symbol (a blue rectangle with an oval). Its options set its line of sight: Off for just the
-  symbol, or a reach (400 m, 800 m or 1.5 km) to show what the vehicle sees from its sights 2 m up, in blue with range
-  rings (trees within 15 m ignored). With line of sight it works like your position's range card: its seen and hidden
-  ground joins the squad's combined shading, and TRPs measure distance and bearing from it.
-- Advance arrow: a solid blue arrow; the arrowhead goes on the last point.
-- Rally point and Objective: a flag or star in your colour, named in the editor ("Rally point 1", "Objective 1").
-- Radio backpack: marks where a radio backpack is set up to spawn on. Players can only spawn on it while no enemy is
-  within 50 m, so it can show that 50 m circle: pick Show or Hide in the options before placing, or use the button in
-  its popup. If a marked enemy (a unit, contact, sniper or enemy-in-area shape) is inside the circle, the backpack, its
-  circle and its label turn red ("spawn blocked") and the popup says who and how far away.
-- AA gun: a blue AA marker for a friendly anti-air gun (no line of sight).
-- Mortar (F then 9): click to place your mortar (M252 US or 2B14 Soviet, any shell type); the Mortar panel opens. Dashed circles
-  show each ring's maximum reach and a red circle the minimum range. Move the mouse for a live firing solution and click
-  to add targets (up to 30). Each target shows the recommended ring (the lowest that reaches, with the tightest spread),
-  elevation in mils corrected for the height difference (from the game's own 1 m terrain; a target on a building is aimed at its roof, where the rounds land), azimuth in degrees and mils (6400 for M252, 6000 for 2B14) and
-  flight time; its details list every ring that can reach it, and how many mils of elevation and azimuth move the rounds
-  50 m north / south and east / west on the recommended ring.
-  Elevation, flight time and aim-off come from the game's own flight model: each shell's muzzle speed, charge-ring
-  multipliers and air drag come from its prefab in the game files, and a shell is simulated under gravity with drag against
-  the moving air, from the muzzle (1.3 m up) to the target's height, in the wind. That reproduces the game's own wind
-  tables (Configs/Weapons/Ammo/WindData) to about 0.1% and the engine's own shell simulation (the `ballistics` job in
-  reforger-map-tools, 54,684 shots) to 0.05 mil on average. It was then checked with live fire: `firetest.py` in
-  reforger-map-tools fires real shells in the game on Everon, with the game's own weather and terrain, and records every
-  round's launch. Over 700 rounds, flown from its real launch the model lands within a median 0.3 m of where the round
-  did, with targets up to 260 m below or 190 m above the mortar and 8-10 m/s wind from every side. The range tables the
-  site used before are a few mils off that (their aims landed 6 m long on average, up to 20 m), so they now only set
-  which rings reach. A crosswind is aimed off on the azimuth. Enter the wind in the Mortar panel as the in-game map shows
-  it (m/s, and the direction it blows from; live fire confirmed the map shows where the wind comes from); it is saved on
-  your mortar, so anyone showing its solutions gets the same numbers. "Show sound ranges" (the Mortar panel, or any
-  mortar's popup) draws how far every mortar's firing is heard (330 m in a breeze) and, around each target, how far its
-  rounds landing are heard (HE 475 m, smoke 150 m in a breeze). These are where the sound drops below the background
-  noise; pick Still, Breeze, Windy or Storm beside the toggle (see "Who can hear it" for how they're worked out).
-  To correct fire, drag a target: its label shows the new solution as you drag, and dropping it saves the move for
-  everyone. The mortar's owner and anyone showing its solutions can drag its targets.
-  Each target also shows where the rounds will land, the same way as a fire support pin: with an HE shell, a shaded
-  red target zone where 9 in 10 rounds land, a dashed red kill zone 20 m beyond it and a dashed yellow danger zone 35 m
-  beyond it (a round landing on the target zone's edge); with smoke, illumination or practice rounds, just the spread.
-  The target zone is an ellipse along the line of fire, worked out for that shot: every round leaves at a random speed
-  (the shell's base speed ±1.07 m/s, one standard deviation and never more than 3, times the ring's multiplier:
-  measured over the live-fire rounds), which throws it long or short, and the barrel adds a small random direction (its
-  muzzle is set to a group 1 m wide at 48 m), which spreads rounds sideways too. The barrel part is from the game's
-  settings; the live test launched shells directly, so it didn't include it. The game's "random" speed drifts smoothly
-  with time rather than jumping from round to round, so a quick salvo tends to land as a tight group shifted long or
-  short together. The zones show while you aim too. A target's popup lists each ring's spread (long / side), and its
-  entry in the Mortar panel gives the zone sizes, the flight time, and warns about any friendlies inside the danger zone.
-
-**Enemy**
-- Contact report: click where you saw the enemy and fill in the optional report: what it is (infantry, vehicle, armour,
-  helicopter, sniper, artillery), how many, what they're doing, heading (drawn as an arrow) and what they're carrying.
-  It pulses for the first minute and times out like unit markers (15 minutes unless you pick another time), with its
-  age shown next to it. The popup shows the game time it was seen (once the clock is set) and how far it is from your
-  position marker. **It moved** (in the popup, for your own reports) lets you click its new position: the old spot stays
-  as a dotted track (the last six), the heading points along the move and the age starts again. The **Contacts** tab of
-  the Squad panel lists every live contact newest first, with the distance and bearing from you; click one to go to it.
-- Infantry, Armour and Sniper: one click drops the symbol. Infantry and Armour time out like friendly units.
-- Enemy roadblock / ambush: a red diamond where the enemy has set up a roadblock or ambush. It counts as an enemy
-  position everywhere: route exposure (watching 800 m round like enemy soldiers), the route planner's keep-out
-  distances, and it blocks a radio backpack within 50 m.
-- Enemy in area: hold the mouse button (or your finger) and circle where the enemy is; let go and the shape closes itself.
-  It's shaded red, and its popup shows the size and perimeter. Left-drag draws instead of panning while this tool is
-  active; pan with the middle mouse button and zoom with the wheel.
-- Approach arrow (dashed red) and Patrol route (orange, with chevrons showing the direction of travel).
-- Enemy line of sight: pick Soldier or Vehicle and a reach in the options, then click where the enemy is watching
-  from. Ground a crouched soldier (eyes 1 m up) or a vehicle's sights (2 m up) can see from there is shaded red, and
-  yellow where only trees are in the way; keep out of both.
-- AA gun (E then 0): click where the gun is, move the mouse to aim and click. It covers 160° out to 1.5 km. Red shows
-  where it can see a helicopter flying at the height picked in the options (30, 100 or 200 m above the ground; 100 m
-  unless you change it), yellow only through trees; unshaded ground inside the arc is hidden by terrain or more than
-  50 m of trees. It stands for the stock game's mounted heavy machine guns (M2 Browning, DShKM): they can aim from
-  -10° to +70° (the DShKM tripod's limit in earlier Arma games; not confirmed for Reforger), and a gun inside a wood
-  can't see up through the canopy over it.
-
-**Plan**
-- Marker: a point with a label, a note, a colour and a type: point, objective, rally point or danger (an amber "!"
-  for anything else to watch out for).
-- Route: its popup has a route check: time on foot (a jog, slowed by slopes) and by vehicle (40 km/h), the
-  height climbed and descended, a height profile, the steepest stretch and each leg's distance and bearing. It also
-  shows where marked enemies can see the route: red on the map where they see it clearly, yellow only through trees,
-  listed by distance along the route with who sees it. It flags enemy-in-area shapes the route goes through and minefields,
-  blocked roads, bridges out and dangers within 30 m. Enemy line-of-sight markings use their own reach; other enemy
-  markings (infantry, contacts, enemy markers) are assumed to watch all round from a crouch out to 800 m, a sniper to
-  1.2 km and armour from 2 m up to 1.5 km. Contacts and units that have timed out stop counting.
-- Ambush: pick Linear or L-shaped, click both ends of the kill zone along the road, then the side your squad waits on.
-  It draws the kill zone, the support (MG) group, the assault group, fire arrows and a lookout on each flank. Drag the
-  middle handle to move your ambush or the end handles to stretch or turn it; "Flip side" in its popup swaps the side.
-- Range line: click a start point, then a target; the line is labelled with distance and bearing for everyone. Its
-  popup shows an elevation profile: a side-on slice of the ground, trees (green) and buildings (grey) between the two
-  points, the sight line across it, whether the ground blocks it (and where) and what the line-of-sight model says about
-  trees and buildings.
-- Elevation profile: the same line, with the profile opened as soon as you finish it. Pick From and To (prone,
-  crouched, standing or vehicle eye height) in the options.
-- Hull-down finder: pick the enemy (soldier or vehicle), your vehicle (BTR-70: hull 1.9 m, sights 2.3 m; BRDM-2: 1.75 m and 2.3 m;
-  LAV-25: 2.0 m and 2.65 m) and how far out to look, then click where the enemy is. Green ground is where the enemy can
-  see the turret clearly and not the hull; yellow where it's seen only through trees; blue is hidden from the enemy,
-  within 30 m of a hull-down spot, where a vehicle can wait and then move up. Water, woods and ground steeper than
-  50% are left out. The popup gives the share of ground and the closest spots at least 150 m out, with grid and height.
-  The sights heights are the real vehicles' overall heights (2.32, 2.31 and 2.69 m); where the hull ends and the turret
-  begins is estimated, since the game's own numbers aren't published. Change `HULL` in `static/app.js` to tune them.
-  Ground height and slope come from the game's 1 m terrain once its tiles have loaded (the 10 m heights until then).
-- Who can hear it (P then 0): pick the weapon and the background noise, and click where the shooting is. A dashed
-  purple circle shows how far away the muzzle blast (not the bullet's supersonic crack) stays above the background noise.
-  The game plays a shot out to 3.3-4.8 km, but the wind and ambience drown it long before that, so the range is worked
-  out from the game's own sound files: each gun's loudness at the muzzle (Amplitude configs: rifle -15.5 LUFS, 7.62 MG
-  -13.5, heavy MG / launcher -9; a suppressor about 5 dB less), falling 6 dB per doubling of distance with air absorption,
-  against the ambient wind and bed recordings (all mastered to -30 LUFS, played through the wind bus at -10 dB, so -40
-  LUFS at full wind). The shot counts as heard while its loudest 50 ms is above the noise in any third-octave band. In
-  a breeze (-50 LUFS): rifles, pistols and grenade launchers 555 m, suppressed rifles 310 m, 7.62 MGs 695 m, heavy MGs
-  and RPG / LAW 1.15 km, mortars 330 m. Still air (-55) reaches about 1.8x as far, a storm (-40) about a third. The
-  game's own AI hears a normal shot to 500 m and a suppressed one to 100 m, the same order. Hills, trees and buildings
-  aren't counted, and the loudness steps are estimates: check them against what you hear in game. The scripts are in
-  `reforger-map-tools/audible`.
-- Overwatch finder: pick how far out to look (400 m, 800 m or 1.5 km) and click an objective. Ground from which a
-  crouched observer can see a standing soldier on the objective is tinted in your colour (yellow if only through
-  trees); ground that can't see it is left unshaded. The popup gives the share of ground with a clear view, the
-  closest clear spot at least 150 m out and the highest one, with their grids and height above the objective.
-- Route planner: pick Foot, Vehicle or Air in the options, then click a start and an end.
-  - Foot (any distance; long routes take a few seconds to plan): the quickest way at a jog. Arma Reforger's run is about 3.33 m/s on the flat (100 m in 30 s, timed in game); slopes slow it
-    (every 10% of uphill grade costs 15% more time; downhill is full speed up to 30%, then slows the same way;
-    measured along the direction of travel, so going round a hillside counts as flat), and slopes over 80° can't be
-    crossed. The uphill cost is an estimate: time a 100 m climb in game to tune it. It keeps out of sight of marked enemies (seen ground
-    costs ten times as much, seen through trees two and a half times), keeps 300 m from marked soldiers, contacts and
-    snipers, 500 m from armour and AA guns and 100 m from enemy-in-area shapes (it only goes closer if there's no
-    other way), and stays 15-25 m from minefields. It stays off the sea unless you set Swimming: On in the options (off by
-    default): then it can swim at about 1.22 m/s (Camurac's shore to Seagull Point, 508 m of water, takes 6 min 56 s in
-    game), and the popup shows how far it swims. A saved route keeps its swimming setting when it re-plans. The popup compares it with going straight across.
-    "Save as route" shares it; a saved foot route re-plans itself on its owner's page whenever enemy markings are added,
-    moved or time out. The slope curve and jog speed are estimates; the 10 m heightmap smooths out short cliffs and banks.
-  - Vehicle: the quickest drive on the Roads layer's network (main roads 65 km/h, streets 45, dirt roads 35, foot paths 25
-    but counted at 1.6 times their time so roads win unless a path saves a lot), with the start and end joined to the
-    nearest roads by short off-road legs (up to 700 m; no water, nothing steeper than 30°). Slopes slow it (over 6% uphill
-    or 10% downhill). Where marked enemies see a stretch its time is multiplied like the foot planner does. **Off-road:
-    Allow** (the default) also lets it cross country at 15 km/h when there's no road way or the roads are far longer than
-    the direct line; **Roads only** joins the roads within 250 m of the start and end and nothing else. The popup gives the
-    driving time and how far it goes on each kind of road. Saving keeps it as a route that re-plans when enemies change.
-    The speeds are estimates, not timed in game: change `ROAD_KMH` and `OFFROAD_MS` in `static/app.js`.
-  - Air: pick the helicopter's height (30, 100 or 200 m) and click a start and an end; both snap to a
-    nearby landing zone, medevac or pickup. It plans across the whole island and keeps a wide berth of marked enemies:
-    300 m from AA guns plus everywhere they can see the helicopter, 1 km from armour and enemy vehicles, 600 m from
-    soldiers and contacts, 500 m from enemy-in-area shapes. The popup gives distance, flight time at 180 km/h, how long
-    the AA could see it and how close it passes each enemy, compared with flying straight. "Save as flight route" shares
-    it as a dashed sky-blue arrow.
-
-- Landing zone check: move over the map for a live verdict under the toolbar, and click to mark an LZ. It uses the
-  game's own terrain (1 m) and objects (0.5 m), sized for the game's helicopters (the Mi-8's rotor reaches ~10.7 m
-  from its mast, its tail rotor ~13 m):
-  - **Slope**: the best-fit slope of the 16 m touchdown area; over 17° marginal, over 22° no-go.
-  - **Obstacles**: anything 1 m or taller on the 12 m touchdown spot, or 2 m or taller within 15 m (under the rotor
-    and tail), is no-go: buildings, walls, rocks, power poles, lamp posts, wrecks, trees and fences. Trees or
-    buildings 6 m or taller within 40 m make it marginal. **Bushes and low plants don't count**; they can't harm a
-    helicopter.
-  - **Uneven ground**: ground rising 1.5 m above the landing plane within 15 m is no-go (0.75 m marginal).
-  - **Ways in**: which of eight directions a helicopter can come in from on a 10° descent, along a 12 m wide
-    corridor clear of ground, trees, buildings and poles (drawn as ticks).
-  The popup names what's in the way and how far out. If it isn't good, it suggests the nearest good spot within 150 m
-  and can move it there. Power lines (the wires) and grass aren't in the data. Until the detail for that area has
-  loaded (a moment, the first time), a rougher check on the 10 m data stands in.
-  The Helicopter landing shading shows the whole map's good, marginal and no-go ground while this tool is active.
-
-**Support**
-- Fire support request: pick Area or Point, and HE, Smoke or Illumination, in the options (keys 1-5).
-  - Area: hold the mouse button and circle where you want the fire; let go and it closes itself, like Enemy in area.
-  - Point: click to drop a pin where you want the rounds to land. An HE pin gets a shaded red target zone the size of the
-    mortar's spread (rounds land within it: the range table's average dispersion for the ring it would use, e.g. about
-    24 m on ring 2 with the M252's M821), a dashed red kill zone 20 m beyond it and a dashed yellow danger zone 35 m
-    beyond it, for a round landing on the target zone's edge. Smoke and illumination pins show only the spread. The
-    circles are sized for your mortar if it can reach, otherwise the nearest mortar that can; with no mortar in range
-    they're drawn for a single round (20 m and 35 m).
-  The popup shows the aim point (a 10 m grid), the size, how long ago it was asked for, any friendly positions, units,
-  radios or weapons inside the danger zone (for HE), and a firing solution from every mortar on the map using that
-  mortar's shell of the requested type. If you have a mortar, "Add as a target on my mortar" adds the aim point to it.
-  Once your mortar is down, every request is solved for it automatically: the Mortar panel lists them (ring, elevation,
-  azimuth, shell and flight time; + adds one to your targets), each request's label on the map carries your solution,
-  and a message pops up with the solution when someone else asks for fire. The rest of a mortar team can see the same
-  numbers: click the team's mortar and pick "Show its solutions on my map", and every request's label (and the
-  message) carries that mortar's solution instead of their own. It's remembered in their browser until they click
-  "Stop showing its solutions".
-  Clicking a request also gives aiming details from that mortar: for a point, how many mils of elevation and azimuth
-  move the rounds 50 m north / south and east / west (on the same ring, two rows); for an area, a solution for its
-  middle and its north, south, east and west ends. Once a mission is done, anyone crewing a mortar that can reach a request (its owner
-  or someone showing its solutions) can clear it with "Mission complete: clear" in its popup or ✕ on its card in the
-  Mortar panel, one request at a time (✕ also removes your own requests); whoever asked for it is told who cleared it.
-
-- Gun run (CAS), Medevac, Pickup / insertion and Resupply drop: click where it's needed (a gun run can also be an
-  area: pick Area in the options and circle the target, like a fire support request). A gun run is sent at once as
-  "CAS 1", "CAS 2"… with no form, since there's rarely time; add the target and attack direction later with Edit.
-  The others open a short form first (casualties, urgency, whether the pickup zone is secure and how it's marked;
-  task and seats; what's needed). Everyone gets a message when a request is made. Anyone in the room can mark it Acknowledged,
-  En route or Complete from its popup, and the person who asked is told. Medevac and pickup requests show the landing
-  zone check for their spot; a gun run warns about friendlies within 100 m of the target (danger close).
-
-**Defend**
-- Target reference point (TRP): "TRP 1", "TRP 2" and so on, numbered across the squad and named in the editor
-  (e.g. "TRP 1 – barn"). Its label shows the distance and bearing from the nearest range card (a player's position with a range card, or
-  friendly armour with line of sight); its popup lists them from every one and whether each can see it. Their popups list every
-  TRP the same way. Several range cards combine: cyan ground is seen by at least one, and **dark ground inside their
-  reach is hidden from all of them**, which is where an enemy can creep up.
-- Sectors of fire: pick 3, 4, 6 or 8 sectors, click the centre of your position, then move to set the size and
-  rotation and click. The editor opens so you can name who covers each lettered sector and raise the position (a roof
-  or tower). With line of sight on, each sector shows its dead ground darkened, and a red number on its label counts
-  the marked enemy and contacts inside it. The popup lists each sector's limits in degrees and mils, the share of its
-  ground a gunner can see (and through trees), who covers it, and the enemy and TRPs in it.
-- MG nest: click to place, move the mouse to aim, click again. The width of the field of fire (30°, 60°, 90° or 120°)
-  and how high the nest is raised (e.g. on a roof or tower) are in the options. The wedge shows line of sight live while
-  you aim: ground the gun can see is tinted in your colour and dead ground is darkened, with the share it can see.
-- Bunker, Checkpoint: one click drops the symbol. Sandbags (a khaki line of bags), Barbed wire (a tan line with cross
-  marks) and Roadblock (a grey line of tank traps) are drawn point by point.
-
-**Hazards**
-- AT minefield (red, with a 10 m kill radius) and AP minefield (amber).
-- Blocked or mined road, Bridge out: one click drops the symbol.
-
-### How line of sight is worked out
-
-All line of sight comes from the game itself: terrain, buildings, walls, rocks, trees and bushes were measured in
-Arma Reforger Tools with the engine's own rays (`tools/workbench`, baked by `tools/bake_los.py`). Pick the detail
-under **Map layers → Line-of-sight detail**. **Full** and **Visual** are deprecated: they can't be chosen any more (a choice
-saved in a browser is ignored) but their code is still in `static/los-worker.js` and `static/app.js`. **Measured** is now
-the default on computers and **Light** on phones and tablets. The descriptions of Full and Visual below are kept for
-reference:
-
-- **Full** (the default on computers): every object at 0.5 m, worked out in a background thread so the map never
-  freezes. Buildings, walls, rocks and trunks block; foliage blocks too, but there's open space under tree crowns, so
-  you can see beneath a forest canopy but not down into it from a hill. **Yellow** is ground behind no more than 2 m
-  of leaves. It downloads the part of the map you're looking at (500 m squares, about 0.5 MB each; a 1.5 km card
-  needs up to ~50 of them the first time) and keeps them. The shading appears in its Light form at once and
-  sharpens a moment later.
-- **Visual** (on trial, to compare with Full): Full's buildings, walls and rocks, but trees and bushes are as
-  see-through as they look in game. Every tree and bush on Everon (762,777 of 70 kinds, `tools/export_plants.py`)
-  has its own position, size and its kind's shape and leaf density, measured from the game's own pictures of each
-  kind (`tools/foliage`, made into map data by `tools/foliage_model.py`). **Yellow** is a soldier at least 20%
-  visible through foliage. It downloads a small plant list (5 MB for the whole island) on top of Full's squares.
-- **Measured** (on trial, next to Visual): every plant blocks by the share of its outline measured in the game's own
-  pictures of it, taken from 8 sides at close range and at 25, 50, 100, 200 and 300 m with the plant shown and hidden
-  (`tools/foliage/foliage_profiles.json`, copied to `static/data/maps/<map>/foliage/`). A sight line through a plant at
-  height h looks up that plant's cover at h / scale, between the two distances that bracket the plant (the game swaps to
-  denser models further away, so far trees block more). Plants are counted once per sight line and multiplied:
-  what's left visible = the product of (1 - strength × cover). **Foliage strength** (0 to 1.5, shown only in this mode)
-  scales it; if trees block less in game than on the map, lower it. Yellow and the thresholds are Visual's. The measured
-  caveats: measured at Ultra draw distance, 2560x1440 and a 40° lens (lower settings swap to denser far models sooner);
-  the bottom 1.7 m of each plant was seen against terrain, so close bush values there are the least certain (±15-20%); and
-  thin leaf edges count as fully blocking, so it probably overstates what a player sees. (These used to show under the
-  switch; the switch now just says 0.5 m resolution, slow, and 10 m resolution, fast.) It needs the map's plants (position, ground height, scale, kind)
-  (`static/data/maps/<map>/plants/`).
-- **Light** (the default on phones and tablets): 10 m squares, under 4 MB for the whole island, instant. Every
-  tree and bush from Visual is averaged into each square at seven heights (`tools/bake_light_foliage.py`), so woods
-  thin the view the further it runs through them, faster in thick undergrowth and dense crowns, and at the height
-  the sight line actually crosses them; walls, rocks and small buildings thin it too, and large buildings block.
-  **Yellow** is ground seen only partly, through trees. Its few constants are fitted to Visual's results at 200 spots
-  across the island (`tools/fit_light.js`): it agrees with Visual on **91%** of the ground and finds 63% of what
-  Visual shows through foliage.
-
-Full was scored against 20,000 of the game's own sight lines across the island (the Workbench tool's "Check: sight
-lines") and agrees with the game on **95%** of them (the terrain alone would agree on 66%). Those are physics rays,
-which stop on plants' simple collision shapes rather than their leaves, so they can't judge foliage; Visual and Light
-are measured against what the game draws instead. Grass, small clutter and see-through fences (poles, nets,
-railings) don't block. TRP tables say Yes, Trees or No. The mortar calculator doesn't depend on this setting.
-"Line-of-sight shading" under Map layers turns the shading on or off.
-
-## Sidebar
-
-One scrolling column of sections. Click a section's heading to open or close it; which ones are closed is remembered
-in your browser. FIA caches starts closed.
-
-- **My markings**: everything you've put on the map, grouped in toolbar order (each group has its menu's colour),
-  plus Export plan and Import plan.
-- **FIA caches this game**: the caches marked this game, and switches for showing them and every possible spot.
-- **Map layers**: places, conflict bases, terrain, planning overlays (line-of-sight shading and helicopter landing
-  ground) and resources.
-
-The **Mortar panel** sits on the right: weapon and shell, your mortar's position and a firing solution for every
-target (✕ removes one), and every fire request solved for the mortar you follow (else your own): ✕ at its top right
-removes it, + at its bottom right adds it to your targets. The mortar itself is removed from My markings or its popup,
-not from this panel, so it can't be deleted by accident. It folds away to a Mortar tab (with
-an orange count of the fire requests waiting), opens by itself when you pick the mortar tool, and stays as you left it.
-
-The **Squad** pop-out sits at the bottom right, above the zoom buttons, with two tabs:
-- **Players**: who's in the room (click a player with a position to jump to it) and the switch for showing other
-  players' markings.
-- **Briefing**: the shared briefing. A dot on its tab (and on the folded Squad tab) means it changed while you weren't
-  looking at it.
-
-It folds away to a small Squad tab showing how many players are in the room. The mortar panel and the squad pop-out
-share the right-hand column, so they never overlap: if both are open and tall, each shrinks and scrolls.
-- The search box finds towns, landmarks, bases, caches, caves and everyone's markings (accents ignored).
-
-## Maps
-
-Rooms can be opened on **Everon**, **Kolguyev** or **Arland**. Whoever opens a room picks its map on the join screen;
-anyone who joins that room later gets the same map (their own pick is ignored), and the room's map shows next to the room
-code. Existing links and rooms without a pick open on Everon. A page shows one map: joining a room on another map after
-the first reloads it.
-
-Each map has its own satellite picture, roads, terrain and line-of-sight data, all under `static/data/maps/<map>/`:
-
-| | |
+| Path | What |
 |---|---|
-| `tiles/` | Satellite tiles, served at `/maptiles/<map>/`. Everon's are not there: they still come from the server's `/tiles/` cache (cached from reforger.recoil.org) |
-| `roads.json`, `places.json` | The road network and the town and landmark names, from the game's own map data |
-| `los/` | 500 m line-of-sight tiles; `index.json` gives the grid and the terrain unit (1 cm on Everon and Arland, 2 cm on Kolguyev) |
-| `light/` | The 10 m grids (height, forest, canopy, buildings, landing zones, foliage, clutter); their size (1300 cells a side on Everon and Kolguyev, 450 on Arland) comes from `los/index.json` |
-| `plants/`, `foliage.json` | Every tree and bush (position, ground height, scale, kind) and how see-through each kind is, for Visual and Measured |
-| `foliage/foliage_profiles.json` | The measured plant profiles for Measured |
+| `server.py` | Web server, rooms, live updates, admin, Everon tile cache |
+| `static/` | The page (`index.html`, `app.js`, `app.css`), the line-of-sight worker and the admin page |
+| `static/data/everon.json` | Everon's bases, supplies, vehicle spawns, caves and FIA cache spots (from the game) |
+| `static/data/mortar-tables.json` | The in-game firing tables (used only to decide which rings reach) |
+| `static/data/maps/<map>/` | Per map: `tiles/` (Kolguyev, Arland), `roads.json`, `places.json`, `los/` (500 m tiles), `light/` (10 m grids), `plants/`, `foliage.json`, `foliage/foliage_profiles.json` |
+| `tools/` | Bakers and importers; `tools/import_map_data.py` copies a map's data from `reforger-map-tools` |
+| `tools/workbench/` | The Arma Reforger Tools add-on that measures terrain, objects and plants |
+| `tools/foliage/` | Foliage measurements ([README](tools/foliage/README.md)) |
 
-`tools/import_map_data.py` copies a map's baked data in from `reforger-map-tools`. Everon also reads `static/data/everon.json`
-for its bases, caves, supplies, vehicle spawns and FIA cache spots; Kolguyev and Arland have no such file yet, so those
-layers are empty there. The `MAPS` table at the top of `static/app.js` and `MAPS` in `server.py` list the maps.
-## Multiplayer
-- Everyone enters a username and a **room code** each visit; nothing is remembered in the browser. Only people who use the
-  same room code see each other and each other's markings, so several squads can share one server. "New code" makes up
-  a random one, and "Copy invite link" in the sidebar gives a link that fills the code in (it sits after the `#` in the
-  address, so it isn't sent to the server). A room disappears when its last player leaves.
-- **Briefing**: one shared text per room that anyone can write or edit, e.g. the plan, radio channels, rally points and
-  who does what. "Insert template" adds a standard layout; lines starting with a heading such as `MISSION:` are
-  highlighted. Everyone sees saves straight away, and you're warned if someone else saves while you're editing.
-- Your markings are stored under your username and appear live for everyone in the room
-- "Show other players' markings" toggles everyone else's layer on or off
-- Closing your tab removes your markings; if a browser crashes or disconnects they expire within about 16 seconds
-- The player list shows who's online and how many markings each has
-
-## FIA caches this game
-- Type the coordinates you were given in the "FIA caches this game" section. It accepts a 6-digit grid (`089 028`),
-  an 8-digit grid (`0890 0281`) or X/Z metres (`8908 2811`).
-- Or paste all of this game's caches at once: one or more per line (`089 028 096 016` works too), with any list
-  numbering (`1.`, `-`) ignored. They're all marked in one go; the message lists what was marked, what was already
-  marked, anything far from a known spot, and anything it couldn't read (left in the box to fix). Enter adds,
-  Shift+Enter starts a new line.
-- The entry snaps to the nearest of the 25 known cache spots and shows up for everyone as a pulsing pink marker.
-  If the nearest spot is over 400 m away, you get a warning to double-check the coordinates.
-- You can also turn on "Show all possible cache spots" in that section, click any spot and choose "Mark as this game's cache".
-- The same cache can't be marked twice. Like other markings, your marks disappear when you close the tab.
-
-## Saving a plan
-- Export your markings to a JSON plan file and import it later, which is the only way to keep a plan between sessions
-
-## Data sources
-
-- POIs (bases, supplies, vehicles, refuel, repair, FIA caches, HQ starts) are extracted from the game
-- Place names are fitted to game coordinates (typically within ~100 m)
-- Caves and hideouts are Game Master camp locations, so they're approximate
-- Terrain, trees, buildings, walls and other objects: measured in Arma Reforger Tools (Workbench) with the
-  `tools/workbench` add-on and baked into `static/data` by `tools/bake_los.py` (see the top of that file to redo
-  it). This is derived from Bohemia Interactive's game data: check their content rules before hosting it publicly.
-- Mortar ballistics: elevation and flight time come from our own model of the game's shell physics, checked
-  against live in-game firing. The in-game M252 / 2B14 tables are only used to decide which charge rings reach.
-- Everon map tiles are still fetched from an outside tile server and cached locally (see `TILE_UPSTREAM` in
-  `server.py`). Kolguyev and Arland tiles are baked into `static/data/maps`.
+- **Everon tiles**: still fetched from an outside tile server and cached in `tile_cache/` (`TILE_UPSTREAM` in
+  `server.py`). Kolguyev and Arland tiles are baked in.
+- **Positions**: place names are fitted to game coordinates (within ~100 m); caves are approximate.
+- **Kolguyev and Arland**: they have no bases, supplies or caches yet.
+- **Adding a map**: maps are listed in `MAPS` in both `static/app.js` and `server.py`.
