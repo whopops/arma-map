@@ -797,7 +797,7 @@
     size: WORLD, losDir: `${DIR}los`,
     profiles: { json: `${DIR}foliage/foliage_profiles.json`, plants: `${DIR}foliage.json`, dir: `${DIR}plants` },
   }, () => { propsDirty = true; });
-  const marksEnv = () => ({ ground: groundAt, field: fieldSpots, tables: mortarTables, los: settings.los ? sight.grid : null, forest: inForest });
+  const marksEnv = () => ({ ground: groundAt, field: fieldSpots, tables: mortarTables, los: settings.los ? sight.grid : null, forest: inForest, world: WORLD });
   const markings = Room(CFG.rooms || '/api', {
     onChange: () => { propsDirty = true; },
     onStatus: (state, text, removed) => roomStatus(state, text, removed),

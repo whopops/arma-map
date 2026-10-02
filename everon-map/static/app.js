@@ -2208,7 +2208,8 @@
   // (GetProjectileSimulationResult, run from Workbench for every shell, ring, elevation 40-88°, target -200..+200 m and
   // 10 m/s wind from four sides) the elevation corrections agree to 0.05 mil on average and 3.7 mil at worst, and the
   // crosswind aim-off to 0.34 mil. (Simple one-sample steps at 0.02 s were off by up to 13 mil.)
-  function flight(v, k, ang, dh, along = 0, across = 0) {
+  // path: an array to collect the flight in, [range, height] every step (for ringReach).
+  function flight(v, k, ang, dh, along = 0, across = 0, path = null) {
     const dt = 0.1;
     let x = 0, y = 0, z = 0, vx = 0, vy = v * Math.sin(ang), vz = v * Math.cos(ang), t = 0;
     const acc = (ux, uy, uz) => { // drag against the moving air, and gravity
@@ -2228,6 +2229,7 @@
       vy += dt / 6 * (a1[1] + 2 * a2[1] + 2 * a3[1] + a4[1]);
       vz += dt / 6 * (a1[2] + 2 * a2[2] + 2 * a3[2] + a4[2]);
       t += dt;
+      if (path) path.push([z, y]);
       if (vy < 0 && y <= dh) {
         if (py < dh) return null; // topped out below the target
         const f = (py - dh) / (py - y);
@@ -2236,13 +2238,17 @@
       if (t > 150) return null;
     }
   }
+  // The flattest shot the tube fires: both mortars elevate from 45 to 85 degrees (LimitsVert in the game's
+  // Prefabs/Weapons/Core/Mortar_Base.et, which they inherit). Fired this flat, a ring goes as far as it can.
+  const MIN_ELEV = 45 * Math.PI / 180;
   // The high (plunging) angle that lands d m away, dh m up, in the given wind, or null if the ring can't reach. On the high
-  // branch the range falls as the angle rises, from the flattest angle a mortar table uses (about 44°) up to vertical.
+  // branch the range falls as the angle rises, from the flattest the tube fires (MIN_ELEV) up to vertical, so a ring
+  // reaches whatever its MIN_ELEV shot passes over on the way down: further downhill and downwind, less uphill and upwind.
   const highCache = new Map();
   function highAngleFor(v, k, d, dh, along, across) {
     const key = `${v}|${k}|${Math.round(d * 2)}|${Math.round(dh * 4)}|${along.toFixed(2)}|${across.toFixed(2)}`;
     if (highCache.has(key)) return highCache.get(key);
-    let lo = 44 * Math.PI / 180, hi = 89.5 * Math.PI / 180, res = null;
+    let lo = MIN_ELEV, hi = 89.5 * Math.PI / 180, res = null;
     const first = flight(v, k, lo, dh, along, across);
     if (first && first.range >= d) {
       for (let i = 0; i < 22; i++) {
@@ -2292,7 +2298,9 @@
   // Firing solution from mortar to target for every ring that can reach it.
   // Table rows: [range m, elevation mil, time of flight s, elevation change in mil per 100 m of height difference].
   // With the shell's physics (SHELL_PHYS) the elevation, flight time and crosswind aim-off come from the model: the high angle
-  // that lands on the target from the muzzle, with the height difference and the wind. The table sets each ring's reach.
+  // that lands on the target from the muzzle, with the height difference and the wind. How far a ring reaches comes from the
+  // model too (its MIN_ELEV shot, in this wind, to this height), not the table's last row, which is for flat ground in still
+  // air and stops short of what the tube can do anyway. The table still sets each ring's shortest distance.
   function solve(w, s, from, to, wind = null) {
     const W = weaponDef(w), rings = shellDef(w, s);
     const d = dist(from, to);
@@ -2305,16 +2313,17 @@
     if (!rings) return out;
     const phys = SHELL_PHYS[`${w}|${s}`], { along, across } = windParts(wind, az);
     for (const [ring, def] of Object.entries(rings)) {
-      const t = def.table;
-      if (d < t[0][0] || d > t[t.length - 1][0]) continue;
-      let i = t.findIndex(row => row[0] >= d);
-      const a = t[Math.max(i - 1, 0)], b = t[i];
-      const k = b[0] === a[0] ? 0 : (d - a[0]) / (b[0] - a[0]);
-      const lerp = j => a[j] + (b[j] - a[j]) * k;
-      // Higher target -> lower elevation (flatter shot); lower target -> higher elevation.
-      // (without the model for a shell: the table's own straight-line correction)
-      let elev = lerp(1) - dh * lerp(3) / 100, tof = lerp(2), azAdj = 0, spread = null;
-      if (phys && phys.rings[ring]) {
+      const t = def.table, modelled = !!(phys && phys.rings[ring]);
+      if (d < t[0][0] || (!modelled && d > t[t.length - 1][0])) continue;
+      let elev = 0, tof = 0, azAdj = 0, spread = null;
+      if (!modelled) {
+        // without the model for a shell: the table, with its own straight-line correction for height
+        // (higher target -> lower elevation, a flatter shot; lower target -> higher elevation)
+        const i = t.findIndex(row => row[0] >= d), a = t[Math.max(i - 1, 0)], b = t[i];
+        const k = b[0] === a[0] ? 0 : (d - a[0]) / (b[0] - a[0]);
+        const lerp = j => a[j] + (b[j] - a[j]) * k;
+        elev = lerp(1) - dh * lerp(3) / 100; tof = lerp(2);
+      } else {
         const coef = phys.rings[ring], v = phys.v0 * coef;
         const real = highAngleFor(v, phys.k, d, dh - MUZZLE_H, along, across);
         if (!real) continue; // too high up, or into too strong a headwind, for this ring
@@ -2334,6 +2343,86 @@
     out.mapAzMil = out.azMil; // the bearing on the map; azMil becomes what to set on the sight, aimed off for crosswind
     if (out.best) out.azMil = out.best.azMil;
     return out;
+  }
+
+  // How far a ring reaches in one direction, over the real ground and in the wind: the furthest point on bearing az that
+  // its flattest shot (MIN_ELEV) still passes over on its way down. That is the same test solve() makes (whether that
+  // shot comes down at the target's height at or beyond the target), so a target inside the outline gets a solution and
+  // one outside doesn't. Ground in between doesn't count, as in solve(): the rounds come down steeply, from high up.
+  // From ground (the 10 m heights; the sea's surface is 0) every REACH_STEP m. null without the shell's physics.
+  const REACH_STEP = 5, REACH_BEARINGS = 72;
+  const reachGround = p => Math.max(heightAt(p) ?? 0, 0);
+  function ringReach(phys, ring, from, h0, az, wind) {
+    const coef = phys && phys.rings[ring];
+    if (!coef) return null;
+    const { along, across } = windParts(wind, az), path = [];
+    flight(phys.v0 * coef, phys.k, MIN_ELEV, -800, along, across, path);    // on down to 800 m below the muzzle
+    const sx = Math.sin(az * Math.PI / 180), sz = Math.cos(az * Math.PI / 180), muzzle = h0 + MUZZLE_H;
+    let top = 0;
+    path.forEach((q, i) => { if (q[1] > path[top][1]) top = i; });
+    const clear = (r, y) => { // passing over the ground there (false off the map, where nothing can be aimed at)
+      const x = from[0] + r * sx, z = from[1] + r * sz;
+      return x >= 0 && z >= 0 && x <= WORLD && z <= WORLD && reachGround([x, z]) - muzzle <= y;
+    };
+    // walk in from the far end of the fall: the first spot (from outside) it still passes over is how far it reaches
+    let outR = null, outY = null;
+    for (let i = path.length - 1; i > top; i--) {
+      const [r1, y1] = path[i], [r0, y0] = path[i - 1];
+      const n = Math.max(1, Math.ceil((r1 - r0) / REACH_STEP));
+      for (let j = n; j >= 0; j--) {
+        const r = r0 + (r1 - r0) * j / n, y = y0 + (y1 - y0) * j / n;
+        if (clear(r, y)) {
+          if (outR == null) return r;
+          // between this spot and the one further out, where the fall meets the ground
+          const gIn = reachGround([from[0] + r * sx, from[1] + r * sz]) - muzzle - y;
+          const gOut = reachGround([from[0] + outR * sx, from[1] + outR * sz]) - muzzle - outY;
+          return gOut > gIn ? r + (outR - r) * (-gIn) / (gOut - gIn) : r;
+        }
+        outR = r; outY = y;
+      }
+    }
+    return path.length ? path[top][0] : 0;
+  }
+  // Each ring's reach all round the mortar (every 360 / REACH_BEARINGS degrees), as an outline, and its shortest and
+  // longest. {rings: [{ring, pts: [[x, z]], near, far}], far} or null without the heights or the shell's physics.
+  const reachCache = new Map();
+  function reachOutline(w, s, from, wind) {
+    const phys = SHELL_PHYS[`${w}|${s}`], rings = shellDef(w, s);
+    if (!phys || !rings || !HEIGHT) return null;
+    const key = `${w}|${s}|${from}|${wind ? `${wind.s},${wind.d}` : ''}|${WORLD}`;
+    if (reachCache.has(key)) return reachCache.get(key);
+    const h0 = reachGround(from), out = { rings: [], far: 0 };
+    for (const ring of Object.keys(rings).map(Number).sort((a, b) => a - b)) {
+      if (!phys.rings[ring]) continue;
+      const pts = [], dists = [];
+      for (let i = 0; i < REACH_BEARINGS; i++) {
+        const az = i * 360 / REACH_BEARINGS, r = ringReach(phys, ring, from, h0, az, wind);
+        dists.push(r);
+        pts.push([from[0] + r * Math.sin(az * Math.PI / 180), from[1] + r * Math.cos(az * Math.PI / 180)]);
+      }
+      const far = Math.max(...dists);
+      out.rings.push({ ring, pts, near: Math.min(...dists), far });
+      out.far = Math.max(out.far, far);
+    }
+    if (reachCache.size > 40) reachCache.clear();
+    reachCache.set(key, out);
+    return out;
+  }
+  // How far the furthest-reaching ring goes towards one spot (for "out of range" notes), or null without the physics.
+  function reachToward(w, s, from, to, wind) {
+    const phys = SHELL_PHYS[`${w}|${s}`], rings = shellDef(w, s);
+    if (!phys || !rings || !HEIGHT) return null;
+    const h0 = reachGround(from), az = bearing(from, to);
+    return Math.max(...Object.keys(rings).map(r => ringReach(phys, +r, from, h0, az, wind) || 0));
+  }
+  // "2.88–3.08 km" (or one figure when it hardly varies)
+  const fmtReach = (a, b) => (b - a < 15 ? fmtDist(b) : b < 1000 ? `${Math.round(a)}–${Math.round(b)} m` : `${(a / 1000).toFixed(2)}–${(b / 1000).toFixed(2)} km`);
+  // Why a target is out of range: too close for every ring, or past the furthest reach that way.
+  function outOfRangeText(w, s, from, to, wind) {
+    const lim = shellLimits(w, s), d = dist(from, to);
+    if (lim && d < lim.min) return `Too close (at least ${fmtDist(lim.min)})`;
+    const r = reachToward(w, s, from, to, wind);
+    return r != null ? `Out of range (reaches ${fmtDist(r)} this way)` : `Out of range (max ${fmtDist(lim ? lim.max : 0)})`;
   }
 
   const myMortar = () => {
@@ -2403,7 +2492,9 @@
         `${on ? 'Stop using its solutions' : 'Use its solutions'}</button></div>`;
     }
     if (alt != null) html += `<div class="sub">Altitude ${Math.round(alt)} m</div>`;
-    if (lim) html += `<div class="sub">Reach ${fmtDist(lim.min)} – ${fmtDist(lim.max)}</div>`;
+    const outline = reachOutline(m.weapon, m.shell, m.xz, m.wind), top = outline && outline.rings[outline.rings.length - 1];
+    if (lim && top) html += `<div class="sub">Reach ${fmtDist(lim.min)} to ${esc(fmtReach(top.near, top.far))}, by direction: further downhill and downwind</div>`;
+    else if (lim) html += `<div class="sub">Reach ${fmtDist(lim.min)} – ${fmtDist(lim.max)}</div>`;
     html += `<div class="sub">Heard: firing ${fmtDist(GUNS.mortar.range)} · impacts ${fmtDist(impactHeard(m.shell))} (${esc(NOISE.find(n => n[0] === state.noise)[1].toLowerCase())})</div>` +
       `<div class="row"><button data-act="hear-mortar" aria-pressed="${state.hearMortar}">${state.hearMortar ? 'Hide' : 'Show'} sound ranges on the map</button></div>`;
     const reqs = allVisibleItems(isFireReq);
@@ -2470,7 +2561,8 @@
       const z = impactText(m.shell, sol.best.dispersion, t, sol.best.spread);
       extra += `<p>${z.zone}</p>${friendlyWarning(z.near)}`;
     }
-    extra += sol.rings.length ? solutionTable(sol) + windLine(sol) : `<p style="color:var(--danger)">Out of range for ${esc(m.shell)}</p>`;
+    extra += sol.rings.length ? solutionTable(sol) + windLine(sol)
+      : `<p style="color:var(--danger)">${esc(outOfRangeText(m.weapon, m.shell, m.xz, t, m.wind))} for ${esc(m.shell)}</p>`;
     if (sol.best) extra += nudgeTable(nudges(m, m.shell, t, sol), `Adjust ${NUDGE_M} m · ring ${sol.best.ring}`);
     if (isMine(owner)) extra += `<div class="row"><button class="danger" data-act="del-target" data-idx="${idx}">Remove target</button></div>`;
     return popupHtml(`Target ${idx + 1}`, `${m.weapon} ${m.shell} · by ${owner}${isMine(owner) ? ' (you)' : ''}`, t, extra);
@@ -2481,12 +2573,23 @@
     const rings = shellDef(m.weapon, m.shell) || {};
     const entries = Object.entries(rings).sort((a, b) => +a[0] - +b[0]);
     const mine = isMine(p.name);
-    // Each ring's maximum reach, plus the overall minimum distance.
+    // Each ring's reach: with the shell's physics an outline over the real ground in the mortar's wind (further downhill
+    // and downwind), labelled at its north point with its shortest and longest; otherwise the table's flat circle.
+    // Plus the overall minimum distance.
+    const ringStyle = { color, weight: 1.2, opacity: mine ? 0.75 : 0.45, dashArray: '4 6', fill: false, interactive: false };
+    const ringLabel = (xz, text) => L.marker(toLL(xz), { interactive: false, keyboard: false,
+      icon: L.divIcon({ className: '', iconSize: [0, 0], html: `<span class="ring-label">${text}</span>` }) });
+    const outline = reachOutline(m.weapon, m.shell, m.xz, m.wind);
     entries.forEach(([ring, def]) => {
+      const r = outline && outline.rings.find(o => o.ring === +ring);
+      if (r) {
+        layer.addLayer(L.polygon(r.pts.map(toLL), ringStyle));
+        layer.addLayer(ringLabel(r.pts[0], `R${ring} ${esc(fmtReach(r.near, r.far))}`));
+        return;
+      }
       const max = def.table[def.table.length - 1][0];
-      layer.addLayer(L.circle(center, { radius: max, color, weight: 1.2, opacity: mine ? 0.75 : 0.45, dashArray: '4 6', fill: false, interactive: false }));
-      layer.addLayer(L.marker(toLL([m.xz[0], m.xz[1] + max]), { interactive: false, keyboard: false,
-        icon: L.divIcon({ className: '', iconSize: [0, 0], html: `<span class="ring-label">R${ring} ${fmtDist(max)}</span>` }) }));
+      layer.addLayer(L.circle(center, { radius: max, ...ringStyle }));
+      layer.addLayer(ringLabel([m.xz[0], m.xz[1] + max], `R${ring} ${fmtDist(max)}`));
     });
     // how far away its firing is heard (the game's mortar shot sound reaches 2 km), when the viewer asks for it
     if (state.hearMortar) {
@@ -2656,8 +2759,10 @@
       $('#mortar-targets').innerHTML = '';
     } else {
       const lim = shellLimits(m.weapon, m.shell), alt = heightAt(m.xz);
+      const outline = reachOutline(m.weapon, m.shell, m.xz, m.wind), top = outline && outline.rings[outline.rings.length - 1];
+      const reachText = top ? fmtReach(top.near, top.far) : lim ? `${(lim.max / 1000).toFixed(1)} km` : '—';
       status.innerHTML = `<div class="mp-pos"><span>Mortar</span><b>${grid(m.xz)}</b><span>${alt != null ? Math.round(alt) + ' m' : '—'}</span>` +
-        `<span>reach ${lim ? `${(lim.max / 1000).toFixed(1)} km` : '—'}</span></div>` +
+        `<span title="How far its longest ring reaches, shortest and longest direction (the ground and the wind decide)">reach ${esc(reachText)}</span></div>` +
         (m.targets.length ? '' : '<div class="empty" style="margin-top:6px">No targets yet. Click the map with the mortar tool.</div>');
       $('#mortar-targets').innerHTML = m.targets.map((t, i) => {
         const sol = solve(m.weapon, m.shell, m.xz, t, m.wind), b = sol.best;
@@ -2668,7 +2773,7 @@
             `<div><span class="k">Elevation</span><span class="v">${Math.round(b.elev)}<small>mil</small></span></div>` +
             `<div><span class="k">Azimuth</span><span class="v">${Math.round(sol.azMil)}<small>mil</small></span></div>` +
             `<div><span class="k">Time</span><span class="v">${b.tof.toFixed(1)}<small>s</small></span></div></div>` + targetSub(m.shell, b.dispersion, t, b.spread)
-          : `<div class="fire-now bad">Out of range (max ${fmtDist(lim ? lim.max : 0)})</div>`;
+          : `<div class="fire-now bad">${esc(outOfRangeText(m.weapon, m.shell, m.xz, t, m.wind))}</div>`;
         return `<li data-idx="${i}">${head}${body}</li>`;
       }).join('');
     }
@@ -2697,7 +2802,7 @@
     $('#mortar-requests').innerHTML = !m
       ? '<li class="empty">Place a mortar or follow a team mortar for solutions.</li>'
       : reqs.map(({ p, it }) => {
-        const f = FIRE[it.fire] || FIRE.he, { shell, sol } = fireSolution(m, it), b = sol.best, lim = shellLimits(m.weapon, shell);
+        const f = FIRE[it.fire] || FIRE.he, { shell, sol } = fireSolution(m, it), b = sol.best;
         const head = `<div class="tgt-head"><span class="id" style="background:${f.color};color:#111">${f.name}</span>` +
           `<span class="t">${esc(it.label || 'Fire mission')}${isMine(p.name) ? '' : ` · ${esc(p.name)}`}</span><span>${fmtDist(sol.d)}</span>` +
           `<span class="sp"></span>` +
@@ -2709,7 +2814,7 @@
             `<div><span class="k">Azimuth</span><span class="v">${Math.round(sol.azMil)}<small>mil</small></span></div>` +
             `<div><span class="k">Time</span><span class="v">${b.tof.toFixed(1)}<small>s</small></span></div></div>` +
             `<div class="req-foot"><span class="fire-sub">${esc(shell)} · asked ${fmtAgo(Date.now() - (it.at || Date.now()))}</span>${add}</div>`
-          : `<div class="req-foot"><span class="fire-now bad">Out of range for ${esc(shell)}${lim ? ` (${fmtDist(lim.min)}–${fmtDist(lim.max)})` : ''}</span>${add}</div>`;
+          : `<div class="req-foot"><span class="fire-now bad">${esc(outOfRangeText(m.weapon, shell, m.xz, fireAim(it), m.wind))} for ${esc(shell)}</span>${add}</div>`;
         return `<li data-req="${esc(it.id)}">${head}${body}</li>`;
       }).join('');
   }

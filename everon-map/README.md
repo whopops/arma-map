@@ -118,7 +118,9 @@ AT minefield (10 m kill radius), AP minefield, blocked or mined road, bridge out
 
 ### Mortar
 
-Place a mortar (F then 9; M252 or 2B14, any shell) and the Mortar panel opens. Rings show each charge's reach.
+Place a mortar (F then 9; M252 or 2B14, any shell) and the Mortar panel opens. An outline per charge ring shows how
+far it reaches in each direction: further downhill and downwind, shorter uphill and upwind (each is labelled with its
+shortest and longest, e.g. "R4 2.92–3.08 km"). A target past the outline says how far the mortar reaches that way.
 Click to add targets (up to 30); each gets ring, elevation and azimuth in mils, and flight time, plus where 90% of
 rounds land and the kill (+20 m) and danger (+35 m) zones for HE. Move the mouse for a live solution. Drag a target to
 correct fire.
@@ -189,8 +191,11 @@ charge multipliers and drag come from the game's prefabs.
   mil.
 - **Checked with live fire:** over 700 real shells fired in game, it predicts the landing within a median 0.3 m of
   each round's real launch.
-- **Firing tables only pick the rings:** the in-game tables are 1-20 mil off, so they're only used to decide which
-  rings reach.
+- **Reach comes from the model too:** the tube fires no flatter than 45° (800 mil; the game's mortar prefabs allow
+  45-85°), so a ring reaches wherever its 45° shot, in the wind, still passes over the ground on its way down. Each
+  100 m the target sits below the mortar adds about 75-85 m of reach (100 m above costs 75-150 m), and 5 m/s of
+  tailwind adds about 1.5% (headwind takes it off). The in-game firing tables, which are for flat ground in still air,
+  are 1-20 mil off and stop a little short anyway; they only set each ring's shortest distance now.
 - **Spread:** comes from the game's launch-speed variation (±1.07 m/s) and barrel dispersion.
 
 ### Sound

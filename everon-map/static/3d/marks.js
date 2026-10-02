@@ -434,8 +434,17 @@ const Marks = (() => {
             beacon(t[0], t[1], sol.best ? own : hex('#ff6b6b'), 3);
             label(e, t, 4.5, `T${i + 1} · ${Mortar.short(sol)}`, sol.best ? undefined : '#ff6b6b');
           });
-          const rch = Mortar.reach(env.tables, it.weapon, it.shell);   // how far each charge ring reaches, named at its top
-          if (rch) for (const r of rch.rings) labels.push({ xz: [xz[0], xz[1] + r.max], h: 1, text: `R${r.ring} ${fmtDist(r.max)}`, color: e.color, owner: e.owner });
+          // how far each charge ring reaches (over the ground, in the mortar's wind), named at its north point
+          const rch = Mortar.reach(env.tables, it.weapon, it.shell, xz, it.wind, env.ground, env.world);
+          if (rch) {
+            for (const r of rch.rings) {
+              // as the field map writes it: "2.88–3.08 km", or one figure when it hardly varies
+              const span = r.far - r.near < 15 ? fmtDist(r.far) : r.far < 1000 ? `${Math.round(r.near)}–${Math.round(r.far)} m`
+                : `${(r.near / 1000).toFixed(2)}–${(r.far / 1000).toFixed(2)} km`;
+              const text = `R${r.ring} ${r.pts ? span : fmtDist(r.max)}`;
+              labels.push({ xz: r.pts ? r.pts[0] : [xz[0], xz[1] + r.max], h: 1, text, color: e.color, owner: e.owner });
+            }
+          }
         } else if (it.type === 'post' && xz) {                     // range cards and enemy views
           const side = it.side || 'f', enemy = side === 'e' || side === 'v', col = hex(enemy ? ENEMY : side === 'fv' ? FRIENDLY : e.color);
           if (side === 'v' || side === 'fv') vehicle(xz[0], xz[1], col); else soldier(xz[0], xz[1], col);
@@ -656,9 +665,13 @@ const Marks = (() => {
         } else if (it.type === 'audible' && xz) {
           circle(xz, HEARD[it.gun] || HEARD.rifle, HEAR, 0.05, W(1.6, 1.6), [3, 6]);
         } else if (it.type === 'mortar' && xz) {
-          const rch = Mortar.reach(env.tables, it.weapon, it.shell);   // each ring's reach, and the shortest it can fire
+          // each ring's reach (an outline over the ground, in the mortar's wind), and the shortest it can fire
+          const rch = Mortar.reach(env.tables, it.weapon, it.shell, xz, it.wind, env.ground, env.world);
           if (rch) {
-            for (const r of rch.rings) circle(xz, r.max, col, 0, W(1.2, 1.2), [4, 6], 0.45);
+            for (const r of rch.rings) {
+              if (r.pts) poly(r.pts, col, 0, W(1.2, 1.2), [4, 6], 0.45);
+              else circle(xz, r.max, col, 0, W(1.2, 1.2), [4, 6], 0.45);
+            }
             circle(xz, rch.min, '#ff6b6b', 0.08, W(1.2, 1.2), [2, 4]);
           }
           for (const { t, sol } of mortarShots(it, env)) {
