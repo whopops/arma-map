@@ -418,6 +418,15 @@ def _is_point(v):
 
 NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 SHELL_RE = re.compile(r"^[A-Za-z0-9 ._()/+-]{1,40}$")
+# Launchers and the rockets they fire, as static/data/rockets.json names them
+ROCKET_LAUNCHERS = {"RPG-7": ("PG-7VM", "PG-7VL", "PG-7VR"), "M72A3": ("M72A3",), "RPG-22": ("PG-22",), "RPG-75": ("RPG-75",)}
+
+
+def _is_wind(wind):
+    """Wind read off the in-game map: speed in m/s and the compass direction it blows from (None = still air)."""
+    return wind is None or (isinstance(wind, dict) and set(wind) <= {"s", "d"} and all(
+        isinstance(wind.get(k), (int, float)) and not isinstance(wind.get(k), bool) for k in ("s", "d"))
+        and 0 <= wind["s"] <= 40 and 0 <= wind["d"] <= 360)
 
 
 def _depth(v, limit=6):
@@ -534,6 +543,14 @@ def validate_item(item):
         return "Bad range line."
     if t == "range" and any(k in item and not num(k, 0, 100) for k in ("h1", "h2")):
         return "Bad profile height."
+    if t == "range" and "rocket" in item:
+        # The rocket calculator on a range line: launcher, its rocket and sight (static/data/rockets.json), and the wind
+        rk = item["rocket"]
+        if not (isinstance(rk, dict) and set(rk) <= {"l", "r", "s"} and rk.get("r") in ROCKET_LAUNCHERS.get(rk.get("l"), ())
+                and rk.get("s") in {"iron", "pgo7"} and (rk["s"] == "iron" or rk["l"] == "RPG-7")):
+            return "Bad rocket launcher."
+        if not _is_wind(item.get("wind")):
+            return "Bad wind."
     if t == "mortar":
         targets = item.get("targets", [])
         if not _is_point(item.get("xz")) or item.get("weapon") not in MORTAR_WEAPONS:
@@ -546,10 +563,7 @@ def validate_item(item):
         if "charge" in item and not (isinstance(item["charge"], int) and not isinstance(item["charge"], bool) and 0 <= item["charge"] <= 4):
             return "Bad charge ring."
         # Wind the crew has read off the in-game map: speed in m/s and the compass direction it blows from
-        wind = item.get("wind")
-        if wind is not None and not (isinstance(wind, dict) and set(wind) <= {"s", "d"} and all(
-                isinstance(wind.get(k), (int, float)) and not isinstance(wind.get(k), bool) for k in ("s", "d"))
-                and 0 <= wind["s"] <= 40 and 0 <= wind["d"] <= 360):
+        if not _is_wind(item.get("wind")):
             return "Bad wind."
     if t == "emplacement":
         if not _is_point(item.get("xz")) or item.get("kind") not in {"mg"}:

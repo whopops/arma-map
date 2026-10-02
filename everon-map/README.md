@@ -42,7 +42,7 @@ right-click finishes.
 |---|---|---|
 | Friendly | F | 1 My position · 2 Infantry · 3 Armour · 4 Advance arrow · 5 Rally point · 6 Objective · 7 Radio backpack · 8 AA gun · 9 Mortar |
 | Enemy | E | 1 Contact report · 2 Infantry · 3 Armour · 4 Sniper · 5 Roadblock / ambush · 6 Enemy in area · 7 Approach arrow · 8 Patrol route · 9 Enemy line of sight · 0 AA gun |
-| Plan | P | 1 Marker · 2 Route · 3 Ambush · 4 Range line · 5 Elevation profile · 6 Hull-down finder · 7 Overwatch finder · 8 Route planner · 9 Landing zone check · 0 Who can hear it |
+| Plan | P | 1 Marker · 2 Route · 3 Ambush · 4 Range line · 5 Elevation profile · 6 Hull-down finder · 7 Overwatch finder · 8 Route planner · 9 Landing zone check · 0 Who can hear it · Rocket launcher shot |
 | Support | S | 1 Fire support request · 2 Gun run (CAS) · 3 Medevac · 4 Pickup / insertion · 5 Resupply drop |
 | Defend | D | 1 TRP · 2 Sectors of fire · 3 MG nest · 4 Bunker · 5 Sandbags · 6 Barbed wire · 7 Checkpoint · 8 Roadblock |
 | Hazards | H | 1 AT minefield · 2 AP minefield · 3 Blocked or mined road · 4 Bridge out |
@@ -78,6 +78,11 @@ right-click finishes.
 - **Ambush**: linear or L-shaped; click both ends of the kill zone, then your side. Drag its handles to adjust.
 - **Range line / Elevation profile**: distance and bearing, plus a side-on view of ground, trees and buildings with the
   sight line. Profile lets you pick eye heights (prone, crouched, standing, vehicle).
+- **Rocket launcher shot**: click where you fire from, then the target. Pick the launcher (RPG-7 with PG-7VM, PG-7VL
+  or PG-7VR, M72A3 LAW, RPG-22, RPG-75), the RPG-7's sight (iron or PGO-7 scope), your stance and the target, and
+  type the wind as the in-game map shows it. The popup gives the sight mark to set, how far above or below the target
+  to hold it, the compass bearing to aim on (off the target into or with the wind) and the flight time. Any range
+  line gets the same with its **Rocket launcher shot** button. See [Rockets](#rockets).
 - **Hull-down finder**: pick enemy, your vehicle (BTR-70, BRDM-2, LAV-25) and reach, click the enemy. Green: turret
   seen, hull hidden. Yellow: through trees. Blue: hidden ground within 30 m of green, to wait in. The popup lists the
   closest spots. Hull heights are estimates (`HULL` in `static/app.js`).
@@ -235,6 +240,32 @@ charge multipliers and drag come from the game's prefabs.
   87-93% of the measured rounds at every ring and range. Example, M252 ring 3 at 1.3 km: ±76 m long/short, ±39 m
   sideways.
 
+### Rockets
+
+The game flies its rockets natively, so they aren't modelled: they were flown in the game (reforger-map-tools
+`rockettest.py`), high over open sea, every frame recorded, and the site reads those flights (`static/data/rockets.json`).
+
+- **Flights:** each rocket at 11 elevations from 12° down to 20° up, in still air three times over (launches repeat
+  to about ±2 m in range, ±3 m for the PG-22). In between, flights are blended in their own launch frame (along the
+  launch line, drop below it), which keeps the error under a metre.
+- **Wind:** flown again in 5 and 10 m/s crosswinds and 10 m/s head and tail winds; the effect grows in step with the
+  wind speed, so the site scales it. Motor rockets (PG-7VM, PG-7VL) turn **into** a crosswind while they burn and end
+  up upwind (10 m/s across moves a PG-7VM about 14 m upwind by 300-400 m); the others drift with it (an RPG-75 about
+  11 m downwind at 3 s). The PG-7VR goes upwind and then back downwind. A headwind costs range, a tailwind adds it.
+- **Sights:** the launchers' sight marks (from their prefabs) are the bore's angle above the line of sight; the
+  PGO-7's lines were measured off its reticle texture, from the cross at the top, which is the bore. The shot is
+  solved from the flights, then the angle it needs is matched to the nearest mark, with a hold for the rest. Against
+  the flights the marks are close for the RPG-22, RPG-75 and the M72 (its rocket leaves 0.5° above the bore), and for
+  the RPG-7 iron sight with PG-7VM to 300 m; past that it falls short (at 500 m it needs 3.5°, the mark gives 2.8°:
+  about 6 m low). On the PGO-7 the PG-7VL's lines aim about 0.4° high.
+- **Heights:** the shot goes from your stance's height to the target's (vehicle hull 1 m, standing 1.6 m) over the map's
+  ground heights.
+- **Checked in the game:** 144 random shots (80 m to 85% of each rocket's reach, 30 m below to 30 m above, eight
+  random winds of 6-11.5 m/s) solved by the site and fired with its numbers (`rockettest.py check`). Misses at the
+  target were 0.5-1.1 m rms in height and under 0.7 m sideways, most of it launch-to-launch variation; the M72A3 was
+  1.6 m rms, worst 6 m (528 m out, near the end of its flight).
+- **Not counted:** the launcher's own aim wobble, and anything in the way (check the line of sight under it).
+
 ### Sound
 
 A shot is heard while its loudest 50 ms of muzzle blast is above the background noise in some third-octave band.
@@ -344,6 +375,7 @@ Security:
 | `static/3d/` | The 3D view: its page and scripts, and `maps.json` (the maps it offers: size, grid, camera start) |
 | `static/data/everon.json` | Everon's bases, supplies, vehicle spawns, caves and FIA cache spots (from the game) |
 | `static/data/mortar-tables.json` | The in-game firing tables (used only to decide which rings reach) |
+| `static/data/rockets.json` | Measured rocket flights, wind effects and the launchers' sight marks (reforger-map-tools `rockettest.py score`) |
 | `static/data/maps/<map>/` | Per map, read by both views: `tiles/` (Kolguyev, Arland), `roads.json`, `places.json`, `los/` (500 m tiles), `light/` (10 m grids), `plants/`, `foliage.json`, `foliage/foliage_profiles.json`, and `trees/` (the 3D view's shaped trees) |
 
 This folder holds only what runs the site. Everything that makes its map data lives in `reforger-map-tools`: it

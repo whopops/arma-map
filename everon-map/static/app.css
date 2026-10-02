@@ -486,6 +486,15 @@ table.trp-table .trees { color: #ffde32; }
 .pop .rc-trees { color: #ffde32; }
 .pop details.legs { margin-top: 8px; font-size: 12.5px; }
 .pop details.legs summary { cursor: pointer; color: var(--muted); }
+/* Rocket launcher shot: its launcher, sight, heights and wind, then the answer */
+.rk-form { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; margin: 8px 0; font-size: 12.5px; }
+.rk-form label { display: contents; color: var(--muted); }
+.rk-form select { padding: 3px 6px; min-width: 0; }
+.rk-form span { display: flex; align-items: center; gap: 5px; color: var(--muted); white-space: nowrap; }
+.rk-form input { width: 4.2em; padding: 3px 6px; }
+.stats.rk { grid-template-columns: repeat(2, 1fr); margin: 6px 0; }
+.stats.rk .v { font-size: 13.5px; }
+.pop .rk-add { margin-top: 8px; width: 100%; }
 .profile { position: relative; margin-top: 9px; padding-left: 40px; }
 .profile svg { display: block; width: 100%; height: 70px; background: #0f151a; border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .profile .fill { fill: rgba(200, 217, 111, .16); }

@@ -930,9 +930,13 @@
       extra += `<p><b>${fmtDist(pathLength(it.points))}</b> over ${it.points.length - 1} leg${it.points.length > 2 ? 's' : ''}</p>` +
         routeCheckHtml(routeCheck(it.points)) + `<details class="legs"><summary>Legs</summary><div class="sub">${legs}</div></details>`;
     }
-    if (it.type === 'range') {
+    if (it.type === 'range' && it.rocket) {
       extra += `<p><b>${fmtDist(dist(it.from, it.to))}</b> · ${fmtBearing(bearing(it.from, it.to))}</p><div class="sub">To grid ${grid(it.to)}</div>` +
-        sightHtml(sightProfile(it.from, it.to, it.h1 ?? 1.6, it.h2 ?? 1.6));
+        rocketHtml(owner, it) + `<details class="legs"><summary>Line of sight</summary>${sightHtml(sightProfile(it.from, it.to, it.h1 ?? 1.6, it.h2 ?? 1))}</details>`;
+    } else if (it.type === 'range') {
+      extra += `<p><b>${fmtDist(dist(it.from, it.to))}</b> · ${fmtBearing(bearing(it.from, it.to))}</p><div class="sub">To grid ${grid(it.to)}</div>` +
+        sightHtml(sightProfile(it.from, it.to, it.h1 ?? 1.6, it.h2 ?? 1.6)) +
+        (isMine(owner) ? `<button type="button" class="rk-add" data-rk-add data-id="${esc(it.id)}">Rocket launcher shot</button>` : '');
     }
     if (it.type === 'mortar') extra += mortarInfoHtml(it);
     if (it.type === 'marker' && it.icon === 'infantry' && it.at) extra += `<p class="sub">Updated ${fmtAgo(Date.now() - it.at)}</p>`;
@@ -1555,6 +1559,9 @@
         { tool: 'lz', name: 'Landing zone check', short: 'LZ check', icon: svg('<circle cx="12" cy="12" r="9"/><path d="M8.5 7.5v9M15.5 7.5v9M8.5 12h7" stroke-width="2.2"/>', 'color:#8ce99a'),
           hint: 'Hover to check a spot · click to mark a landing zone' },
         { tool: 'audible', name: 'Who can hear it', short: 'Heard from', icon: svg('<path d="M9 18V6l9-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/>', 'color:#b197fc') },
+        '-', // last, so the tools above keep their number keys
+        { tool: 'rocket', name: 'Rocket launcher shot', short: 'Rocket', icon: svg('<path d="M3 19l9-9"/><path d="M12 10l3.5-3.5 3 1-1-3L21 3" /><path d="M10.5 8.5l5 5" /><circle cx="19" cy="17" r="2.5" stroke-dasharray="2 1.6"/>'),
+          hint: 'Click where you fire from, then the target · sight setting and aim bearing, with wind' },
       ] },
     { id: 'support', name: 'Support', key: 'S', color: '#ff922b', title: 'Fire missions, gun runs, medevac, pickups, resupply',
       icon: svg('<circle cx="12" cy="12" r="7.5"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/>', 'color:#ff922b'),
@@ -1867,7 +1874,7 @@
       saveItem({ id: uid(), type: 'marker', icon: 'radio', xz: roundXZ(xz), label: `Radio ${n}`, note: '', color: state.me.color, ring: state.radioRing });
     } else if (tool === 'route' || LINE_CONSTRUCTS.includes(tool) || ARROW_OF_TOOL[tool]) {
       if (!draw) startDraw(tool, xz); else addDrawPoint(xz);
-    } else if (tool === 'range' || tool === 'profile') {
+    } else if (tool === 'range' || tool === 'profile' || tool === 'rocket') {
       if (!draw) startDraw('range', xz);
       else {
         const from = draw.points[0];
@@ -1875,9 +1882,14 @@
         if (dist(from, xz) >= 1) {
           const mine = [...(state.players.get(state.me.name)?.items.values() || [])].filter(i => i.type === 'range');
           const id = uid();
-          if (tool === 'profile') { // opens its popup, with the profile, as soon as it's drawn
+          if (tool === 'rocket') { // a range line with the rocket calculator on it, opened as soon as it's drawn
+            const [l, r] = state.rkChoice.split('|');
             state.openPopupId = id;
-            saveItem({ id, type: 'range', from: roundXZ(from), to: roundXZ(xz), label: `Profile ${mine.filter(i => i.h1 != null).length + 1}`, note: '', color: state.me.color,
+            saveItem({ id, type: 'range', from: roundXZ(from), to: roundXZ(xz), label: `Rocket shot ${mine.filter(i => i.rocket).length + 1}`, note: '',
+              color: state.me.color, h1: 1.6, h2: 1, rocket: { l, r, s: l === 'RPG-7' ? state.rkSight : 'iron' }, ...(state.rkWind ? { wind: state.rkWind } : {}) });
+          } else if (tool === 'profile') { // opens its popup, with the profile, as soon as it's drawn
+            state.openPopupId = id;
+            saveItem({ id, type: 'range', from: roundXZ(from), to: roundXZ(xz), label: `Profile ${mine.filter(i => i.h1 != null && !i.rocket).length + 1}`, note: '', color: state.me.color,
               h1: state.profFrom, h2: state.profTo });
           } else saveItem({ id, type: 'range', from: roundXZ(from), to: roundXZ(xz), label: `Range line ${mine.filter(i => i.h1 == null).length + 1}`, note: '', color: state.me.color });
         }
@@ -3510,6 +3522,7 @@
   const HELI_ALTS = [[30, '30 m'], [100, '100 m'], [200, '200 m']];
   const EYES = [[0.5, 'Prone'], [1, 'Crouched'], [1.6, 'Standing'], [2.2, 'Vehicle']]; // eye height above the ground, m
   state.profFrom = 1.6; state.profTo = 1.6;
+  state.rkChoice = 'RPG-7|PG-7VM'; state.rkSight = 'iron'; state.rkWind = null; // rocket launcher shots
   state.hdFoe = 's'; state.hdVeh = 'btr70'; state.hdRange = 800;
   state.hearGun = 'rifle';
   state.heliAlt = 100;
@@ -3535,6 +3548,8 @@
       { label: 'My vehicle', key: 'hdVeh', options: [['btr70', 'BTR-70'], ['brdm2', 'BRDM-2'], ['lav25', 'LAV-25']] },
       { label: 'Look out to', key: 'hdRange', options: REACH }],
     profile: [{ label: 'From', key: 'profFrom', options: EYES }, { label: 'To', key: 'profTo', options: EYES }],
+    rocket: () => [{ label: 'Launcher', key: 'rkChoice', options: ROCKET_CHOICES.map(([l, r]) => [`${l}|${r}`, rocketName(l, r)]) },
+      ...(state.rkChoice.startsWith('RPG-7|') ? [{ label: 'Sight', key: 'rkSight', options: [['iron', 'Iron'], ['pgo7', 'PGO-7']] }] : [])],
     'air-cas': { label: 'Target', key: 'casShape', options: [['point', 'Point'], ['area', 'Area']] },
     'aa-e': { label: 'Helicopter height', key: 'heliAlt', options: HELI_ALTS },
     'cover-route': () => [{ label: 'Travel', key: 'routeMode', options: [['foot', 'Foot'], ['vehicle', 'Vehicle'], ['air', 'Air']] },
@@ -3556,6 +3571,7 @@
     if (t === 'hulldown') return 'Click the enemy · finds spots where only your turret clears the ridge';
     if (t === 'audible') return 'Click where the shooting is · shows how far away it can be heard';
     if (t === 'profile') return draw ? 'Click the target' : 'Click the start point';
+    if (t === 'rocket') return draw ? 'Click the target' : 'Click where you fire from · set the wind in its popup';
     if (t === 'radio') return 'Click where the radio backpack is';
     if (t === 'air-cas') return state.casShape === 'area' ? 'Hold the mouse button and circle the target area; let go and it is sent'
       : 'Click the target and it is sent · add details later with Edit';
@@ -4018,6 +4034,169 @@
   const fmtTime = s => s < 90 ? `${Math.max(1, Math.round(s))} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round(s / 60) % 60} min`;
   const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   const compass = brg => COMPASS[Math.round(brg / 45) % 8];
+
+  // --- Rocket calculator: which sight mark, how much hold and which bearing, for a launcher on a range line -----------
+  // From flights of the game's own rockets (reforger-map-tools rockettest.py, data/rockets.json): each rocket's flight in
+  // still air at test elevations, every dt seconds (along the ground, up), and what wind adds to it per m/s (head, tail,
+  // cross from the right: along, up, side). The game's rockets don't fly like the sights assume: motor rockets (PG-7VM,
+  // PG-7VL) turn into a crosswind while they burn, the others drift with it, and some range marks are a degree off. So the
+  // shot is solved from the flights, then the angle it needs above the line of sight is turned into the nearest mark.
+  let ROCKETS = null;
+  const ROCKET_CHOICES = [['RPG-7', 'PG-7VM'], ['RPG-7', 'PG-7VL'], ['RPG-7', 'PG-7VR'], ['M72A3', 'M72A3'], ['RPG-22', 'PG-22'], ['RPG-75', 'RPG-75']];
+  const rocketName = (l, r) => l === r ? (l === 'M72A3' ? 'M72A3 LAW' : l) : `${l} ${r}`;
+  const ROCKET_MIN_E = -15, ROCKET_MAX_E = 25; // degrees: a little past the tested elevations, the nearest one turned to fit
+
+  // The still-air flight at elevation e (deg), between the two test elevations around it: interpolated in each flight's own
+  // launch frame (distance along the launch line, drop below it), which hardly changes with elevation, then turned to e.
+  // Past the end ones, the end flight is turned (closer to the game than carrying the interpolation on).
+  function rocketFlight(R, e) {
+    const el = R.elevs;
+    let i = el.findIndex((x, k) => k < el.length - 1 && e <= el[k + 1]);
+    if (i < 0) i = el.length - 2;
+    const f = Math.min(Math.max((e - el[i]) / (el[i + 1] - el[i]), 0), 1), rad = Math.PI / 180;
+    const ca = Math.cos(el[i] * rad), sa = Math.sin(el[i] * rad), cb = Math.cos(el[i + 1] * rad), sb = Math.sin(el[i + 1] * rad);
+    const c = Math.cos(e * rad), s = Math.sin(e * rad);
+    return R.calm[i].map(([x0, y0], k) => {
+      const [x1, y1] = R.calm[i + 1][k];
+      const u = (x0 * ca + y0 * sa) * (1 - f) + (x1 * cb + y1 * sb) * f, d = (x0 * sa - y0 * ca) * (1 - f) + (x1 * sb - y1 * cb) * f;
+      return [u * c + d * s, u * s - d * c];
+    });
+  }
+  // Where a shot at elevation e is when it has come D m: {up, side (m, + = right), t (s)}, with the wind (w: m/s of tail or
+  // head wind and of crosswind from the right), or null if the rocket blows up before it gets there.
+  function rocketAt(R, e, w, D) {
+    const pts = rocketFlight(R, e), lw = w.along >= 0 ? R.tail : R.head, ls = Math.abs(w.along);
+    const at = k => [pts[k][0] + lw[k][0] * ls + R.cross[k][0] * w.fromRight, pts[k][1] + lw[k][1] * ls + R.cross[k][1] * w.fromRight,
+      R.cross[k][2] * w.fromRight];
+    let prev = at(0);
+    for (let k = 1; k < pts.length; k++) {
+      const p = at(k);
+      if (p[0] >= D) {
+        const f = (D - prev[0]) / (p[0] - prev[0] || 1);
+        return { up: prev[1] + (p[1] - prev[1]) * f, side: prev[2] + (p[2] - prev[2]) * f, t: (k - 1 + f) * R.dt };
+      }
+      prev = p;
+    }
+    return null;
+  }
+  // The shot that hits D m out and H m up: elevation (deg), side drift, flight time; or {err} when it can't.
+  function rocketAim(R, D, H, w) {
+    // Up from the lowest elevation, a degree at a time, to the first shot that gets there at or above the target, then
+    // halved down to it. (Steeper shots cover less ground before they blow up, so past some elevation none get there.)
+    const f = e => rocketAt(R, e, w, D);
+    let lo = null, hi = null, reached = false;
+    for (let e = ROCKET_MIN_E; e <= ROCKET_MAX_E; e++) {
+      const h = f(e);
+      if (h) reached = true;
+      if (h && h.up >= H) { hi = e; break; }
+      lo = h ? e : null;
+    }
+    if (hi == null) {
+      if (reached) return { err: 'Too far above you for this rocket to reach' };
+      return { err: `Out of reach: it blows up after ${R.life.toFixed(1)} s, about ${fmtDist(rocketFlight(R, 0).at(-1)[0])} out on level ground` };
+    }
+    if (lo == null) return hi === ROCKET_MIN_E ? { err: 'Too steeply below you' } : { e: hi, ...f(hi) };
+    for (let n = 0; n < 30; n++) {
+      const m = (lo + hi) / 2, h = f(m);
+      if (h && h.up >= H) hi = m; else lo = m;
+    }
+    return { e: hi, ...f(hi) };
+  }
+  // The sight's marks for this launcher and rocket: [[range m, bore angle above the line of sight, deg]], nearest first.
+  function rocketMarks(l, r, s) {
+    const L_ = ROCKETS.launchers[l], m = s === 'pgo7' && L_.sights.pgo7 ? L_.sights.pgo7[r] : L_.sights.iron;
+    return Object.entries(m).map(([k, a]) => [+k, a]).sort((a, b) => a[0] - b[0]);
+  }
+  function rocketSolve(it) {
+    const { l, r, s } = it.rocket, R = ROCKETS && ROCKETS.rockets[r];
+    if (!R || !HEIGHT) return null;
+    const D = dist(it.from, it.to), az = bearing(it.from, it.to);
+    const H = ground(it.to) + (it.h2 ?? 1) - ground(it.from) - (it.h1 ?? 1.6);
+    const { along, across } = windParts(it.wind, az), w = { along, fromRight: -across }; // across + = blowing to the right
+    const sol = rocketAim(R, D, H, w);
+    if (sol.err) return { D, H, az, ...sol };
+    const calm = it.wind && it.wind.s > 0 ? rocketAim(R, D, H, { along: 0, fromRight: 0 }) : null;
+    const need = sol.e - ROCKETS.launchers[l].spawn - Math.atan2(H, D) * 180 / Math.PI; // bore above the line of sight
+    const marks = rocketMarks(l, r, s);
+    const mark = marks.reduce((b, m) => Math.abs(m[1] - need) < Math.abs(b[1] - need) ? m : b);
+    // the range the sight would need for this angle, along its marks (straight on past the end ones)
+    let k = marks.findIndex(m => m[1] >= need);
+    k = k <= 0 ? (k === 0 ? 0 : marks.length - 2) : k - 1;
+    const [a, b] = [marks[k], marks[Math.min(k + 1, marks.length - 1)]];
+    const equiv = b[1] !== a[1] ? a[0] + (need - a[1]) * (b[0] - a[0]) / (b[1] - a[1]) : a[0];
+    const hold = D * Math.tan((need - mark[1]) * Math.PI / 180); // m above the target to put the mark
+    const aimOff = -Math.atan2(sol.side, D) * 180 / Math.PI; // deg, + = aim right of the target
+    const past = need > marks.at(-1)[1] ? 1 : need < marks[0][1] ? -1 : 0; // beyond the sight's marks
+    return { D, H, az, sol, need, mark, equiv, past, hold, aimOff, aim: (az + aimOff + 360) % 360, calm, R, upwind: sol.side * w.fromRight > 0 };
+  }
+  function rocketHtml(owner, it) {
+    if (!ROCKETS) return '<p class="sub">Loading rocket data…</p>';
+    const mine = isMine(owner), dis = mine ? '' : ' disabled', { l, r, s } = it.rocket, wind = it.wind || { s: 0, d: 0 };
+    const opt = (v, t, sel) => `<option value="${esc(v)}"${sel ? ' selected' : ''}>${esc(t)}</option>`;
+    const sel = (k, opts) => `<select data-rk="${k}" data-id="${esc(it.id)}"${dis}>${opts}</select>`;
+    let html = '<div class="rk-form">' +
+      `<label>Launcher ${sel('w', ROCKET_CHOICES.map(([a, b]) => opt(`${a}|${b}`, rocketName(a, b), a === l && b === r)).join(''))}</label>` +
+      (l === 'RPG-7' ? `<label>Sight ${sel('s', opt('iron', 'Iron sight', s !== 'pgo7') + opt('pgo7', 'PGO-7 scope', s === 'pgo7'))}</label>` : '') +
+      `<label>You ${sel('h1', EYES.slice(0, 3).map(([v, t]) => opt(v, t, (it.h1 ?? 1.6) === v)).join(''))}</label>` +
+      `<label>Target ${sel('h2', [[0.5, 'Prone'], [1, 'Vehicle hull'], [1.6, 'Standing'], [2.2, 'Vehicle top']].map(([v, t]) => opt(v, t, (it.h2 ?? 1) === v)).join(''))}</label>` +
+      `<label>Wind <span><input data-rk="ws" data-id="${esc(it.id)}" type="number" min="0" max="40" step="0.5" value="${wind.s || 0}"${dis}> m/s from ` +
+      `<input data-rk="wd" data-id="${esc(it.id)}" type="number" min="0" max="359" step="1" value="${Math.round(wind.d || 0)}"${dis}>°</span></label></div>`;
+    const x = rocketSolve(it);
+    if (!x) return html + '<p class="sub">Terrain still loading…</p>';
+    const up = `${Math.round(x.H) >= 0 ? '+' : ''}${Math.round(x.H)} m`;
+    if (x.err) return html + `<p><b class="rc-no">${esc(x.err)}</b></p><p class="sub">${fmtDist(x.D)}, target ${up}.</p>`;
+    const pgo = s === 'pgo7' && l === 'RPG-7';
+    const holdTxt = Math.abs(x.hold) < 0.4 ? 'on the target' : `${Math.abs(x.hold).toFixed(1)} m ${x.hold > 0 ? 'above' : 'below'} the target`;
+    const markTxt = pgo ? `${x.mark[0]} m line` : `${x.mark[0]} m`;
+    const side = Math.abs(x.aimOff) < 0.05 ? 'straight at it' : `${Math.abs(x.aimOff).toFixed(1)}° ${x.aimOff > 0 ? 'right' : 'left'} of it, ` +
+      `${Math.abs(x.D * Math.tan(x.aimOff * Math.PI / 180)).toFixed(1)} m`;
+    html += `<div class="stats rk wrap"><div><span class="k">${pgo ? 'Line' : 'Sight'}</span><span class="v">${markTxt}</span></div>` +
+      `<div><span class="k">Hold</span><span class="v">${holdTxt}</span></div>` +
+      `<div><span class="k">Aim</span><span class="v">${x.aim.toFixed(1)}°</span></div>` +
+      `<div><span class="k">Flight</span><span class="v">${x.sol.t.toFixed(1)} s</span></div></div>` +
+      `<p class="sub">Target ${fmtDist(x.D)} away on ${x.az.toFixed(1)}°, ${up}. Aim ${side}` +
+      (pgo && Math.abs(x.aimOff) >= 0.05 ? ` (target on the ${(Math.abs(x.aimOff) / ROCKETS.pgo7_lead_deg).toFixed(1)} mark ${x.aimOff > 0 ? 'left' : 'right'} of centre)` : '') +
+      `. Needs ${x.need.toFixed(2)}° over the line of sight` + (x.past > 0 ? `, more than the top ${pgo ? 'line' : 'mark'} gives`
+        : x.past < 0 ? `, less than the lowest ${pgo ? 'line' : 'mark'} gives` : `, as a ${Math.round(x.equiv / 5) * 5} m ${pgo ? 'line' : 'mark'} would`) +
+      (x.sol.e < x.R.elevs[0] || x.sol.e > x.R.elevs.at(-1) ? ` (${x.sol.e.toFixed(0)}° from level: steeper than the tested shots, so less exact)` : '') + '.</p>';
+    if (x.calm && !x.calm.err) {
+      const de = x.sol.e - x.calm.e;
+      html += `<p class="sub">Wind ${wind.s} m/s from ${pad(Math.round(wind.d) % 360, 3)}°: without aiming off it would land ` +
+        `${Math.abs(x.sol.side).toFixed(1)} m ${x.sol.side > 0 ? 'right' : 'left'}` +
+        (Math.abs(de * Math.PI / 180 * x.D) >= 0.3 ? ` and ${Math.abs(de * Math.PI / 180 * x.D).toFixed(1)} m ${de > 0 ? 'low' : 'high'}` : '') + '.' +
+        (x.upwind && Math.abs(x.sol.side) > 0.3 ? ' Its motor turns it into the wind while it burns, so it ends up upwind.' : '') + '</p>';
+    }
+    if (x.R.spread > 5) html += `<p class="sub">This rocket's motor varies: about ±${Math.round(x.R.spread)} m in range from one to the next.</p>`;
+    return html;
+  }
+  document.addEventListener('change', e => {
+    const el = e.target.closest('[data-rk]');
+    const it = el && state.me && state.players.get(state.me.name)?.items.get(el.dataset.id);
+    if (!it || !it.rocket) return;
+    const next = { ...it, rocket: { ...it.rocket } };
+    const k = el.dataset.rk, v = el.value;
+    if (k === 'w') { [next.rocket.l, next.rocket.r] = v.split('|'); if (next.rocket.l !== 'RPG-7') next.rocket.s = 'iron'; }
+    if (k === 's') next.rocket.s = v;
+    if (k === 'h1' || k === 'h2') next[k] = +v;
+    if (k === 'ws' || k === 'wd') {
+      const box = el.closest('.rk-form'), ws = Math.min(Math.max(+box.querySelector('[data-rk="ws"]').value || 0, 0), 40);
+      const wd = ((Math.round(+box.querySelector('[data-rk="wd"]').value || 0) % 360) + 360) % 360;
+      if (ws > 0) next.wind = { s: ws, d: wd }; else delete next.wind;
+      state.rkWind = next.wind || null; // new rocket shots start with the last wind entered
+    }
+    state.rkChoice = `${next.rocket.l}|${next.rocket.r}`;
+    state.rkSight = next.rocket.s;
+    state.openPopupId = it.id; // re-open with the new solution once it's saved
+    saveItem(next);
+  });
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-rk-add]');
+    const it = b && state.me && state.players.get(state.me.name)?.items.get(b.dataset.id);
+    if (!it) return;
+    const [l, r] = state.rkChoice.split('|');
+    state.openPopupId = it.id;
+    saveItem({ ...it, rocket: { l, r, s: l === 'RPG-7' ? state.rkSight : 'iron' }, ...(state.rkWind ? { wind: state.rkWind } : {}) });
+  });
 
   // --- Elevation profile: a side-on slice of the ground between two points, with the sight line across it ----------
   // Ground from the 10 m heights (sea at 0), trees from the canopy heights and buildings from their heights, all above
@@ -6358,6 +6537,10 @@
     .then(r => r.json())
     .then(t => { TABLES = t; fillMortarSelects(); rerenderMortars(); refreshLists(); updateHint(); })
     .catch(err => { console.error(err); toast('Could not load mortar firing tables.', 6000); });
+  fetch('data/rockets.json')
+    .then(r => r.json())
+    .then(d => { ROCKETS = d; })
+    .catch(err => { console.error(err); toast('Could not load rocket data.', 6000); });
   // Map data is cached by browsers for a week: the 10 m files carry los/index.json's version (new on every bake), and
   // DATA_V only until that index has loaded.
   const DATA_V = 4;
