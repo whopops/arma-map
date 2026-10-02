@@ -495,6 +495,15 @@ table.trp-table .trees { color: #ffde32; }
 .stats.rk { grid-template-columns: repeat(2, 1fr); margin: 6px 0; }
 .stats.rk .v { font-size: 13.5px; }
 .pop .rk-add { margin-top: 8px; width: 100%; }
+/* Where to aim a rocket shot: crosshair on the aim point, bearing and sight beside it (colour: ROCKET_AIM in app.js) */
+.rk-aim { position: absolute; left: 0; top: 0; pointer-events: none; }
+.rk-aim i { position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border: 2px solid #ffd43b; border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .6), inset 0 0 0 1.5px rgba(0, 0, 0, .6); pointer-events: auto; cursor: pointer; }
+.rk-aim i::before, .rk-aim i::after { content: ''; position: absolute; background: #ffd43b; box-shadow: 0 0 0 1px rgba(0, 0, 0, .55); }
+.rk-aim i::before { left: 6px; top: -7px; width: 2px; height: 28px; }
+.rk-aim i::after { top: 6px; left: -7px; height: 2px; width: 28px; }
+.rk-aim b { position: absolute; left: 16px; top: -10px; white-space: nowrap; font: 700 11.5px var(--mono); color: var(--text);
+  background: rgba(10, 14, 18, .88); border: 1px solid var(--line-strong); border-left: 4px solid #ffd43b; border-radius: 4px; padding: 1px 6px; }
 .profile { position: relative; margin-top: 9px; padding-left: 40px; }
 .profile svg { display: block; width: 100%; height: 70px; background: #0f151a; border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .profile .fill { fill: rgba(200, 217, 111, .16); }

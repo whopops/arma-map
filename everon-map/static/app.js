@@ -1111,6 +1111,21 @@
       });
       bindInfo(label, html, () => mid);
       layer.addLayer(label);
+      // A rocket shot also shows where to aim: a line on the aim bearing, out as far as the target, ending in a
+      // crosshair labelled with the bearing, sight mark and hold. Off the target by the wind's aim-off.
+      const x = it.rocket && rocketSolve(it);
+      if (x && !x.err) {
+        const rad = x.aim * Math.PI / 180, D = dist(it.from, it.to);
+        const aimXZ = [it.from[0] + D * Math.sin(rad), it.from[1] + D * Math.cos(rad)], c = toLL(aimXZ);
+        layer.addLayer(L.polyline([a, c], { color: '#000', weight: 4.5, opacity: 0.5, interactive: false }));
+        const aimLine = L.polyline([a, c], { color: ROCKET_AIM, weight: 2, bubblingMouseEvents: false });
+        bindInfo(aimLine, html);
+        const hold = Math.abs(x.hold) < 0.4 ? '' : ` ${x.hold > 0 ? '+' : '−'}${Math.abs(x.hold).toFixed(1)} m`;
+        const mark = L.marker(c, { keyboard: false, zIndexOffset: 400, icon: L.divIcon({ className: '', iconSize: [0, 0],
+          html: `<span class="rk-aim"><i></i><b>Aim ${x.aim.toFixed(1)}° · ${x.mark[0]} m${hold}</b></span>` }) });
+        bindInfo(mark, html, () => aimXZ);
+        layer.addLayer(aimLine).addLayer(mark);
+      }
     } else if (it.type === 'mortar') {
       renderMortar(p, it, layer, color, html);
     } else if (it.type === 'construct') {
@@ -4043,6 +4058,7 @@
   // shot is solved from the flights, then the angle it needs above the line of sight is turned into the nearest mark.
   let ROCKETS = null;
   const ROCKET_CHOICES = [['RPG-7', 'PG-7VM'], ['RPG-7', 'PG-7VL'], ['RPG-7', 'PG-7VR'], ['M72A3', 'M72A3'], ['RPG-22', 'PG-22'], ['RPG-75', 'RPG-75']];
+  const ROCKET_AIM = '#ffd43b'; // the aim line and crosshair (app.css .rk-aim)
   const rocketName = (l, r) => l === r ? (l === 'M72A3' ? 'M72A3 LAW' : l) : `${l} ${r}`;
   const ROCKET_MIN_E = -15, ROCKET_MAX_E = 25; // degrees: a little past the tested elevations, the nearest one turned to fit
 
@@ -6531,7 +6547,7 @@
   }
   // Mortars, MG nests and the terrain checks depend on the tables, heightmap and trees, so redraw them once those load.
   const rerenderMortars = () => state.players.forEach(p => p.items.forEach(it => {
-    if (['mortar', 'emplacement', 'overwatch', 'hulldown', 'route', 'aa'].includes(it.type) || isMarker(it, 'lz')) renderItem(p, it);
+    if (['mortar', 'emplacement', 'overwatch', 'hulldown', 'route', 'aa'].includes(it.type) || isMarker(it, 'lz') || (it.type === 'range' && it.rocket)) renderItem(p, it);
   }));
   fetch('data/mortar-tables.json')
     .then(r => r.json())
@@ -6539,7 +6555,7 @@
     .catch(err => { console.error(err); toast('Could not load mortar firing tables.', 6000); });
   fetch('data/rockets.json')
     .then(r => r.json())
-    .then(d => { ROCKETS = d; })
+    .then(d => { ROCKETS = d; rerenderMortars(); }) // rocket shots draw their aim line once the flights are in
     .catch(err => { console.error(err); toast('Could not load rocket data.', 6000); });
   // Map data is cached by browsers for a week: the 10 m files carry los/index.json's version (new on every bake), and
   // DATA_V only until that index has loaded.

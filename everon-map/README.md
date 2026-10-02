@@ -81,8 +81,9 @@ right-click finishes.
 - **Rocket launcher shot**: click where you fire from, then the target. Pick the launcher (RPG-7 with PG-7VM, PG-7VL
   or PG-7VR, M72A3 LAW, RPG-22, RPG-75), the RPG-7's sight (iron or PGO-7 scope), your stance and the target, and
   type the wind as the in-game map shows it. The popup gives the sight mark to set, how far above or below the target
-  to hold it, the compass bearing to aim on (off the target into or with the wind) and the flight time. Any range
-  line gets the same with its **Rocket launcher shot** button. See [Rockets](#rockets).
+  to hold it, the compass bearing to aim on (off the target into or with the wind) and the flight time. On the map, a
+  yellow aim line runs from you on that bearing to a crosshair at the aim point, labelled with the bearing, sight mark
+  and hold. Any range line gets the same with its **Rocket launcher shot** button. See [Rockets](#rockets).
 - **Hull-down finder**: pick enemy, your vehicle (BTR-70, BRDM-2, LAV-25) and reach, click the enemy. Green: turret
   seen, hull hidden. Yellow: through trees. Blue: hidden ground within 30 m of green, to wait in. The popup lists the
   closest spots. Hull heights are estimates (`HULL` in `static/app.js`).
