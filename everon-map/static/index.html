@@ -99,6 +99,9 @@
         </details>
       </div>
     </div>
+    <!-- The 3D view of this map and room, in a new tab -->
+    <button type="button" id="open-3d" class="panel" title="Fly or walk round this map in 3D, with this room's markings (opens a new tab)">
+      <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m2 19 6-9 4 5 3-4 7 8H2z"/><circle cx="17" cy="6" r="2"/></svg><span>3D view</span></button>
     <!-- Squad pop-out: players and the briefing, at the bottom of the right-hand column -->
     <button type="button" id="squad-tab" class="panel" aria-controls="squad-panel" aria-expanded="false" title="Players and briefing">
       <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.4 3-5 6-5s5.4 1.6 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14c2.3.2 4 1.7 4.5 4.5"/></svg><span>Squad</span><span id="squad-tab-count" class="count"></span><span id="squad-tab-dot" class="acc-dot hidden" title="The briefing was updated"></span></button>
@@ -195,8 +198,6 @@
           <div id="los-detail" class="los-detail" role="radiogroup" aria-label="Line-of-sight detail">
             <span class="ld-label">Line of sight</span>
             <span class="ld-opts">
-              <button type="button" data-los-mode="full" role="radio" title="Every building, wall and tree from the game, at 0.5 m">Full</button>
-              <button type="button" data-los-mode="visual" role="radio" title="On trial: plants as see-through as in game">Visual</button>
               <button type="button" data-los-mode="profiles" role="radio" title="0.5 m resolution, slow">Measured</button>
               <button type="button" data-los-mode="light" role="radio" title="10 m resolution, fast">Light</button>
             </span>

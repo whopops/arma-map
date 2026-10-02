@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Everon 3D</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <div id="labels"></div>
+
+  <div class="panel" id="hud">
+    <div class="title-row"><span class="title">Everon 3D</span><a id="to-map" class="to-map" href="/map" title="Back to the field map (the 2D map), in the same room">2D map</a></div>
+    <div id="hud-pos">—</div>
+    <div id="hud-alt" class="sub">—</div>
+    <div id="hud-mode" class="sub">—</div>
+    <div id="hud-load" class="sub"></div>
+  </div>
+
+  <div class="panel" id="controls">
+    <label>Map <select id="map"></select></label>
+    <label>Go to <select id="goto"><option value="">Choose a place…</option></select></label>
+    <div class="row">
+      <button id="mode" type="button" title="F">Walk</button>
+      <label>Detail <select id="detail"><option value="normal">Normal</option><option value="high">High</option></select></label>
+    </div>
+    <label>Objects out to <select id="range">
+      <option value="1000">1 km</option><option value="1500">1.5 km</option><option value="2000">2 km</option>
+      <option value="3000">3 km</option><option value="4500">4.5 km</option>
+    </select></label>
+    <label>Sun <input id="sun" type="range" min="0" max="359" step="1"></label>
+    <label class="check"><input id="names" type="checkbox" checked> Place names</label>
+    <label class="check"><input id="roads" type="checkbox" checked> Roads and paths</label>
+    <label class="check" title="Everything drawn on the field map by everyone in your room"><input id="marks" type="checkbox" checked> Room markings</label>
+    <label class="check" title="What range cards, MG nests, sectors, AA guns and marked enemies can see, worked out the field map's way (Measured): tinted seen, yellow through trees, dark hidden"><input id="los" type="checkbox" checked> Line of sight</label>
+    <label class="check"><input id="trees" type="checkbox" checked> Trees and bushes</label>
+    <label class="check" title="Off: the game's raw 0.5 m scan, as boxes"><input id="smooth" type="checkbox" checked> Smooth trees</label>
+    <label class="check" title="Every tree and bush as its kind's measured shape: 10 layers, darker where the leaves block more"><input id="measured" type="checkbox"> Measured tree shapes</label>
+    <label class="check" title="The measured shapes see-through: each layer blocks as much of the view as the game's plant did in the photos"><input id="see" type="checkbox"> Measured opacity</label>
+    <form id="room-form" class="room" autocomplete="off" title="Join your field map room to see its fortifications here">
+      <div class="row">
+        <input id="room-name" placeholder="Your name" maxlength="17" aria-label="Your name">
+        <input id="room-code" placeholder="Room code" maxlength="32" aria-label="Room code">
+      </div>
+      <div class="row">
+        <span id="room-status" class="sub"></span>
+        <button id="room-join" type="submit">Join</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="panel" id="help">
+    <b>Click</b> the view to look around (Esc lets go)<br>
+    <b>W A S D</b> move · <b>Space</b> / <b>C</b> up / down<br>
+    <b>Shift</b> faster · <b>Wheel</b> flying speed<br>
+    <b>F</b> walk / fly · <b>M</b> big map · <b>H</b> hide this
+  </div>
+
+  <canvas id="mini" width="480" height="480" title="Click to go there"></canvas>
+
+  <div id="start">Loading…</div>
+  <script src="room.js"></script>
+  <script src="mortar.js"></script>
+  <script src="los.js"></script>
+  <script src="marks.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+{
+ "default": "everon",
+ "maps": {
+  "everon": {
+   "title": "Everon",
+   "world": 12800.0,
+   "tile": 500.0,
+   "cols": 26,
+   "rows": 26,
+   "lightCols": 1300,
+   "lightCell": 10,
+   "unit": 0.01,
+   "start": [
+    4560.0,
+    6880.0
+   ],
+   "hasTrees": true,
+   "poi": "/data/everon.json"
+  },
+  "kolguyev": {
+   "title": "Kolguyev",
+   "world": 12800.0,
+   "tile": 500.0,
+   "cols": 26,
+   "rows": 26,
+   "lightCols": 1300,
+   "lightCell": 10,
+   "unit": 0.02,
+   "start": [
+    6750.0,
+    6250.0
+   ],
+   "hasTrees": true
+  },
+  "arland": {
+   "title": "Arland",
+   "world": 4096.0,
+   "tile": 500.0,
+   "cols": 9,
+   "rows": 9,
+   "lightCols": 450,
+   "lightCell": 10,
+   "unit": 0.01,
+   "start": [
+    2250.0,
+    2250.0
+   ],
+   "hasTrees": true
+  }
+ }
+}

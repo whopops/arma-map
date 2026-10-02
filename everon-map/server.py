@@ -1,7 +1,7 @@
 """Arma Reforger Maps - local server.
 
-Serves the web app, caches map tiles on disk, and relays shared markings
-between connected players in the same room. Nothing about players is stored:
+Serves the web app (the field map at / and /map, the 3D view at /3d/, both reading the same map data under /data/),
+caches map tiles on disk, and relays shared markings between connected players in the same room. Nothing about players is stored:
 a player's markings exist only while their browser tab is connected, and a
 room (with its briefing) disappears when its last player leaves.
 
@@ -69,7 +69,7 @@ MAX_QUEUED_EVENTS = 5000       # an event stream this far behind is dropped; the
 SOCKET_TIMEOUT = 60            # seconds a connection may sit silent mid-request
 MAX_TILE_FETCHES = 6           # upstream tile downloads at once
 # Requests per address: a bucket of `burst` that refills at `rate` per second.
-RATE_LIMITS = {"post": (20, 120), "join": (0.2, 10), "tile": (60, 600), "static": (20, 200)}
+RATE_LIMITS = {"post": (20, 120), "join": (0.2, 10), "tile": (60, 600), "data": (60, 600), "static": (20, 200)}
 USERNAME_RE = re.compile(r"^[A-Za-z0-9 _\-\.\[\]]{1,20}$")
 ROOM_RE = re.compile(r"^[a-z0-9_-]{3,32}$")
 ADMIN_SESSION_SECONDS = 12 * 3600  # a sign-in lasts at most this long
@@ -863,6 +863,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_redirect(self, location):
+        self.send_response(308)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
     def read_json(self):
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -921,6 +928,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, {**HUB.admin_snapshot(), "you": addr_key(self.client_ip())})
         if path == "/admin":
             path = "/admin.html"
+        if path == "/map":  # the field map's public address (Caddy sends /map here as /); the same page locally
+            path = "/index.html"
+        if path == "/3d":  # the 3D view's own files are relative to its folder, so it needs the slash
+            q = f"?{url.query}" if url.query else ""
+            return self.send_redirect("/3d/" + q)
         m = re.match(r"^/tiles/([0-5])/(\d{1,3})/(\d{1,3})\.jpg$", path)
         if m:
             if self.limited("tile"):
@@ -931,7 +943,9 @@ class Handler(BaseHTTPRequestHandler):
             if self.limited("tile"):
                 return
             return self.map_tile(*m.groups())
-        if self.limited("static"):
+        # Map data comes in bursts (the 3D view streams terrain, objects and trees as you move), so it gets the tiles'
+        # allowance rather than the page files'.
+        if self.limited("data" if path.startswith("/data/") else "static"):
             return
         return self.static(path)
 
@@ -1003,6 +1017,8 @@ class Handler(BaseHTTPRequestHandler):
     def static(self, path):
         if path in ("", "/"):
             path = "/index.html"
+        elif path.endswith("/"):  # a folder's page: /3d/ is the 3D view
+            path += "index.html"
         full = os.path.normpath(os.path.join(STATIC, path.lstrip("/")))
         if not full.startswith(STATIC + os.sep) or not os.path.isfile(full):
             return self.send_bytes(404, b"Not found", "text/plain")
@@ -1191,6 +1207,7 @@ def main():
     srv = Server((args.host, args.port), Handler)
     shown = "localhost" if args.host in ("127.0.0.1", "0.0.0.0") else args.host
     print(f"Arma Reforger Maps running at http://{shown}:{args.port}/  (Ctrl+C to stop)", flush=True)
+    print(f"3D view: http://{shown}:{args.port}/3d/", flush=True)
     where = f"  (only from {args.admin_allow})" if ADMIN_ALLOW else ""
     if args.admin_password:
         print(f"Admin view: http://{shown}:{args.port}/admin  (password from --admin-password / EVERON_ADMIN_PASSWORD){where}", flush=True)

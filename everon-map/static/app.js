@@ -12,7 +12,7 @@
   // data lives in data/maps/<id>/ (roads.json, places.json, light/, los/, plants/, foliage.json, foliage/, tiles/), as
   // baked by reforger-map-tools; only Everon's satellite tiles come from elsewhere (the server's /tiles/ cache).
   // poi: extra reference layers (Conflict bases, caves, supplies...), Everon only so far. plants/plantsDir: the
-  // plant list and tile files the Visual and Measured line of sight read.
+  // plant list and tile files the Measured line of sight reads.
   const MAPS = {
     everon: { id: 'everon', name: 'Everon', size: 12800, dir: 'data/maps/everon', tiles: '/tiles/{z}/{x}/{y}.jpg', poi: 'data/everon.json',
       foliage: 'data/maps/everon/foliage/foliage_profiles.json', plants: 'data/maps/everon/foliage.json', plantsDir: 'data/maps/everon/plants' },
@@ -197,13 +197,14 @@
   });
   const hillshadeLayer = new HillshadeLayer({ bounds: worldBounds, zIndex: 3, minZoom: -1, maxZoom: 7 });
 
-  // Trees and buildings, per 10 m cell (row 0 = south edge), baked from the game's own objects by tools/bake_los.py:
+  // Trees and buildings, per 10 m cell (row 0 = south edge), baked from the game's own objects by reforger-map-tools
+  // (rmtlib/bake_los.py; FOLIAGE and CLUTTER by rmtlib/bake_plants.py):
   // FOREST   one bit per cell: woods (trees or bushes 3 m or taller over at least 35% of it). Drawn as a green hatch.
   // CANOPY   four planes of HN*HN bytes: canopy top (m), crown base (m), share of the cell blocked at head height by
   //          trunks, bushes and low branches (0-255), share covered by crowns seen from above (0-255).
   // BUILDINGS building height (m) where buildings fill at least 40% of the cell.
   // FOLIAGE  per height band above the ground (LIGHT_BANDS), the cell's average foliage k (how strongly leaves block
-  //          sight, per metre, 0-255 = 0-LIGHT_K_MAX), from every measured plant (tools/bake_light_foliage.py).
+  //          sight, per metre, 0-255 = 0-LIGHT_K_MAX), from every measured plant.
   // CLUTTER  per height band, the share of the cell filled by buildings, walls, rocks and poles (0-255).
   let FOREST = null; // Uint8Array of packed bits
   let CANOPY = null, BUILDINGS = null, FOLIAGE = null, CLUTTER = null, FOLIAGE_MAX = null, CLUTTER_MAX = null; // max over bands
@@ -242,7 +243,7 @@
   });
   const forestLayer = new ForestLayer({ bounds: worldBounds, zIndex: 4, minZoom: -1, maxZoom: 7 });
 
-  // Helicopter landing suitability at every 10 m cell, baked by tools/bake_los.py from the game's own terrain and
+  // Helicopter landing suitability at every 10 m cell, baked by reforger-map-tools (rmtlib/bake_los.py) from the game's own terrain and
   // objects with the same rules as the landing zone check (the lz grid: 0 water, 1 good, 2 marginal, 3 no-go).
   // It leaves out the approach directions, which are too slow to check everywhere; hover or drop an LZ for those.
   // Loaded the first time the shading is shown.
@@ -2073,7 +2074,7 @@
   // ---------------------------------------------------------------------------
   // Mortar: terrain heights + in-game firing tables
   // ---------------------------------------------------------------------------
-  let HN = 1280;                 // cells per side of the 10 m grids (1280 on the old Everon files, 1300 on the new ones)
+  let HN = 1300;                 // cells per side of the 10 m grids; each map's los/index.json gives its own (light.cols)
   const HCELL = 10;              // metres per cell, row 0 = south edge
   let HEIGHT = null;             // Int16Array of decimetres
   let TABLES = null;             // {weapons: {M252: {label, milsPerCircle, shells: {name: {ring: {dispersion, table}}}}}}
@@ -2831,12 +2832,13 @@
     updateEmplDraft();
   });
   // Trees, bushes and clutter thin the view rather than cutting it off. Each 10 m cell holds, per height band above the
-  // ground, the average of every plant's measured leaves there (FOLIAGE, the same plants and see-through the Visual
-  // model uses one by one) and the share of it filled by walls, rocks and small buildings (CLUTTER). A sight line
+  // ground, the average of every plant's measured leaves there (FOLIAGE, the same plants and see-through the retired
+  // Visual model used one by one) and the share of it filled by walls, rocks and small buildings (CLUTTER). A sight line
   // crossing a cell at some height meets FOLIAGE_K (FOLIAGE_LOW_K below LOW_TOP) x that k plus CLUTTER_K x that share
   // per metre; what it keeps is T = exp(-sum): at least SEE_CLEAR counts as seen, SEE_TREES..SEE_CLEAR as seen through
   // trees, less as hidden. The rates and the two thresholds were fitted to the Visual model's results at 200 spots
-  // across the island (tools/fit_light.js), for the best F1 score over hidden, clear and through-trees ground.
+  // across the island (with fit_light.js, since retired; in git history), for the best F1 score over hidden, clear
+  // and through-trees ground.
   // Averaging leaves over 10 m hides gaps and trunks, so they're weaker than Visual's measured rates and the
   // thresholds differ.
   // Buildings (where they fill a 10 m cell) block like the ground, and neither they nor clutter count right beside
@@ -2936,25 +2938,20 @@
     }
     return res;
   }
-  // Line of sight in the viewer's chosen detail. Full: every building, wall, rock, tree and bush from the game at
-  // 0.5 m (static/los-worker.js, in a background thread; agrees with the game's own sight lines 95% of the time).
-  // Light: the 10 m model above (91% agreement with Visual), instant and small. A full result arrives a moment after
-  // it's asked for: until then the light one stands in, and everything that shows line of sight redraws when it lands. Drafts still being
-  // aimed (cache = false) stay light so they keep up with the mouse.
-  // Visual (on trial, to compare with Full): Full's buildings, walls and rocks, with every tree and bush on Everon as
-  // see-through as it is on screen, measured from the game's pictures of each kind of plant (see static/los-worker.js).
+  // Line of sight in the viewer's chosen detail. Measured ('profiles'): every building, wall and rock from the game at
+  // 0.5 m, with every tree and bush blocking by how much of it the game draws (static/los-worker.js, in a background
+  // thread). Light: the 10 m model above, instant and small. A full (0.5 m) result arrives a moment after it's asked
+  // for: until then the light one stands in, and everything that shows line of sight redraws when it lands. Drafts
+  // still being aimed (cache = false) stay light so they keep up with the mouse.
   const FULL_CELL = 2.5; // metres per cell of a full result's shading
   const LOS_MODE_KEY = 'everon-map-los-detail';
   const fullCache = new Map(), fullWanted = new Map(); // key -> result, key -> request id
   let losWorker = null, fullSeq = 0, fullRedraw = 0, fullError = null;
   const fullSupported = () => typeof Worker !== 'undefined' && typeof DecompressionStream !== 'undefined';
-  // Visual needs Everon's own plant files; Measured needs a plant list for the map (MAP.plants), so on a map whose
-  // trees haven't been baked yet only Full and Light are offered.
-  const WORKER_MODES = ['full', 'visual', 'profiles'];
-  // Full and Visual are deprecated: their code stays (the worker still runs them if asked) but they can't be chosen, and
-  // a choice saved in someone's browser is ignored. Measured is the default on computers, Light on phones and tablets.
-  const DEPRECATED_MODES = ['full', 'visual'];
-  const modeAvailable = m => !DEPRECATED_MODES.includes(m) && (m === 'light' || (fullSupported() && m === 'profiles' && !!MAP.plants));
+  // Measured needs a plant list for the map (MAP.plants), so on a map whose trees haven't been baked yet only Light is
+  // offered. Measured is the default on computers, Light on phones and tablets. A retired mode ('full', 'visual') still
+  // saved in someone's browser isn't available, so they get the default.
+  const modeAvailable = m => m === 'light' || (fullSupported() && m === 'profiles' && !!MAP.plants);
   function defaultLosMode() {
     const weak = (navigator.deviceMemory && navigator.deviceMemory < 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4)
       || matchMedia('(pointer: coarse)').matches; // phones and tablets
@@ -2973,13 +2970,12 @@
   // What the worker needs to find this map's files.
   const workerCfg = () => ({
     size: WORLD, losDir: mapLosDir(),
-    visual: { foliage: `${MAP.dir}/foliage.json`, plants: `${MAP.dir}/plants` },
-    profiles: MAP.plants ? { json: MAP.foliage, plants: MAP.plants, dir: MAP.plantsDir || 'data/plants' } : null,
+    profiles: MAP.plants ? { json: MAP.foliage, plants: MAP.plants, dir: MAP.plantsDir } : null,
   });
   function losGrid(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
-    if (cache && WORKER_MODES.includes(state.losMode) && modeAvailable(state.losMode) && HEIGHT && range >= 1) {
-      const model = state.losMode, strength = model === 'profiles' ? state.losStrength : undefined;
-      const key = `${model}${strength === undefined ? '' : `@${strength}`}|${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}`;
+    if (cache && state.losMode === 'profiles' && modeAvailable(state.losMode) && HEIGHT && range >= 1) {
+      const model = state.losMode, strength = state.losStrength;
+      const key = `${model}@${strength}|${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}`;
       const hit = fullCache.get(key);
       if (hit) return hit;
       if (!fullWanted.has(key)) requestFull(key, { xz, dir, arc, range, eyeH, targetH, reverse, elev, cell: FULL_CELL, model, strength, cfg: workerCfg() });
@@ -2995,8 +2991,8 @@
         if (!entry) return;
         fullWanted.delete(entry[0]);
         if (d.error) {
-          console.error('Full line of sight:', d.error);
-          if (!fullError) { fullError = d.error; toast('Full line-of-sight detail could not load; showing Light instead.', 6000); }
+          console.error('Measured line of sight:', d.error);
+          if (!fullError) { fullError = d.error; toast('Measured line of sight could not load; showing Light instead.', 6000); }
         } else {
           fullCache.set(entry[0], { ...d, bounds: L.latLngBounds(toLL([d.minX, d.maxZ - d.H * d.cell]), toLL([d.minX + d.W * d.cell, d.maxZ])) });
           while (fullCache.size > 40) fullCache.delete(fullCache.keys().next().value);
@@ -3026,13 +3022,12 @@
       b.classList.toggle('sel', on);
       b.setAttribute('aria-checked', on);
       b.disabled = !modeAvailable(b.dataset.losMode);
-      b.hidden = DEPRECATED_MODES.includes(b.dataset.losMode);
       if (b.disabled && b.dataset.losMode === 'profiles' && fullSupported()) b.title = 'Needs this map’s trees, which have not been baked';
     });
     const measured = state.losMode === 'profiles';
     $('#los-strength').classList.toggle('hidden', !measured);
-    $('#los-note').textContent = WORKER_MODES.includes(state.losMode) && fullError ? 'Measured could not load, so Light is shown.'
-      : WORKER_MODES.includes(state.losMode) && fullWanted.size ? 'Working it out…'
+    $('#los-note').textContent = measured && fullError ? 'Measured could not load, so Light is shown.'
+      : measured && fullWanted.size ? 'Working it out…'
       : '';
   }
   $('#los-detail').addEventListener('click', e => {
@@ -4228,7 +4223,7 @@
   }
 
   // --- Route planner (vehicle): the quickest drive on the road network, around marked enemies ---------------------
-  // Dijkstra over the game's own roads (ROADS, tools/import_game_roads.py), costed in driving time: each
+  // Dijkstra over the game's own roads (ROADS, from reforger-map-tools' rmtlib/bake_roads.py), costed in driving time: each
   // kind of road has a speed (ROAD_KMH), slopes slow it (driveFactor) and where a marked enemy sees a stretch the time
   // is multiplied like the foot planner does. Start and end are joined to the nearest roads by short off-road legs
   // (no water, nothing steeper than CAR_MAX_GRADE). With off-road allowed, and when there's no road way or the roads
@@ -4494,8 +4489,8 @@
 
   // --- Landing zone check -------------------------------------------------------------------------------------
   // Sized for the game's helicopters (the UH-1H's rotor reaches ~7.3 m from its mast, the Mi-8's ~10.7 m and its tail
-  // rotor ~13 m), on the engine's own terrain (1 m) and objects (0.5 m). tools/bake_los.py uses the same rules for
-  // the landing shading, at every 10 m.
+  // rotor ~13 m), on the engine's own terrain (1 m) and objects (0.5 m). reforger-map-tools' rmtlib/bake_los.py uses
+  // the same rules (LZ_*) for the landing shading, at every 10 m: keep the two in step.
   // - slope: the best-fit plane over LZ_SLOPE_R; over LZ_OK_DEG marginal, over LZ_MAX_DEG no-go
   // - anything LZ_SPOT_H or taller within LZ_TOUCH (the touchdown spot), or LZ_ROTOR_H or taller within LZ_R (under
   //   the rotor and tail), is no-go; trees or buildings LZ_NEAR_H or taller out to LZ_NEAR make it marginal
@@ -5837,6 +5832,15 @@
     try { await navigator.clipboard.writeText(link); toast('Invite link copied. Send it to your squad.'); }
     catch { toast(link, 8000); }
   });
+  // The 3D view (static/3d/, served at /3d/ by the same server; its button is in the right-hand column): this map,
+  // joined to this room under your name (after the #, so neither reaches the server's logs). It shows the room's
+  // markings; drawing stays here.
+  const open3d = () => {
+    if (!state.me) return;
+    const hash = `room=${encodeURIComponent(state.me.room)}&name=${encodeURIComponent(state.me.name)}`;
+    window.open(`/3d/?map=${encodeURIComponent(MAP.id)}#${hash}`, '_blank', 'noopener');
+  };
+  $('#open-3d').addEventListener('click', open3d);
 
   // ---------------------------------------------------------------------------
   // Tool finder (Ctrl+K): every tool, layer switch and sidebar action, searchable by name
@@ -5857,6 +5861,7 @@
       { name: 'Set the game time', sub: 'Clock, sun and moon', run: () => setClockPanel(true) },
       { name: briefing && briefing.text.trim() ? 'Edit the briefing' : 'Write a briefing', sub: 'Briefing', run: editBriefing },
       { name: 'Copy invite link', sub: `Room ${state.me.room}`, run: () => $('#room-copy').click() },
+      { name: 'Open in 3D', sub: `${MAP.name}, room ${state.me.room}`, run: open3d },
       { name: 'Search places, bases and markings', sub: 'Sidebar', run: () => { $('#sidebar').classList.remove('collapsed'); $('#search').focus(); } },
       { name: 'Export plan', sub: 'My markings', run: () => $('#export').click() },
       { name: 'Import plan', sub: 'My markings', run: () => $('#import').click() },
@@ -5991,7 +5996,7 @@
   window.addEventListener('beforeunload', leave);
 
   // ---------------------------------------------------------------------------
-  // Roads: the game's own road network (tools/import_game_roads.py). {nodes: [[x, z]], edges: [[a, b, kind, pts]]}
+  // Roads: the game's own road network (reforger-map-tools, rmtlib/bake_roads.py). {nodes: [[x, z]], edges: [[a, b, kind, pts]]}
   // with kind 0 main road, 1 street, 2 dirt road, 3 foot path. Roads and foot paths are separate layers; the vehicle
   // route planner runs on all of it.
   // ---------------------------------------------------------------------------
@@ -6030,11 +6035,11 @@
     if (!modeAvailable(state.losMode)) state.losMode = defaultLosMode();
     renderLosDetail();
     // Town and landmark names come from the game's map descriptors (places.json); a map with a reference file of its own
-    // (Everon's bases, caves, supplies...) keeps everything else from it.
+    // (Everon's bases, caves, supplies...) adds everything else from it.
     Promise.all([
-      def.poi ? fetch(def.poi).then(r => r.json()) : Promise.resolve(emptyReference()),
+      def.poi ? fetch(def.poi).then(r => r.json()) : Promise.resolve({}),
       fetch(`${def.dir}/places.json`).then(r => r.json()).catch(() => null),
-    ]).then(([ref, places]) => (places ? { ...ref, towns: places.towns || ref.towns, landmarks: places.landmarks || ref.landmarks } : ref))
+    ]).then(([ref, places]) => ({ ...emptyReference(), ...ref, towns: places?.towns || [], landmarks: places?.landmarks || [] }))
       .then(d => { buildReference(d); refreshFia(); loadRoads(); })
       .catch(err => { console.error(err); toast('Could not load reference data.', 6000); });
     // the line-of-sight index says how big the 10 m grids are, so it comes first
@@ -6052,7 +6057,8 @@
     .then(r => r.json())
     .then(t => { TABLES = t; fillMortarSelects(); rerenderMortars(); refreshLists(); updateHint(); })
     .catch(err => { console.error(err); toast('Could not load mortar firing tables.', 6000); });
-  // Map data is cached by browsers for a week: bump DATA_V whenever tools/bake_los.py is run again.
+  // Map data is cached by browsers for a week: the 10 m files carry los/index.json's version (new on every bake), and
+  // DATA_V only until that index has loaded.
   const DATA_V = 4;
   // The 10 m data files are gzipped (about a seventh of the download) and unpacked here.
   // name: height, forest, canopy, buildings, lz (every map), foliage, clutter (Everon's own files only).

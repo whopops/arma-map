@@ -2,5 +2,3 @@ tile_cache/
 __pycache__/
 bans.json
 bans.json.part
-# the printed map picture the roads are traced from (31 MB)
-tools/roads/

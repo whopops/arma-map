@@ -1,9 +1,11 @@
 # Arma Reforger Maps
 
-A shared tactical map of Arma Reforger (Everon, Kolguyev, Arland) for planning with your squad in the browser. Map
-data, terrain, line of sight, mortar ballistics and sound ranges are all measured from the game itself.
+A shared tactical map of Arma Reforger (Everon, Kolguyev, Arland) for planning with your squad in the browser, with
+a 3D view of the same maps and markings. Map data, terrain, line of sight, mortar ballistics and sound ranges are all
+measured from the game itself.
 
 - [Using the map](#using-the-map)
+- [The 3D view](#the-3d-view)
 - [How the numbers are worked out](#how-the-numbers-are-worked-out)
 - [Hosting it on a website](#hosting-it-on-a-website)
 - [Admin view](#admin-view)
@@ -26,7 +28,7 @@ Use **Export plan** / **Import plan** (My markings) to keep a plan between sessi
   this game** and **Map layers**. Sections open and close from their headings. **Ctrl+K** finds any tool, layer or action.
 - **Toolbar** (top): Select plus six menus.
 - **Right column**: the **Mortar** panel at the top (only once you've placed or followed a mortar). At the bottom,
-  from the top down: zoom buttons, **game clock**, **Squad** (Players, Contacts, Briefing).
+  from the top down: zoom buttons, **game clock**, **3D view**, **Squad** (Players, Contacts, Briefing).
 - **Bottom**: grid reference under the cursor. Right-click anywhere for that spot's grid.
 
 ### Toolbar
@@ -147,22 +149,36 @@ correct fire.
 - **FIA caches this game**: type or paste grids (6 or 8 digit, or X/Z metres); each snaps to the nearest of the 25
   known spots and pulses pink for everyone. Or click a spot under "Show all possible cache spots".
 
+## The 3D view
+
+**3D view** (right column, or Ctrl+K → "Open in 3D") opens the map you're on in 3D in a new tab, already in your
+room: everyone's markings are drawn on the terrain, with the same line of sight, mortar zones and sound ranges as on
+the map. It only shows; draw on the map. It is also at `/3d/` directly (the landing page links to it), where you can
+join a room by name and code. **2D map** (top left) goes back to the map in the same room.
+
+- **Moving**: click the view to look around (Esc lets go). W A S D move, Space / C up and down, Shift faster, the
+  wheel sets the flying speed. F switches between walking and flying, M opens the big map, H hides the help.
+- **What it draws**: the game's own 1 m terrain and 0.5 m buildings, walls and rocks, every tree and bush as a shaped
+  crown, roads and paths, and place names. Settings on the right: detail, how far out objects are drawn, the sun,
+  and which layers show. **Measured tree shapes** draws each plant as its measured outline instead.
+- It needs WebGL 2 (current Chrome, Edge or Firefox) and is best on a computer.
+- In the room it appears as `<your name> 3D`, so others can see who is watching in 3D.
+
 ## How the numbers are worked out
 
 ### Line of sight
 
-Terrain, buildings, walls, rocks, trees and bushes were measured in Arma Reforger Tools with the engine's own rays
-(`tools/workbench`, baked by `tools/bake_los.py`).
+Terrain, buildings, walls, rocks, trees and bushes were measured in Arma Reforger Tools with the engine's own rays,
+by `reforger-map-tools` (its `export` and `bake`).
 
-- **The object data**: checked against 20,000 of the game's own sight lines, it agrees 95% of the time (terrain
-  alone: 66%). Those rays ignore leaves, so foliage is measured separately.
-- **Measured**: every plant blocks by how much of its outline the game actually draws, photographed from 8 sides at
-  ranges up to 300 m (`tools/foliage`). It probably overstates foliage a little; lower Foliage strength if trees block
-  less in game.
+- **The object data**: checked against 20,000 of the game's own sight lines (its `sightlines` job and `rmt.py check`),
+  it agrees 95% of the time (terrain alone: 68%). Those rays ignore leaves, so foliage is measured separately.
+- **Measured**: every plant blocks by how much of its outline the game actually draws, photographed in the game from 8
+  sides at ranges up to 300 m (`reforger-map-tools`' `foliage` job). It probably overstates foliage a little; lower
+  Foliage strength if trees block less in game.
 - **Light**: every tree averaged into 10 m squares at seven heights. Agrees with the detailed model on 91% of ground.
 
-Full and Visual modes are retired but their code remains in `static/los-worker.js`. Grass, clutter and see-through
-fences don't block.
+Grass, clutter and see-through fences don't block.
 
 ### Mortar
 
@@ -194,8 +210,9 @@ Scripts are in `reforger-map-tools/audible`; the data is in `everon_los/everon-d
 
 ## Hosting it on a website
 
-The site is one Python program (`server.py`, Python 3.9+, standard library only) that serves the page and the live
-updates (Server-Sent Events). Run it behind an HTTPS reverse proxy.
+The site is one Python program (`server.py`, Python 3.9+, standard library only) that serves the field map (at `/`,
+and at `/map`), its 3D view (at `/3d/`), the map data both read (`/data/`) and the live updates (Server-Sent Events).
+Starting it starts both views. Run it behind an HTTPS reverse proxy.
 
 ### Run it
 
@@ -204,7 +221,7 @@ python server.py --behind-proxy
 ```
 
 It listens on `127.0.0.1:8765` (change with `--host` / `--port`). For a quick local test, run `python server.py` (or
-double-click **Start Everon Map.cmd**) and open http://localhost:8765/.
+double-click **Start Everon Map.cmd**) and open http://localhost:8765/ (the 3D view is http://localhost:8765/3d/).
 
 | Option | Environment variable | Purpose |
 |---|---|---|
@@ -215,8 +232,9 @@ double-click **Start Everon Map.cmd**) and open http://localhost:8765/.
 
 ### Reverse proxy
 
-Serve over **HTTPS**: session tokens travel with every request. The page calls absolute paths (`/api/…`, `/tiles/…`,
-`/maptiles/…`, `/data/…`, `/admin`), so give it its own domain or subdomain, or forward all of those. Disable response
+Serve over **HTTPS**: session tokens travel with every request. The pages call absolute paths (`/api/…`, `/tiles/…`,
+`/maptiles/…`, `/data/…`, `/los-worker.js`, `/admin`, and the 3D view at `/3d/…`), so give the site its own domain
+or subdomain, or forward all of those (with the field map's own files) to it, the 3D view included. Disable response
 buffering so live updates arrive at once. Caddy example:
 
 ```
@@ -247,7 +265,8 @@ are untracked on purpose).
 
 ### Built-in protection
 
-- **Rate limits** per address on requests and joins.
+- **Rate limits** per address on requests and joins (map data, which the 3D view streams as you move, gets the
+  same allowance as map tiles).
 - **Player caps:** 12 players per address, 60 per room, 1000 in total.
 - **Marking caps:** 500 markings and 2 MB per player.
 - **Connection caps:** 600 open connections, and a 60 s timeout on stalled requests.
@@ -279,16 +298,18 @@ Security:
 | Path | What |
 |---|---|
 | `server.py` | Web server, rooms, live updates, admin, Everon tile cache |
-| `static/` | The page (`index.html`, `app.js`, `app.css`), the line-of-sight worker and the admin page |
+| `static/` | The field map (`index.html`, `app.js`, `app.css`), the line-of-sight worker (`los-worker.js`, used by both views) and the admin page |
+| `static/3d/` | The 3D view: its page and scripts, and `maps.json` (the maps it offers: size, grid, camera start) |
 | `static/data/everon.json` | Everon's bases, supplies, vehicle spawns, caves and FIA cache spots (from the game) |
 | `static/data/mortar-tables.json` | The in-game firing tables (used only to decide which rings reach) |
-| `static/data/maps/<map>/` | Per map: `tiles/` (Kolguyev, Arland), `roads.json`, `places.json`, `los/` (500 m tiles), `light/` (10 m grids), `plants/`, `foliage.json`, `foliage/foliage_profiles.json` |
-| `tools/` | Bakers and importers; `tools/import_map_data.py` copies a map's data from `reforger-map-tools` |
-| `tools/workbench/` | The Arma Reforger Tools add-on that measures terrain, objects and plants |
-| `tools/foliage/` | Foliage measurements ([README](tools/foliage/README.md)) |
+| `static/data/maps/<map>/` | Per map, read by both views: `tiles/` (Kolguyev, Arland), `roads.json`, `places.json`, `los/` (500 m tiles), `light/` (10 m grids), `plants/`, `foliage.json`, `foliage/foliage_profiles.json`, and `trees/` (the 3D view's shaped trees) |
+
+This folder holds only what runs the site. Everything that makes its map data lives in `reforger-map-tools`: it
+exports a map from the game, bakes it (`rmt.py bake`), scores the line of sight (`rmt.py check`) and installs the
+result for both views (`rmt.py fieldmap <world>`: `static/data/maps/<map>/`, the 3D trees and `static/3d/maps.json`).
 
 - **Everon tiles**: still fetched from an outside tile server and cached in `tile_cache/` (`TILE_UPSTREAM` in
   `server.py`). Kolguyev and Arland tiles are baked in.
-- **Positions**: place names are fitted to game coordinates (within ~100 m); caves are approximate.
+- **Positions**: town and landmark names come from the game's map descriptors (`places.json`); caves are approximate.
 - **Kolguyev and Arland**: they have no bases, supplies or caches yet.
 - **Adding a map**: maps are listed in `MAPS` in both `static/app.js` and `server.py`.
