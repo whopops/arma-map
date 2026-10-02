@@ -1,4 +1,6 @@
 tile_cache/
+compressed_cache/
+dist/
 __pycache__/
 bans.json
 bans.json.part

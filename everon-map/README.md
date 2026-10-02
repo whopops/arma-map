@@ -334,16 +334,39 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-To update: pull the repo, copy it over the live folder and restart the service. Keep `bans.json` and `tile_cache/` (both
-are untracked on purpose).
+For a production update, build the serving files before deployment:
+
+```bash
+python build_release.py --output dist/everon-map.tar.gz
+```
+
+The archive contains `server.py` and the static assets, with large text files already gzipped. It excludes Git
+history, tests, development tools, bans, and tile caches. Extract it into the live folder and restart the service.
+Keep the live `bans.json` and `tile_cache/`. Build and bake map data outside the 1 GB serving container.
+
+The server streams files in 64 KiB chunks. When running directly from a checkout, it lazily compresses text into
+`compressed_cache/`, with only one compression running at a time. It keeps small cache metadata in RAM rather than
+entire compressed files. This disposable directory can be cleared while the server is stopped; production archives
+already include compressed text, so they normally do not need it.
+
+For a 1 GB host with approximately 350 MB whole-server idle usage, start with 200–300 simultaneous map sessions
+and measure a burst of joins and asset downloads. Ordinary use may fit 300–500 sessions, but CPU, bandwidth and
+the 600-connection cap can bind before RAM. Initial room snapshots share their data and only two are sent at a
+time. Slow streams are disconnected when their update backlog reaches 256 KiB and reconnect to resync. Whole-host
+startup memory also includes deployment jobs and filesystem cache; local Python startup measurements do not establish
+the cause of a host's 800 MB peak.
 
 ### Built-in protection
 
 - **Rate limits** per address on requests and joins (map data, which the 3D view streams as you move, gets the
   same allowance as map tiles).
 - **Player caps:** 12 players per address, 60 per room, 1000 in total.
-- **Marking caps:** 500 markings and 2 MB per player.
+- **Marking caps:** 500 markings and 500 KB per player, 2 MB per room and 16 MB across the server, measured as
+  serialized JSON. Parsed objects use more RAM. When a limit is reached, new edits are rejected with a message;
+  existing markings are retained. Import stops on the first failed save and reports the number actually saved.
 - **Connection caps:** 600 open connections, and a 60 s timeout on stalled requests.
+- **Stream caps:** two event streams per session; a backlog is limited to 1,000 events and 256 KiB, excluding
+  the shared initial snapshot. A reconnect gets a new room snapshot.
 - **Checks on everything shared:** every marking is validated by the server, and pages get a strict
   Content-Security-Policy.
 - **Room codes are the only privacy**, so use **New code** rather than a guessable word.

@@ -32,9 +32,11 @@ import queue
 import re
 import secrets
 import select
+import shutil
 import socket
 import sys
 import threading
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -53,19 +55,28 @@ TILE_UPSTREAM = "https://reforger.recoil.org/map-tiles/everon/{z}/{x}/{y}/tile.j
 MAPS = ("everon", "kolguyev", "arland")
 DEFAULT_MAP = "everon"
 GZIP_TYPES = {"text/html", "text/css", "application/javascript", "application/json"}
-_gzip_cache = {}  # file -> (modified time, gzipped bytes), so each file is compressed once
+COMPRESSED_CACHE = os.path.join(ROOT, "compressed_cache")
+_gzip_cache = collections.OrderedDict()  # metadata only; compressed bodies live on disk
+_gzip_lock = threading.Lock()
+MAX_GZIP_ENTRIES = 128
+FILE_CHUNK_BYTES = 64 * 1024
 
 GRACE_SECONDS = 15          # how long a dropped connection may reconnect before its markings vanish
 KEEPALIVE_SECONDS = 5
 MAX_ITEMS_PER_PLAYER = 500
 MAX_ITEM_BYTES = 20_000
-MAX_PLAYER_BYTES = 2_000_000   # all of one player's markings together
+MAX_PLAYER_BYTES = 500_000     # serialized markings; parsed objects use more RAM
+MAX_ROOM_BYTES = 2_000_000
+MAX_STATE_BYTES = 16_000_000   # all rooms' serialized markings together
 MAX_BODY_BYTES = 100_000
 MAX_PLAYERS = 1000             # on the whole server
 MAX_ROOM_PLAYERS = 60
 MAX_PLAYERS_PER_IP = 12        # a LAN party or a household behind one address still fits
 MAX_CONNECTIONS = 600          # open sockets (each event stream holds one)
-MAX_QUEUED_EVENTS = 5000       # an event stream this far behind is dropped; the browser reconnects and resyncs
+MAX_QUEUED_EVENTS = 1000
+MAX_QUEUED_BYTES = 256 * 1024   # slow streams reconnect instead of retaining large update backlogs
+MAX_STREAMS_PER_PLAYER = 2
+_snapshot_slots = threading.BoundedSemaphore(2)  # bound simultaneous initial snapshot writes
 SOCKET_TIMEOUT = 60            # seconds a connection may sit silent mid-request
 MAX_TILE_FETCHES = 6           # upstream tile downloads at once
 # Requests per address: a bucket of `burst` that refills at `rate` per second.
@@ -97,6 +108,48 @@ mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("application/json", ".json")
 
 
+class Snapshot:
+    """Share the room body; only the tiny clock/session suffix differs per stream."""
+    def __init__(self, body, name):
+        self.body = body
+        self.tail = (',"you":' + json.dumps(name) + ',"now":' + str(int(time.time() * 1000)) + '}').encode()
+
+
+class EventQueue(queue.Queue):
+    """Bound updates by bytes; the initial, shared room snapshot is tracked separately."""
+    def __init__(self, snapshot):
+        self.bytes = 0
+        self.closed = False
+        self.snapshot = snapshot
+        super().__init__(MAX_QUEUED_EVENTS)
+        with self.mutex:
+            self.queue.append(snapshot)
+
+    def _put(self, item):
+        size = len(item) if isinstance(item, str) else 0  # serialized JSON is ASCII
+        if self.closed or self.bytes + size > MAX_QUEUED_BYTES:
+            raise queue.Full
+        self.bytes += size
+        super()._put(item)
+
+    def _get(self):
+        item = super()._get()
+        if isinstance(item, str):
+            self.bytes -= len(item)
+        if item is self.snapshot:
+            self.snapshot = None
+        return item
+
+    def replace(self, control):
+        with self.not_empty:
+            self.queue.clear()
+            self.snapshot = None
+            self.bytes = 0
+            self.closed = True
+            self.queue.append(control)
+            self.not_empty.notify()
+
+
 class Player:
     def __init__(self, name, color, room, ip):
         self.id = secrets.token_hex(8)
@@ -121,13 +174,15 @@ class Hub:
         self.lock = threading.Lock()
         self.players = {}  # id -> Player
         self.rooms = {}    # room code -> {"briefing": {"text", "by", "at"} or None}
+        self.snapshots = {}  # room -> shared JSON bytes, invalidated by room changes
 
     # --- helpers (call with lock held) -------------------------------------
     def _in_room(self, room):
         return [p for p in self.players.values() if p.room == room]
 
     def _broadcast(self, room, event, skip=None):
-        data = json.dumps(event, separators=(",", ":"))
+        self.snapshots.pop(room, None)
+        data = json.dumps(event, separators=(",", ":"), allow_nan=False)
         for p in self._in_room(room):
             if p is skip:
                 continue
@@ -135,9 +190,12 @@ class Hub:
                 try:
                     q.put_nowait(data)
                 except queue.Full:
-                    with q.mutex:
-                        q.queue.clear()
-                    q.put_nowait(("drop", ""))
+                    if isinstance(q, EventQueue):
+                        q.replace(("drop", ""))
+                    else:
+                        with q.mutex:
+                            q.queue.clear()
+                        q.put_nowait(("drop", ""))
 
     def _auth(self, pid, token):
         if not isinstance(pid, str) or not isinstance(token, str):
@@ -150,7 +208,20 @@ class Hub:
     def _remove(self, p, reason=""):
         if self.players.pop(p.id, None):
             for q in p.queues:
-                q.put(("bye", reason))  # ends the player's event stream with this message
+                if isinstance(q, EventQueue):
+                    q.replace(("bye", reason))
+                    continue
+                try:
+                    q.put_nowait(("bye", reason))
+                except queue.Full:
+                    # A stalled stream must not hold the room lock. Discard its
+                    # stale events so removal is the next message it receives.
+                    while True:
+                        try:
+                            q.get_nowait()
+                        except queue.Empty:
+                            break
+                    q.put_nowait(("bye", reason))
             self._broadcast(p.room, {"type": "leave", "name": p.name})
             if not self._in_room(p.room):
                 self.rooms.pop(p.room, None)  # last one out: forget the room and its briefing
@@ -193,16 +264,19 @@ class Hub:
     def open_stream(self, pid, token):
         with self.lock:
             p = self._auth(pid, token)
-            if not p:
+            if not p or len(p.queues) >= MAX_STREAMS_PER_PLAYER:
                 return None, None
-            q = queue.Queue(MAX_QUEUED_EVENTS)
+            body = self.snapshots.get(p.room)
+            if body is None:
+                snapshot = {"type": "snapshot", "room": p.room, "map": self.rooms.get(p.room, {}).get("map", DEFAULT_MAP),
+                            "players": [o.public() for o in self._in_room(p.room)],
+                            "briefing": self.rooms.get(p.room, {}).get("briefing"),
+                            "clock": self.rooms.get(p.room, {}).get("clock")}
+                body = json.dumps(snapshot, separators=(",", ":"), allow_nan=False)[:-1].encode()
+                self.snapshots[p.room] = body
+            q = EventQueue(Snapshot(body, p.name))
             p.queues.add(q)
             p.gone_since = None
-            snapshot = {"type": "snapshot", "you": p.name, "room": p.room, "map": self.rooms.get(p.room, {}).get("map", DEFAULT_MAP),
-                        "players": [o.public() for o in self._in_room(p.room)],
-                        "briefing": self.rooms.get(p.room, {}).get("briefing"),
-                        "clock": self.rooms.get(p.room, {}).get("clock"), "now": int(time.time() * 1000)}
-            q.put(json.dumps(snapshot, separators=(",", ":")))
             return p, q
 
     def close_stream(self, p, q):
@@ -210,6 +284,20 @@ class Hub:
             p.queues.discard(q)
             if not p.queues and p.id in self.players:
                 p.gone_since = time.time()
+            if isinstance(q, EventQueue):
+                q.replace(("drop", ""))
+
+    def _size_error(self, p, item_id, size):
+        if size > MAX_ITEM_BYTES:
+            return "Item too large."
+        delta = size - p.item_bytes.get(item_id, 0)
+        if sum(p.item_bytes.values()) + delta > MAX_PLAYER_BYTES:
+            return "Your markings are too big altogether. Delete some first."
+        if sum(sum(o.item_bytes.values()) for o in self._in_room(p.room)) + delta > MAX_ROOM_BYTES:
+            return "This room's markings are too big altogether. Delete some first."
+        if sum(sum(o.item_bytes.values()) for o in self.players.values()) + delta > MAX_STATE_BYTES:
+            return "The map server's marking storage is full. Delete some markings or try later."
+        return None
 
     def upsert(self, pid, token, item):
         with self.lock:
@@ -221,9 +309,10 @@ class Hub:
                 return 400, {"error": err}
             if item["id"] not in p.items and len(p.items) >= MAX_ITEMS_PER_PLAYER:
                 return 400, {"error": f"Limit of {MAX_ITEMS_PER_PLAYER} markings reached."}
-            size = len(json.dumps(item))
-            if sum(p.item_bytes.values()) - p.item_bytes.get(item["id"], 0) + size > MAX_PLAYER_BYTES:
-                return 400, {"error": "Your markings are too big altogether. Delete some first."}
+            size = len(json.dumps(item, allow_nan=False))
+            err = self._size_error(p, item["id"], size)
+            if err:
+                return 400, {"error": err}
             p.items[item["id"]] = item
             p.item_bytes[item["id"]] = size
             self._broadcast(p.room, {"type": "item", "owner": p.name, "item": item})
@@ -243,7 +332,12 @@ class Hub:
             if not is_request:
                 return 404, {"error": "That request has gone."}
             it = {**it, "status": status, "statusBy": p.name}
+            size = len(json.dumps(it, allow_nan=False))
+            err = self._size_error(o, item_id, size)
+            if err:
+                return 400, {"error": err}
             o.items[item_id] = it
+            o.item_bytes[item_id] = size
             self._broadcast(p.room, {"type": "item", "owner": o.name, "item": it})
         return 200, {"ok": True}
 
@@ -282,8 +376,12 @@ class Hub:
             targets = list(it["targets"])
             targets[idx] = xz
             it = {**it, "targets": targets}
+            size = len(json.dumps(it, allow_nan=False))
+            err = self._size_error(o, item_id, size)
+            if err:
+                return 400, {"error": err}
             o.items[item_id] = it
-            o.item_bytes[item_id] = len(json.dumps(it))
+            o.item_bytes[item_id] = size
             self._broadcast(p.room, {"type": "item", "owner": o.name, "item": it})
         return 200, {"ok": True}
 
@@ -443,7 +541,11 @@ def validate_item(item):
         return "Bad item."
     if len(item) > 40 or not all(isinstance(k, str) and len(k) <= 20 for k in item) or not _depth(item):
         return "Bad item."
-    if len(json.dumps(item)) > MAX_ITEM_BYTES:
+    try:
+        size = len(json.dumps(item, allow_nan=False))
+    except (ValueError, TypeError, OverflowError):
+        return "Bad item: numbers must be finite."
+    if size > MAX_ITEM_BYTES:
         return "Item too large."
     # Names the map looks things up by: lower-case words and dashes, never a JavaScript built-in like "constructor"
     for k in ("icon", "kind", "fire", "unit"):
@@ -811,6 +913,7 @@ BANS = Bans(BANS_FILE)
 LIMITS = RateLimiter()
 _missing_tiles = set()
 _tile_fetches = threading.BoundedSemaphore(MAX_TILE_FETCHES)
+_tile_cache_lock = threading.Lock()  # Windows readers and replacements must not overlap
 
 # Sent with every response. The page runs only its own scripts (no inline ones), talks only to this server,
 # and can't be framed by another site.
@@ -861,7 +964,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- responses ---------------------------------------------------------
     def send_json(self, code, obj):
-        body = json.dumps(obj).encode()
+        body = json.dumps(obj, allow_nan=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -880,6 +983,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_file(self, path, ctype, cache, gzipped=False):
+        # Opening before sending headers also pins one file version across replacements.
+        with open(path, "rb") as f:
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            if gzipped:
+                self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
+            self.send_header("Content-Length", str(os.fstat(f.fileno()).st_size))
+            self.send_header("Cache-Control", cache)
+            self.end_headers()
+            shutil.copyfileobj(f, self.wfile, FILE_CHUNK_BYTES)
+
     def send_redirect(self, location):
         self.send_response(308)
         self.send_header("Location", location)
@@ -897,7 +1013,7 @@ class Handler(BaseHTTPRequestHandler):
             return None
         try:
             # NaN and Infinity aren't JSON; a browser receiving one in an event couldn't read the room any more.
-            return json.loads(self.rfile.read(n), parse_constant=_reject_constant)
+            return json.loads(self.rfile.read(n), parse_constant=_reject_constant, parse_float=_finite_float)
         except (ValueError, UnicodeDecodeError, RecursionError):
             return None
 
@@ -1039,28 +1155,25 @@ class Handler(BaseHTTPRequestHandler):
         full = os.path.normpath(os.path.join(STATIC, path.lstrip("/")))
         if not full.startswith(STATIC + os.sep) or not os.path.isfile(full):
             return self.send_bytes(404, b"Not found", "text/plain")
-        with open(full, "rb") as f:
-            body = f.read()
         ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
         # Map data changes only when it is re-baked (tile URLs carry a version), so browsers keep it for a week.
         cache = "no-store" if path in ADMIN_PAGES else "public, max-age=604800" if path.startswith("/data/") else "no-cache"
         # Text (pages, scripts, styles, JSON) is sent gzipped to browsers that accept it; .gz data and JPEGs already are.
-        gz = ctype in GZIP_TYPES and len(body) > 1000 and "gzip" in (self.headers.get("Accept-Encoding") or "")
+        gz = ctype in GZIP_TYPES and os.path.getsize(full) > 1000 and accepts_gzip(self.headers.get("Accept-Encoding", ""))
         if gz:
-            stamp = os.path.getmtime(full)
-            hit = _gzip_cache.get(full)
-            if not hit or hit[0] != stamp:
-                hit = _gzip_cache[full] = (stamp, gzip.compress(body, 6))
-            body = hit[1]
-        self.send_bytes(200, body, ctype, cache, gz)
+            try:
+                full = compressed_file(full)
+            except OSError:
+                # A read-only deployment or full cache disk must still serve the app.
+                gz = False
+        self.send_file(full, ctype, cache, gz)
 
     def map_tile(self, map_id, z, x, y):
         # Kolguyev and Arland tiles are baked files; a tile that isn't there is open sea.
         path = os.path.join(STATIC, "data", "maps", map_id, "tiles", str(int(z)), str(int(x)), f"{int(y)}.jpg")
         if not os.path.isfile(path):
             return self.send_bytes(404, b"", "image/jpeg", "public, max-age=604800")
-        with open(path, "rb") as f:
-            self.send_bytes(200, f.read(), "image/jpeg", "public, max-age=604800")
+        self.send_file(path, "image/jpeg", "public, max-age=604800")
 
     def tile(self, z, x, y):
         n = 2 ** (7 - int(z))  # tiles per side at this zoom
@@ -1069,9 +1182,13 @@ class Handler(BaseHTTPRequestHandler):
         z, x, y = str(int(z)), str(int(x)), str(int(y))  # one spelling per tile ("007" is "7")
         key = (z, x, y)
         path = os.path.join(TILE_CACHE, z, x, f"{y}.jpg")
-        if os.path.isfile(path):
-            with open(path, "rb") as f:
-                return self.send_bytes(200, f.read(), "image/jpeg", "public, max-age=604800")
+        cached = None
+        with _tile_cache_lock:
+            if os.path.isfile(path):
+                with open(path, "rb") as f:
+                    cached = f.read()
+        if cached is not None:
+            return self.send_bytes(200, cached, "image/jpeg", "public, max-age=604800")
         if key in _missing_tiles:
             return self.send_bytes(404, b"", "image/jpeg")
         req = urllib.request.Request(TILE_UPSTREAM.format(z=z, x=x, y=y),
@@ -1092,27 +1209,65 @@ class Handler(BaseHTTPRequestHandler):
         if not data.startswith(b"\xff\xd8"):  # only ever cache JPEGs
             return self.send_bytes(502, b"", "image/jpeg")
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".part"
-        with open(tmp, "wb") as f:
-            f.write(data)
-        os.replace(tmp, path)
+        # Each request owns its temporary file, even when several fetch the
+        # same tile. Close it before replacing the cache entry on Windows.
+        fd, tmp = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".part",
+                                   dir=os.path.dirname(path))
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            with _tile_cache_lock:
+                os.replace(tmp, path)
+        finally:
+            try:
+                os.unlink(tmp)
+            except FileNotFoundError:
+                pass
         self.send_bytes(200, data, "image/jpeg", "public, max-age=604800")
 
     def events(self, qs):
         if self.limited("post"):
             return
-        p, q = HUB.open_stream((qs.get("id") or [""])[0], (qs.get("token") or [""])[0])
+        pid, token = (qs.get("id") or [""])[0], (qs.get("token") or [""])[0]
+        with HUB.lock:
+            p = HUB._auth(pid, token)
+            if p and not p.queues:
+                p.gone_since = time.time()  # keep a pending reconnect alive while sync slots are busy
         if not p:
             return self.send_json(401, {"error": "Unknown session."})
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.close_connection = True
-        sock = self.connection
-        idle = 0.0
+        if not _snapshot_slots.acquire(timeout=1):
+            # A valid, short SSE response makes EventSource retry automatically. A 503
+            # would permanently close it in browsers, losing the session during a join burst.
+            self.close_connection = True
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(b": waiting to sync\nretry: 1000\n\n")
+                self.wfile.flush()
+            except OSError:
+                pass
+            return
+        snapshot_slot = True
         try:
+            p, q = HUB.open_stream(pid, token)
+        except Exception:
+            _snapshot_slots.release()
+            raise
+        if not p:
+            _snapshot_slots.release()
+            return self.send_json(401, {"error": "Unknown session or too many streams for this session."})
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            sock = self.connection
+            idle = 0.0
             while True:
                 try:
                     msg = q.get(timeout=1)
@@ -1124,6 +1279,18 @@ class Handler(BaseHTTPRequestHandler):
                         idle = 0
                         self.wfile.write(b": keepalive\n\n")
                         self.wfile.flush()
+                    continue
+                if isinstance(msg, Snapshot):
+                    self.wfile.write(b"data: ")
+                    # Avoid another whole-room copy when encoding/framing the event.
+                    view = memoryview(msg.body)
+                    for start in range(0, len(view), FILE_CHUNK_BYTES):
+                        self.wfile.write(view[start:start + FILE_CHUNK_BYTES])
+                    self.wfile.write(msg.tail + b"\n\n")
+                    self.wfile.flush()
+                    del view, msg
+                    _snapshot_slots.release()
+                    snapshot_slot = False
                     continue
                 if isinstance(msg, tuple) and msg[0] == "drop":  # fell too far behind: close, the browser reconnects
                     break
@@ -1138,6 +1305,64 @@ class Handler(BaseHTTPRequestHandler):
             pass
         finally:
             HUB.close_stream(p, q)
+            if snapshot_slot:
+                _snapshot_slots.release()
+
+
+def accepts_gzip(header):
+    qualities = {}
+    for entry in header.lower().split(","):
+        coding, *params = entry.strip().split(";")
+        quality = 1.0
+        for param in params:
+            if param.strip().startswith("q="):
+                try:
+                    quality = float(param.strip()[2:])
+                except ValueError:
+                    quality = 0.0
+        qualities[coding.strip()] = quality
+    return qualities.get("gzip", qualities.get("*", 0)) > 0
+
+
+def compressed_file(full):
+    """Use build-time compression, or compress once to disk with bounded buffers."""
+    st = os.stat(full)
+    stamp = (st.st_mtime_ns, st.st_size)
+    sidecar = full + ".gz"
+    if os.path.isfile(sidecar) and os.stat(sidecar).st_mtime_ns == st.st_mtime_ns:
+        return sidecar
+    with _gzip_lock:  # one cold compression at a time, including requests for the same file
+        hit = _gzip_cache.get(full)
+        if hit and hit[0] == stamp and os.path.isfile(hit[1]):
+            _gzip_cache.move_to_end(full)
+            return hit[1]
+        os.makedirs(COMPRESSED_CACHE, exist_ok=True)
+        prefix = hashlib.sha256(full.encode()).hexdigest()
+        dest = os.path.join(COMPRESSED_CACHE, f"{prefix}-{stamp[0]}-{stamp[1]}.gz")
+        if not os.path.isfile(dest):
+            fd, tmp = tempfile.mkstemp(dir=COMPRESSED_CACHE, suffix=".part")
+            try:
+                with os.fdopen(fd, "wb") as out, open(full, "rb") as src:
+                    with gzip.GzipFile(filename="", fileobj=out, mode="wb", compresslevel=6, mtime=0) as gz:
+                        shutil.copyfileobj(src, gz, FILE_CHUNK_BYTES)
+                os.replace(tmp, dest)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+        # Versioned paths keep concurrent responses safe when an asset is replaced.
+        # This disposable directory may be cleared while the server is stopped.
+        _gzip_cache[full] = (stamp, dest)
+        _gzip_cache.move_to_end(full)
+        while len(_gzip_cache) > MAX_GZIP_ENTRIES:
+            _gzip_cache.popitem(last=False)
+        return dest
+
+
+def _finite_float(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("JSON numbers must be finite")
+    return number
 
 
 ADMIN_PAGES = {"/admin", "/admin.html", "/admin.js"}

@@ -862,7 +862,8 @@
     if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
     return data;
   }
-  const saveItem = item => api('/api/item', { id: state.me.id, token: state.me.token, item }).catch(e => toast(e.message));
+  const saveItem = item => api('/api/item', { id: state.me.id, token: state.me.token, item })
+    .then(() => true).catch(e => { toast(e.message); return false; });
   const deleteItem = itemId => api('/api/delete', { id: state.me.id, token: state.me.token, itemId }).catch(e => toast(e.message));
 
   const isMine = name => state.me && name === state.me.name;
@@ -2268,16 +2269,18 @@
   // The flattest shot the tube fires: both mortars elevate from 45 to 85 degrees (LimitsVert in the game's
   // Prefabs/Weapons/Core/Mortar_Base.et, which they inherit). Fired this flat, a ring goes as far as it can.
   const MIN_ELEV = 45 * Math.PI / 180;
+  const MAX_ELEV = 85 * Math.PI / 180;
   // The high (plunging) angle that lands d m away, dh m up, in the given wind, or null if the ring can't reach. On the high
-  // branch the range falls as the angle rises, from the flattest the tube fires (MIN_ELEV) up to vertical, so a ring
-  // reaches whatever its MIN_ELEV shot passes over on the way down: further downhill and downwind, less uphill and upwind.
+  // branch the range falls as the angle rises between the tube's 45 and 85 degree limits.
+  // A valid shot must also be no closer than its MAX_ELEV trajectory reaches.
   const highCache = new Map();
   function highAngleFor(v, k, d, dh, along, across) {
     const key = `${v}|${k}|${Math.round(d * 2)}|${Math.round(dh * 4)}|${along.toFixed(2)}|${across.toFixed(2)}`;
     if (highCache.has(key)) return highCache.get(key);
-    let lo = MIN_ELEV, hi = 89.5 * Math.PI / 180, res = null;
+    let lo = MIN_ELEV, hi = MAX_ELEV, res = null;
     const first = flight(v, k, lo, dh, along, across);
-    if (first && first.range >= d) {
+    const last = flight(v, k, hi, dh, along, across);
+    if (first && last && first.range >= d && last.range <= d) {
       for (let i = 0; i < 22; i++) {
         const mid = (lo + hi) / 2, f = flight(v, k, mid, dh, along, across);
         if (!f || f.range < d) hi = mid; else lo = mid;
@@ -2369,7 +2372,7 @@
         azAdj = -Math.atan2(real.drift, d) * mpc / (2 * Math.PI); // aim into the crosswind by what it would blow the round
         spread = spreadOf(v, coef, phys.k, real.ang, dh - MUZZLE_H, along, across, d, w);
       }
-      if (elev > def.table[0][1] + 40) continue; // steeper than the tube goes: too close for this ring
+      if (elev < 45 * mpc / 360 || elev > 85 * mpc / 360) continue;
       // dispersion: one number for the texts and friendly warnings (the ellipse's longer half); spread: the ellipse, 90% of rounds
       out.rings.push({ ring: +ring, elev, tof, azMil: ((out.azMil + azAdj) % mpc + mpc) % mpc, azAdj,
         dispersion: spread ? Math.round(Math.max(spread.long, spread.side)) : def.dispersion,
@@ -2422,7 +2425,7 @@
           if (dd < t[0][0]) continue;
           if (!(phys && phys.rings[ring])) { if (dd <= t[t.length - 1][0]) ok.push({ ring: +ring, dispersion: def.dispersion }); continue; }
           const coef = phys.rings[ring], v = ringSpeed(phys, coef), real = highAngleFor(v, phys.k, dd, -MUZZLE_H, 0, 0);
-          if (!real || real.ang * mpc / (2 * Math.PI) > t[0][1] + 40) continue;
+          if (!real || real.ang < MIN_ELEV || real.ang > MAX_ELEV) continue;
           const sp = spreadOf(v, coef, phys.k, real.ang, -MUZZLE_H, 0, 0, dd, w);
           ok.push({ ring: +ring, dispersion: sp ? Math.max(sp.long, sp.side) : def.dispersion });
         }
@@ -6061,13 +6064,20 @@
       const data = JSON.parse(await file.text());
       const items = (Array.isArray(data) ? data : data.items || []).filter(it => it && ['marker', 'route', 'range', 'mortar', 'fia', 'emplacement', 'construct', 'area', 'arrow', 'ambush', 'post', 'sectors', 'overwatch', 'hulldown', 'aa', 'control', 'audible'].includes(it.type));
       if (!items.length) throw new Error('No markings found in that file.');
+      let imported = 0;
       for (const it of items) {
         // One mortar and one FIA list per player: imported ones replace (mortar) or merge into (FIA) yours.
         const existing = it.type === 'mortar' ? myMortar() : it.type === 'fia' ? myFia() : null;
         const extra = it.type === 'fia' && existing ? { caches: [...new Set([...existing.caches, ...(it.caches || [])])] } : {};
-        await saveItem({ ...it, ...extra, id: existing ? existing.id : uid() });
+        if (!await saveItem({ ...it, ...extra, id: existing ? existing.id : uid() })) {
+          toast(`Import stopped: ${imported} of ${items.length} markings imported. The remaining markings were not saved.`, 8000);
+          return;
+        }
+        imported++;
+        // Large imports share the API's rate limit with all other editing actions.
+        await new Promise(resolve => setTimeout(resolve, 60));
       }
-      toast(`Imported ${items.length} marking${items.length === 1 ? '' : 's'}.`);
+      toast(`Imported ${imported} marking${imported === 1 ? '' : 's'}.`);
     } catch (err) {
       toast(err.message.startsWith('No') ? err.message : 'That file is not a valid plan.');
     }

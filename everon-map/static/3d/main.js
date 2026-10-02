@@ -652,8 +652,17 @@
     }
     if (!rec || rec.gen !== m.gen) return;
     rec.lod = `${m.t}|${m.o}|${m.smooth ? 1 : 0}`;
-    if (m.sea) { rec.sea = true; return; }
-    if (m.ter) { rec.ter = new Uint16Array(m.ter); if (markings.me) propsDirty = true; }   // markings sit on this ground
+    if (m.sea) {
+      rec.sea = true;
+      Mortar.invalidateTerrain();
+      if (markings.me) propsDirty = true;
+      return;
+    }
+    if (m.ter) {
+      rec.ter = new Uint16Array(m.ter);
+      Mortar.invalidateTerrain();
+      if (markings.me) propsDirty = true;
+    }   // markings sit on this ground
     freeTile(rec);
     // terrain
     rec.tVao = gl.createVertexArray();
@@ -737,7 +746,11 @@
         const d = Math.hypot(dx, dz, hag * 0.7);
         let rec = tiles.get(name);
         if (d > settings.range + (rec ? 250 : 0)) {
-          if (rec) { freeTile(rec); tiles.delete(name); maskData[tz * NT + tx] = 0; maskDirty = true; }
+          if (rec) {
+            freeTile(rec); tiles.delete(name); maskData[tz * NT + tx] = 0; maskDirty = true;
+            Mortar.invalidateTerrain();
+            if (markings.me) propsDirty = true;
+          }
           if (plantTiles.has(name)) freePlantTile(name);
           continue;
         }

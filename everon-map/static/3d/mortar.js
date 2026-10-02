@@ -63,15 +63,17 @@ const Mortar = (() => {
   }
   // The flattest shot the tube fires (45-85 degrees: LimitsVert in the game's Prefabs/Weapons/Core/Mortar_Base.et).
   const MIN_ELEV = 45 * Math.PI / 180;
+  const MAX_ELEV = 85 * Math.PI / 180;
   // The high (plunging) angle that lands d m away, dh m up, in the given wind, or null if the ring can't reach (its
   // MIN_ELEV shot comes down short of it).
   const highCache = new Map();
   function highAngleFor(v, k, d, dh, along, across) {
     const key = `${v}|${k}|${Math.round(d * 2)}|${Math.round(dh * 4)}|${along.toFixed(2)}|${across.toFixed(2)}`;
     if (highCache.has(key)) return highCache.get(key);
-    let lo = MIN_ELEV, hi = 89.5 * Math.PI / 180, res = null;
+    let lo = MIN_ELEV, hi = MAX_ELEV, res = null;
     const first = flight(v, k, lo, dh, along, across);
-    if (first && first.range >= d) {
+    const last = flight(v, k, hi, dh, along, across);
+    if (first && last && first.range >= d && last.range <= d) {
       for (let i = 0; i < 22; i++) {
         const mid = (lo + hi) / 2, f = flight(v, k, mid, dh, along, across);
         if (!f || f.range < d) hi = mid; else lo = mid;
@@ -134,7 +136,7 @@ const Mortar = (() => {
           if (dd < t[0][0]) continue;
           if (!(phys && phys.rings[ring])) { if (dd <= t[t.length - 1][0]) ok.push({ ring: +ring, dispersion: def.dispersion }); continue; }
           const coef = phys.rings[ring], v = ringSpeed(phys, coef), real = highAngleFor(v, phys.k, dd, -MUZZLE_H, 0, 0);
-          if (!real || real.ang * mpc / (2 * Math.PI) > t[0][1] + 40) continue;
+          if (!real || real.ang < MIN_ELEV || real.ang > MAX_ELEV) continue;
           const sp = spreadOf(v, coef, phys.k, real.ang, -MUZZLE_H, 0, 0, dd, w);
           ok.push({ ring: +ring, dispersion: sp ? Math.max(sp.long, sp.side) : def.dispersion });
         }
@@ -185,7 +187,7 @@ const Mortar = (() => {
           azAdj = -Math.atan2(real.drift, d) * mpc / (2 * Math.PI);
           spread = spreadOf(v, coef, phys.k, real.ang, dh - MUZZLE_H, along, across, d, w);
         }
-        if (elev > def.table[0][1] + 40) continue;
+        if (elev < 45 * mpc / 360 || elev > 85 * mpc / 360) continue;
         out.rings.push({ ring: +ring, elev, tof, azMil: ((out.azMil + azAdj) % mpc + mpc) % mpc,
           dispersion: spread ? Math.round(Math.max(spread.long, spread.side)) : def.dispersion,
           spread: spread && { long: Math.round(spread.long), side: Math.round(spread.side), az } });
@@ -231,6 +233,7 @@ const Mortar = (() => {
   // (pts, plus its shortest and longest, near / far), otherwise the table's flat circle (max); and the shortest distance
   // any ring fires (min). world: the map's size in metres.
   const reachCache = new Map();
+  const invalidateTerrain = () => { reachCache.clear(); solved.clear(); };
   function reach(tables, w, s, from = null, wind = null, ground = null, world = 12800) {
     const rings = tables && tables.weapons[w] && tables.weapons[w].shells[s];
     if (!rings) return null;
@@ -292,5 +295,5 @@ const Mortar = (() => {
   // the weapon's shell of a kind (/^HE/, /^Smoke/, /^Illum/), else the one it has loaded
   const shellLike = (tables, w, re, fallback) => Object.keys((tables && tables.weapons[w] && tables.weapons[w].shells) || {}).find(s => re.test(s)) || fallback;
 
-  return { solve, short, reach, shellLike, chargeOf, autoBandPolys };
+  return { solve, short, reach, shellLike, chargeOf, autoBandPolys, invalidateTerrain };
 })();
