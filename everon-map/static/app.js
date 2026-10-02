@@ -4146,7 +4146,10 @@
     const hold = D * Math.tan((need - mark[1]) * Math.PI / 180); // m above the target to put the mark
     const aimOff = -Math.atan2(sol.side, D) * 180 / Math.PI; // deg, + = aim right of the target
     const past = need > marks.at(-1)[1] ? 1 : need < marks[0][1] ? -1 : 0; // beyond the sight's marks
-    return { D, H, az, sol, need, mark, equiv, past, hold, aimOff, aim: (az + aimOff + 360) % 360, calm, R, upwind: sol.side * w.fromRight > 0 };
+    // the same mark held for still air: what the wind adds to the hold is the difference (and all of the aim-off)
+    const holdCalm = calm && !calm.err ? D * Math.tan((calm.e - ROCKETS.launchers[l].spawn - Math.atan2(H, D) * 180 / Math.PI - mark[1]) * Math.PI / 180) : null;
+    return { D, H, az, sol, need, mark, equiv, past, hold, holdCalm, aimOff, aim: (az + aimOff + 360) % 360, calm, R,
+      upwind: sol.side * w.fromRight > 0, along, across };
   }
   function rocketHtml(owner, it) {
     if (!ROCKETS) return '<p class="sub">Loading rocket data…</p>';
@@ -4165,7 +4168,9 @@
     const up = `${Math.round(x.H) >= 0 ? '+' : ''}${Math.round(x.H)} m`;
     if (x.err) return html + `<p><b class="rc-no">${esc(x.err)}</b></p><p class="sub">${fmtDist(x.D)}, target ${up}.</p>`;
     const pgo = s === 'pgo7' && l === 'RPG-7';
-    const holdTxt = Math.abs(x.hold) < 0.4 ? 'on the target' : `${Math.abs(x.hold).toFixed(1)} m ${x.hold > 0 ? 'above' : 'below'} the target`;
+    const latM = x.D * Math.tan(x.aimOff * Math.PI / 180); // the wind's aim-off at the target, m (+ = right)
+    const holdTxt = (Math.abs(x.hold) < 0.4 ? 'on the target' : `${Math.abs(x.hold).toFixed(1)} m ${x.hold > 0 ? 'high' : 'low'}`) +
+      (Math.abs(latM) >= 0.3 ? `, ${Math.abs(latM).toFixed(1)} m ${latM > 0 ? 'right' : 'left'}` : '');
     const markTxt = pgo ? `${x.mark[0]} m line` : `${x.mark[0]} m`;
     const side = Math.abs(x.aimOff) < 0.05 ? 'straight at it' : `${Math.abs(x.aimOff).toFixed(1)}° ${x.aimOff > 0 ? 'right' : 'left'} of it, ` +
       `${Math.abs(x.D * Math.tan(x.aimOff * Math.PI / 180)).toFixed(1)} m`;
@@ -4178,6 +4183,7 @@
       `. Needs ${x.need.toFixed(2)}° over the line of sight` + (x.past > 0 ? `, more than the top ${pgo ? 'line' : 'mark'} gives`
         : x.past < 0 ? `, less than the lowest ${pgo ? 'line' : 'mark'} gives` : `, as a ${Math.round(x.equiv / 5) * 5} m ${pgo ? 'line' : 'mark'} would`) +
       (x.sol.e < x.R.elevs[0] || x.sol.e > x.R.elevs.at(-1) ? ` (${x.sol.e.toFixed(0)}° from level: steeper than the tested shots, so less exact)` : '') + '.</p>';
+    html += sightPicture(x, it);
     if (x.calm && !x.calm.err) {
       const de = x.sol.e - x.calm.e;
       html += `<p class="sub">Wind ${wind.s} m/s from ${pad(Math.round(wind.d) % 360, 3)}°: without aiming off it would land ` +
@@ -4187,6 +4193,95 @@
     }
     if (x.R.spread > 5) html += `<p class="sub">This rocket's motor varies: about ±${Math.round(x.R.spread)} m in range from one to the next.</p>`;
     return html;
+  }
+  // What you see in the sights: the target at its real size for its distance, and where the sight's mark (iron sights:
+  // the front sight's tip; PGO-7: the chosen range line where it meets the centre line) has to sit. Angles throughout,
+  // so the hold and aim-off sit where they really are against the target; the view is zoomed to fit both.
+  const SIGHT_TARGETS = { // target outlines in m (x across, y up from its ground), keyed by the target height picked
+    0.5: { name: 'prone soldier', h: 0.45, parts: [['rect', -0.9, 0, 1.6, 0.35], ['circle', 0.85, 0.2, 0.13]] },
+    1: { name: 'vehicle', h: 2.9, parts: [['rect', -3.6, 0.45, 7.2, 1.75], ['rect', -1.1, 2.2, 2.4, 0.7], ['rect', 1.1, 2.45, 2.3, 0.12],
+      ['circle', -2.6, 0.5, 0.5], ['circle', -0.9, 0.5, 0.5], ['circle', 0.9, 0.5, 0.5], ['circle', 2.6, 0.5, 0.5]] },
+    1.6: { name: 'standing soldier', h: 1.8, parts: [['rect', -0.22, 0, 0.44, 1.5], ['circle', 0, 1.62, 0.13]] },
+  };
+  SIGHT_TARGETS[2.2] = SIGHT_TARGETS[1];
+  function sightPicture(x, it) {
+    const { l, r, s } = it.rocket, pgo = s === 'pgo7' && l === 'RPG-7';
+    const D = x.D, deg = m => Math.atan2(m, D) * 180 / Math.PI;
+    const T = SIGHT_TARGETS[it.h2 ?? 1] || SIGHT_TARGETS[1], h2 = it.h2 ?? 1;
+    const ax = deg(D * Math.tan(x.aimOff * Math.PI / 180)), ay = deg(h2) + deg(x.hold); // the mark's place, deg
+    const cy0 = x.holdCalm != null ? deg(h2) + deg(x.holdCalm) : null; // where it would go in still air (straight above)
+    // the view: target and both aim points, padded; never closer than a few target heights; the PGO-7 shows its lines
+    const minH = pgo ? 3.4 : Math.max(deg(T.h) * 4, 0.6);
+    const lo = Math.min(0, ay, cy0 ?? ay) - (pgo ? 0.3 : 0), hi = Math.max(deg(T.h), ay, cy0 ?? ay) + (pgo ? 0.3 : 0);
+    // (the PGO-7 view is as wide as the reticle's lateral scale, ±3°, plus its range numbers, and centred on it)
+    const spanY = Math.max(minH, (hi - lo) * 1.5);
+    const spanX = pgo ? Math.max(7.4, Math.abs(ax) * 2 + 7.4) : Math.max(spanY * 1.45, Math.abs(ax) * 2.6 + deg(8));
+    const W = 280, H = Math.round(W * spanY / spanX), k = W / spanX;
+    const cx = W / 2 - (pgo ? ax : ax / 2) * k, cy = H / 2 + ((lo + hi) / 2) * k;
+    const X = d => (cx + d * k).toFixed(1), Y = d => (cy - d * k).toFixed(1);
+    const m2d = deg; // metres at the target to degrees
+    let svg = `<rect width="${W}" height="${H}" fill="#1b2630"/><rect x="0" y="${Y(0)}" width="${W}" height="${Math.max(0, H - +Y(0))}" fill="#2c3a24"/>`;
+    svg += `<g fill="#0b0f12" stroke="#c9d1d9" stroke-width="0.6">` + T.parts.map(([kind, a, b, c, d]) => kind === 'rect'
+      ? `<rect x="${X(m2d(a))}" y="${Y(m2d(b + d))}" width="${(m2d(c) * k).toFixed(1)}" height="${(m2d(d) * k).toFixed(1)}"/>`
+      : `<circle cx="${X(m2d(a))}" cy="${Y(m2d(b))}" r="${Math.max(0.8, m2d(c) * k).toFixed(1)}"/>`).join('') + '</g>';
+    svg += `<circle cx="${X(0)}" cy="${Y(deg(h2))}" r="2" fill="#ff6b6b"/>`; // the point being hit
+    const ox = +X(ax), oy = +Y(ay), Y0 = oy; // the mark goes here
+    if (pgo) {
+      // the PGO-7's reticle, its cross being the bore; the chosen line's centre on the aim point
+      const P = ROCKETS.launchers['RPG-7'].sights.pgo7, top = Object.values(P['PG-7VM']), low = Object.values(P['PG-7VR']);
+      const cross = Y0 - x.mark[1] * k, gy = a => (cross + a * k).toFixed(1), gx = u => (ox + u * ROCKETS.pgo7_lead_deg * k).toFixed(1);
+      const sel = x.mark[1];
+      svg += '<g stroke="#e8eef3" stroke-width="1" fill="none">';
+      svg += `<path d="M${(ox - 6).toFixed(1)} ${cross.toFixed(1)}h12M${ox.toFixed(1)} ${(cross - 6).toFixed(1)}v12"/>`;
+      top.forEach(a => svg += `<path d="M${gx(-5)} ${gy(a)}H${gx(5)}"${Math.abs(a - sel) < 1e-6 ? ' stroke="#ffd43b" stroke-width="2"' : ''}/>`);
+      for (let u = -5; u <= 5; u++) if (u) svg += `<path d="M${gx(u)} ${gy(top[0])}V${gy(top[top.length - 1])}"/>`;
+      low.forEach(a => svg += `<path d="M${gx(-5)} ${gy(a)}H${gx(5)}"${Math.abs(a - sel) < 1e-6 ? ' stroke="#ffd43b" stroke-width="2"' : ''}/>`);
+      svg += `<path d="M${(ox - 1.5).toFixed(1)} ${gy(top[0] - 0.05)}V${gy(low[low.length - 1] + 0.1)}M${(ox + 1.5).toFixed(1)} ${gy(top[0] - 0.05)}V${gy(low[low.length - 1] + 0.1)}"/>`;
+      svg += '</g><g fill="#e8eef3" font-size="9" font-family="var(--mono)">';
+      Object.keys(P['PG-7VM']).forEach((m, i) => svg += `<text x="${(+gx(-5) - 3).toFixed(1)}" y="${(+gy(top[i]) + 3).toFixed(1)}" text-anchor="end">${+m / 100}</text>`);
+      Object.keys(P['PG-7VL']).forEach((m, i) => svg += `<text x="${(+gx(5) + 3).toFixed(1)}" y="${(+gy(top[i]) + 3).toFixed(1)}">${String(+m / 100).replace('.', ',')}</text>`);
+      Object.keys(P['PG-7VR']).forEach((m, i) => svg += `<text x="${(ox - 5).toFixed(1)}" y="${(+gy(low[i]) - 2).toFixed(1)}" text-anchor="end">${String(+m / 100).replace('.', ',')}</text>`);
+      svg += '</g>';
+    } else if (l === 'M72A3') {
+      // rear peep and front cross-hair, centred on the aim point (see-through, so the target stays in view)
+      svg += `<circle cx="${ox}" cy="${oy}" r="26" fill="none" stroke="#e8eef3" stroke-width="1.2" opacity="0.7"/>` +
+        `<g stroke="#ffd43b" stroke-width="1.4"><path d="M${ox - 12} ${oy}h24M${ox} ${oy - 12}v24"/></g>`;
+    } else {
+      // rear notch and front post, drawn as outlines so the target stays in view: the post's tip on the aim point
+      svg += `<path d="M${ox - 30} ${H}V${oy + 10}H${ox - 9}l3 -7h12l3 7H${ox + 30}V${H}" fill="none" stroke="#e8eef3" stroke-width="1.2" opacity="0.7"/>` +
+        `<path d="M${ox - 2.5} ${H}V${oy}h5V${H}" fill="rgba(255,212,59,.25)" stroke="#ffd43b" stroke-width="1.2"/>`;
+    }
+    // the wind's share of the hold: a dashed ring where the mark would go in still air, an arrow to where it goes now,
+    // and in the corner which way the wind crosses the shot and how hard
+    let windTxt = '';
+    if (cy0 != null) {
+      const gx0 = +X(0), gy0 = +Y(cy0), far = Math.hypot(ox - gx0, oy - gy0);
+      if (far > 4) {
+        const ux = (ox - gx0) / far, uy = (oy - gy0) / far, ex = ox - ux * 5, ey = oy - uy * 5;
+        svg += `<circle cx="${gx0}" cy="${gy0}" r="3.2" fill="none" stroke="#e8eef3" stroke-width="1.2" stroke-dasharray="2 1.5"/>` +
+          `<path d="M${(gx0 + ux * 4).toFixed(1)} ${(gy0 + uy * 4).toFixed(1)}L${ex.toFixed(1)} ${ey.toFixed(1)}" stroke="#74c0fc" stroke-width="1.4"/>` +
+          `<path d="M${ex.toFixed(1)} ${ey.toFixed(1)}l${(-ux * 5 - uy * 3).toFixed(1)} ${(-uy * 5 + ux * 3).toFixed(1)}M${ex.toFixed(1)} ${ey.toFixed(1)}l${(-ux * 5 + uy * 3).toFixed(1)} ${(-uy * 5 - ux * 3).toFixed(1)}" stroke="#74c0fc" stroke-width="1.4"/>`;
+      }
+      const ac = x.across, al = x.along, sgn = ac >= 0 ? 1 : -1;
+      // bottom left, out of the way of the aim points (they sit above the target)
+      if (Math.abs(ac) >= 0.5) svg += `<path d="M${sgn > 0 ? 8 : 44} ${H - 20}h${sgn * 36}l${-sgn * 6} -4m${sgn * 6} 4l${-sgn * 6} 4" fill="none" stroke="#74c0fc" stroke-width="1.6"/>`;
+      svg += `<text x="6" y="${H - 6}" fill="#74c0fc" font-size="10" font-family="var(--mono)">` +
+        `wind ${Math.abs(ac).toFixed(1)} across · ${Math.abs(al).toFixed(1)} ${al >= 0 ? 'behind' : 'ahead'} m/s</text>`;
+      const dv = x.hold - x.holdCalm, dl = D * Math.tan(x.aimOff * Math.PI / 180);
+      const parts = [Math.abs(dl) >= 0.3 ? `${Math.abs(dl).toFixed(1)} m ${dl > 0 ? 'right' : 'left'}` : '',
+        Math.abs(dv) >= 0.3 ? `${Math.abs(dv).toFixed(1)} m ${dv > 0 ? 'higher' : 'lower'}` : ''].filter(Boolean);
+      windTxt = ` The wind (${Math.abs(ac).toFixed(1)} m/s across from your ${ac >= 0 ? 'left' : 'right'}, ${Math.abs(al).toFixed(1)} m/s ` +
+        `${al >= 0 ? 'tail' : 'head'}wind) moves the hold ${parts.length ? parts.join(' and ') : 'by under 0.3 m'} from the still-air one (dashed ring, blue arrow).`;
+    }
+    svg += `<circle cx="${ox}" cy="${oy}" r="3.2" fill="none" stroke="#ffd43b" stroke-width="1.4"/>`;
+    const lat = Math.abs(D * Math.tan(x.aimOff * Math.PI / 180)), hold = Math.abs(x.hold);
+    const holdTxt = hold < 0.4 ? 'on' : `${hold.toFixed(1)} m (${(hold / T.h).toFixed(1)}× the ${T.name}'s height) ${x.hold > 0 ? 'above' : 'below'}`;
+    const latTxt = lat < 0.3 ? '' : `, ${lat.toFixed(1)} m ${x.aimOff > 0 ? 'right' : 'left'}`;
+    const what = pgo ? `the ${x.mark[0]} m line where it meets the centre line` : l === 'M72A3' ? `the ${x.mark[0]} m cross-hair` : `the front sight's tip (sight on ${x.mark[0]} m)`;
+    const lead = pgo && lat >= 0.3 ? ` (the red dot on the ${(Math.abs(x.aimOff) / ROCKETS.pgo7_lead_deg).toFixed(1)} side mark, ${x.aimOff > 0 ? 'left' : 'right'} of centre)` : '';
+    return `<div class="sight-pic"><svg viewBox="0 0 ${W} ${H}" width="100%">${svg}</svg>` +
+      `<p class="sub">Put ${what} ${holdTxt} the red dot${latTxt}${lead}.${windTxt} Drawn ${Math.round(k * deg(1))} px per metre at the target; ` +
+      `${pgo ? 'reticle from the game\'s PGO-7' : 'sight shapes are a sketch'}.</p></div>`;
   }
   document.addEventListener('change', e => {
     const el = e.target.closest('[data-rk]');

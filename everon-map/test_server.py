@@ -306,6 +306,10 @@ class ServerTests(unittest.TestCase):
             src = root / "static" / "large.json"; src.write_bytes(b'"' + b'x' * 4000 + b'"')
             (root / "bans.json").write_text("private")
             (root / ".git").mkdir(); (root / ".git" / "pack").write_text("git history")
+            (root / "static" / "vendor" / ".git").mkdir(parents=True)
+            (root / "static" / "vendor" / ".git" / "pack").write_text("nested git history")
+            (root / "static" / "assets").mkdir()
+            (root / "static" / "assets" / ".git").write_text("gitdir: private checkout")
             output = build_release.build(Path(folder, "release.tar.gz"), root)
             with tarfile.open(output) as archive:
                 self.assertEqual(set(archive.getnames()), {"server.py", "static/large.json", "static/large.json.gz"})

@@ -83,7 +83,13 @@ right-click finishes.
   type the wind as the in-game map shows it. The popup gives the sight mark to set, how far above or below the target
   to hold it, the compass bearing to aim on (off the target into or with the wind) and the flight time. On the map, a
   yellow aim line runs from you on that bearing to a crosshair at the aim point, labelled with the bearing, sight mark
-  and hold. Any range line gets the same with its **Rocket launcher shot** button. See [Rockets](#rockets).
+  and hold. The popup also draws the **sight picture**: the target (vehicle, standing or prone soldier) at its true
+  angular size for the distance, and the sight laid where it has to sit (the front sight's tip, the M72's cross-hair,
+  or the PGO-7's reticle with the range line to use), so a hold like "25 m above" shows how far that is against the
+  vehicle. With wind, a dashed ring marks where the mark would go in still air and a blue arrow runs to where it goes
+  now, with the wind's crosswind and head or tail parts in the corner. The popup also says how far the wind moves the
+  hold (sideways and up or down). The PGO-7 reticle is drawn from the game's own; the iron sights are sketches. Any range line gets the same
+  with its **Rocket launcher shot** button. See [Rockets](#rockets).
 - **Hull-down finder**: pick enemy, your vehicle (BTR-70, BRDM-2, LAV-25) and reach, click the enemy. Green: turret
   seen, hull hidden. Yellow: through trees. Blue: hidden ground within 30 m of green, to wait in. The popup lists the
   closest spots. Hull heights are estimates (`HULL` in `static/app.js`).
@@ -343,6 +349,12 @@ python build_release.py --output dist/everon-map.tar.gz
 The archive contains `server.py` and the static assets, with large text files already gzipped. It excludes Git
 history, tests, development tools, bans, and tile caches. Extract it into the live folder and restart the service.
 Keep the live `bans.json` and `tile_cache/`. Build and bake map data outside the 1 GB serving container.
+
+Run production from a separate directory containing the extracted release, rather than from a Git checkout. Upload
+the archive instead of cloning or copying the repository onto the serving machine. Extraction does not remove an
+existing `.git` directory: if the current service runs from a checkout, point it at a separate release directory,
+preserving its live bans and tile cache. Keep Git history on the development/build machine. The builder excludes
+`.git` directories and worktree pointer files even if they have been accidentally copied inside the static assets.
 
 The server streams files in 64 KiB chunks. When running directly from a checkout, it lazily compresses text into
 `compressed_cache/`, with only one compression running at a time. It keeps small cache metadata in RAM rather than

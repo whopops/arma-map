@@ -495,6 +495,9 @@ table.trp-table .trees { color: #ffde32; }
 .stats.rk { grid-template-columns: repeat(2, 1fr); margin: 6px 0; }
 .stats.rk .v { font-size: 13.5px; }
 .pop .rk-add { margin-top: 8px; width: 100%; }
+.sight-pic { margin: 8px 0 4px; }
+.sight-pic svg { display: block; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.sight-pic p { margin-top: 4px; }
 /* Where to aim a rocket shot: crosshair on the aim point, bearing and sight beside it (colour: ROCKET_AIM in app.js) */
 .rk-aim { position: absolute; left: 0; top: 0; pointer-events: none; }
 .rk-aim i { position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border: 2px solid #ffd43b; border-radius: 50%;

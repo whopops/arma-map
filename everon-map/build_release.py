@@ -31,6 +31,8 @@ def build(output, root=ROOT):
         with tempfile.TemporaryDirectory() as staging, tarfile.open(temporary, "w:gz", compresslevel=6) as archive:
             archive.add(root / "server.py", arcname="server.py")
             for source in sorted(static.rglob("*")):
+                if any(part.lower() == ".git" for part in source.relative_to(root).parts):
+                    continue  # also exclude nested repositories and worktree pointer files
                 if not source.is_file():
                     continue
                 if source.is_symlink():
