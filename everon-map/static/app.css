@@ -574,6 +574,7 @@ table.trp-table .trees { color: #ffde32; }
 
 /* Mortar */
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pair.mortar-load { grid-template-columns: 1fr 1.25fr 0.8fr; }
 .trio { display: grid; grid-template-columns: 1fr 1fr 1.15fr; gap: 6px; margin-top: 6px; }
 .pair select, .trio select { padding: 5px 6px; }
 #mortar-panel :is(.pair, .trio) .field { gap: 2px; }
@@ -674,7 +675,8 @@ table.trp-table .trees { color: #ffde32; }
 .range-label small { font: 500 11px var(--font); color: var(--muted); }
 .ring-label {
   position: absolute; transform: translate(-50%, -115%); white-space: nowrap; pointer-events: none;
-  font: 600 10.5px var(--mono); color: #fff; background: rgba(12, 16, 20, .72); border-radius: 4px; padding: 0 5px;
+  font: 700 11.5px var(--mono); color: #fff; background: rgba(8, 11, 14, .88); border: 1px solid var(--c, rgba(255, 255, 255, .35));
+  border-left: 4px solid var(--c, rgba(255, 255, 255, .35)); border-radius: 4px; padding: 1px 6px 1px 5px; box-shadow: 0 1px 5px rgba(0, 0, 0, .5);
 }
 
 /* Popups */

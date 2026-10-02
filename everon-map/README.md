@@ -97,7 +97,7 @@ right-click finishes.
 ### Support
 
 - **Fire support request**: Area (circle it) or Point, and HE, Smoke or Illumination. Shows the target, kill and danger
-  zones, friendlies inside them, and a firing solution from every mortar. Mortar crews clear it with **Mission
+  zones (for the shell the mortar in range would fire; see [Mortar](#mortar)), friendlies inside them, and a firing solution from every mortar. Mortar crews clear it with **Mission
   complete**.
 - **Gun run (CAS)**: sent at once as "CAS 1"; add details later with Edit. Point or area. Warns about friendlies within
   100 m.
@@ -120,11 +120,38 @@ AT minefield (10 m kill radius), AP minefield, blocked or mined road, bridge out
 
 Place a mortar (F then 9; M252 or 2B14, any shell) and the Mortar panel opens. An outline per charge ring shows how
 far it reaches in each direction: further downhill and downwind, shorter uphill and upwind (each is labelled with its
-shortest and longest, e.g. "R4 2.92–3.08 km"). A target past the outline says how far the mortar reaches that way.
+shortest and longest, e.g. "R4 2.92–3.08 km"). Each ring has its own colour (ring 0 yellow, 1 orange, 2 pink, 3 violet,
+4 blue) on a dark outline so it shows over any terrain, with a faint fill; the shortest distance any ring fires is the
+red disc. The markings follow the **Ring** setting: with a ring set you see just that ring's whole reach, and on Auto
+you see the rings Auto would use, as bands (for the M252 HE: ring 0 out to about 410 m, ring 3 to 2.3 km, ring 4 to
+3.0 km), each labelled "R3 to 2.28–2.32 km". A band ends where Auto hands over to the next ring, or where its ring
+runs out over the ground and wind if that's nearer. A target past the outline says how far the mortar reaches that way.
 Click to add targets (up to 30); each gets ring, elevation and azimuth in mils, and flight time, plus where 90% of
-rounds land and the kill (+20 m) and danger (+35 m) zones for HE. Move the mouse for a live solution. Drag a target to
+rounds land and the shell's kill and danger zones around that. Move the mouse for a live solution. Drag a target to
 correct fire.
 
+- **Kill and danger zones** were measured in the game: real shells dropped among the game's riflemen on open ground,
+  about 9,000 of them (reforger-map-tools `blasttest.py`). The kill zone reaches as far as a round on the edge of the
+  spread downs (kills, or knocks out) half of those standing. The danger zone reaches as far as 1 in 10 is still
+  wounded; past it nobody was touched. Lying down shrinks the kill distance. The angle a round comes down at and the
+  side of the burst make no difference.
+
+  | Shell | Kill (standing) | Kill (prone) | Danger |
+  |---|---|---|---|
+  | HE M821 (M252) | 18 m | 13 m | 27 m |
+  | HE O-832DU (2B14) | 11 m | 10 m | 16 m |
+  | Practice M879 | none | 3 m | 5 m |
+  | Smoke M819 | none | 3 m | 5 m |
+  | Smoke D-832DU | none | 3 m | 5 m |
+
+  Illumination rounds carry no explosive: a time fuze releases a flare, so they have no zones.
+
+- **Ring**: Auto, or a fixed charge (0-4) saved on the mortar. A fixed ring shows only its own outline and says
+  which rings could reach a target it can't. Auto keeps the charge changes down: ring 3 for nearly everything (M252
+  HE from about 410 m to 2.3 km, 2B14 HE from 300 m), ring 0 or 1 close in, where ring 3 lands 2-3x wider and flies
+  about 30 s, and ring 4 past ring 3's reach. It switches where a lower ring lands at least a third tighter, worked out per shell on flat
+  ground in still air so it only changes with distance. A band under 150 m is folded into its neighbour. If the ring
+  it picks can't make it up a hill or into the wind, the nearest ring that can is used.
 - **Wind**: enter it as the in-game map shows it (m/s, direction it comes from). It's saved on the mortar.
 - **Noise and sound ranges**: Noise (Still, Breeze, Windy, Storm) sets how far firing and impacts are heard; **Show
   sound ranges** draws them.
@@ -196,7 +223,17 @@ charge multipliers and drag come from the game's prefabs.
   100 m the target sits below the mortar adds about 75-85 m of reach (100 m above costs 75-150 m), and 5 m/s of
   tailwind adds about 1.5% (headwind takes it off). The in-game firing tables, which are for flat ground in still air,
   are 1-20 mil off and stop a little short anyway; they only set each ring's shortest distance now.
-- **Spread:** comes from the game's launch-speed variation (±1.07 m/s) and barrel dispersion.
+- **Spread** was measured by firing through the game's real mortars: 400 rounds, every charge ring of both, each
+  round's speed and direction recorded as it left the barrel (reforger-map-tools `firetest.py barrel`). Rounds fired
+  with the same numbers differ in two ways:
+  - **Launch speed** varies ±1.07 m/s (one standard deviation) on the shell's base speed, times the ring's
+    multiplier. On average it comes out 0.13 m/s fast, and the aim allows for that.
+  - **The barrel** throws each round a little off its direction. It's never more than 10.4 mil, usually much less,
+    and it differs by mortar: M252 about 3.1 mil up/down and 4.2 mil sideways; 2B14 3.9 and 2.9.
+
+  Flown by the model from those launches, the rounds land where the game puts them (to 0.25 m). The ellipse held
+  87-93% of the measured rounds at every ring and range. Example, M252 ring 3 at 1.3 km: ±76 m long/short, ±39 m
+  sideways.
 
 ### Sound
 

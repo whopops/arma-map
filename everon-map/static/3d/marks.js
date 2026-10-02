@@ -42,7 +42,9 @@ const Marks = (() => {
   const GUN_NAME = { rifle: 'Rifle or light MG', 'rifle-s': 'Suppressed rifle', mg: '7.62 MG', hmg: 'Heavy MG or cannon', launcher: 'RPG or LAW',
     gl: 'Grenade launcher', pistol: 'Pistol', mortar: 'Mortar' };
   const SECTOR_COLORS = ['#ffd43b', '#74c0fc', '#8ce99a', '#f783ac', '#ffa94d', '#b197fc', '#66d9e8', '#ff8787'];
-  const LZ_R = 15, RADIO_CLEAR = 50, AT_KILL = 10, KILL_R = 20, DANGER_R = 35;
+  const LZ_R = 15, RADIO_CLEAR = 50, AT_KILL = 10;
+  // the colour of each charge ring's outline (ring 0 to 4: warm to cool outwards; the field map's RING_COLORS)
+  const RING_COLORS = ['#ffd43b', '#ff922b', '#f783ac', '#da77f2', '#74c0fc'];
   const AMB = { kz: '#ff5c5c', assault: '#6cb8ff', support: '#ffc53d', security: '#8ce99a' };
 
   // unit markers and contacts time out (the owner's page removes them; until then they fade)
@@ -255,21 +257,40 @@ const Marks = (() => {
   }
 
   // --- mortars (the field map's renderMortar and fire requests) ----------------------------------------------------
-  const isLethal = shell => /^HE/.test(shell || '');
+  // What one round does around its burst, measured in the game (the field map's BLAST; keep the two in step): half of
+  // those standing go down within kill m, and 1 in 10 is still wounded at danger m.
+  const BLAST = {
+    'HE M821': { kill: 18, danger: 27 },
+    'HE O-832DU': { kill: 11, danger: 16 },
+    'Practice M879': { kill: 0, danger: 5 },
+    'Smoke M819': { kill: 0, danger: 5 },
+    'Smoke D-832DU': { kill: 0, danger: 5 },
+  };
+  const blastOf = shell => BLAST[shell] || null;
+  // the worst shell of a fire request's kind, for when no mortar in range says which it is
+  const worstShell = re => Object.keys(BLAST).filter(s => re.test(s)).sort((a, b) => BLAST[b].danger - BLAST[a].danger)[0] || null;
   const shellColor = shell => (/^Smoke/.test(shell) ? FIRE.smoke.color : /^Illum/.test(shell) ? FIRE.illum.color : '#adb5bd');
   const FIRE_SHELL = { he: /^HE/, smoke: /^Smoke/, illum: /^Illum/ };
   // each target of a mortar with its solution
-  const mortarShots = (m, env) => pts(m.targets).map(t => ({ t, sol: Mortar.solve(env.tables, m.weapon, m.shell, m.xz, t, m.wind, env.ground) }));
-  // A point fire request's spread: from the nearest mortar in the room that can reach it with a shell of the kind asked
-  // for (the field map prefers your own or the one you follow; here nobody's is), or none.
+  const mortarShots = (m, env) => pts(m.targets).map(t => ({ t, sol: Mortar.solve(env.tables, m.weapon, m.shell, m.xz, t, m.wind, env.ground, Mortar.chargeOf(env.tables, m)) }));
+  // the rings whose reach a mortar shows (only the one set, when there is one) and the shortest it fires
+  function mortarReach(m, xz, env) {
+    const rch = Mortar.reach(env.tables, m.weapon, m.shell, xz, m.wind, env.ground, env.world), ch = Mortar.chargeOf(env.tables, m);
+    // on Auto: the ring used over each stretch of distance (bands), not every ring's full reach
+    if (!rch || ch == null) return rch && { ...rch, bands: Mortar.autoBandPolys(env.tables, m.weapon, m.shell, xz, rch) };
+    const rings = rch.rings.filter(r => r.ring === ch);
+    return { rings, min: rings.length ? rings[0].min : rch.min };
+  }
+  // A point fire request's spread: {sol, shell} from the nearest mortar in the room that can reach it with a shell of
+  // the kind asked for (the field map prefers your own or the one you follow; here nobody's is), or null.
   function fireSpread(req, players, env) {
     let best = null;
     for (const p of players.values()) {
       for (const m of p.items.values()) {
         if (m.type !== 'mortar' || !isPt(m.xz)) continue;
         const shell = Mortar.shellLike(env.tables, m.weapon, FIRE_SHELL[req.fire] || FIRE_SHELL.he, m.shell);
-        const sol = Mortar.solve(env.tables, m.weapon, shell, m.xz, req.xz, m.wind, env.ground);
-        if (sol.best && (!best || sol.d < best.d)) best = sol;
+        const sol = Mortar.solve(env.tables, m.weapon, shell, m.xz, req.xz, m.wind, env.ground, Mortar.chargeOf(env.tables, m, shell));
+        if (sol.best && (!best || sol.d < best.sol.d)) best = { sol, shell };
       }
     }
     return best;
@@ -435,14 +456,21 @@ const Marks = (() => {
             label(e, t, 4.5, `T${i + 1} · ${Mortar.short(sol)}`, sol.best ? undefined : '#ff6b6b');
           });
           // how far each charge ring reaches (over the ground, in the mortar's wind), named at its north point
-          const rch = Mortar.reach(env.tables, it.weapon, it.shell, xz, it.wind, env.ground, env.world);
-          if (rch) {
+          const rch = mortarReach(it, xz, env);
+          // as the field map writes it: "2.88–3.08 km", or one figure when it hardly varies
+          const span = (near, far) => (far - near < 15 ? fmtDist(far) : far < 1000 ? `${Math.round(near)}–${Math.round(far)} m`
+            : `${(near / 1000).toFixed(2)}–${(far / 1000).toFixed(2)} km`);
+          if (rch && rch.bands) {
+            // on Auto, each band's ring and how far Auto uses it
+            for (const b of rch.bands) {
+              labels.push({ xz: b.pts[b.pts.length / 8], h: 1, text: `R${b.ring} to ${span(b.near, b.far)}`, color: RING_COLORS[b.ring] || e.color, owner: e.owner });
+            }
+          } else if (rch) {
             for (const r of rch.rings) {
-              // as the field map writes it: "2.88–3.08 km", or one figure when it hardly varies
-              const span = r.far - r.near < 15 ? fmtDist(r.far) : r.far < 1000 ? `${Math.round(r.near)}–${Math.round(r.far)} m`
-                : `${(r.near / 1000).toFixed(2)}–${(r.far / 1000).toFixed(2)} km`;
-              const text = `R${r.ring} ${r.pts ? span : fmtDist(r.max)}`;
-              labels.push({ xz: r.pts ? r.pts[0] : [xz[0], xz[1] + r.max], h: 1, text, color: e.color, owner: e.owner });
+              const text = `R${r.ring} ${r.pts ? span(r.near, r.far) : fmtDist(r.max)}`;
+              // on the north-east diagonal (the 45 degree point), in the ring's colour, as on the field map
+              labels.push({ xz: r.pts ? r.pts[r.pts.length / 8] : [xz[0] + r.max * Math.SQRT1_2, xz[1] + r.max * Math.SQRT1_2], h: 1, text,
+                color: RING_COLORS[r.ring] || e.color, owner: e.owner });
             }
           }
         } else if (it.type === 'post' && xz) {                     // range cards and enemy views
@@ -552,12 +580,13 @@ const Marks = (() => {
       return out;
     };
     // Where rounds land around an aim point (the field map's impactZones): the 90% spread (an ellipse along the line of
-    // fire, or a circle), and for HE the kill zone KILL_R and danger zone DANGER_R beyond it.
-    const impactZones = (xz, spread, lethal, color, shape) => {
+    // fire, or a circle), and the shell's kill and danger zones (BLAST) beyond it.
+    const impactZones = (xz, spread, shell, color, shape) => {
       const zone = (grow, c, fillA, w, dash) => (shape ? poly(ellipse(xz, shape, grow), c, fillA, W(w, w), dash) : circle(xz, spread + grow, c, fillA, W(w, w), dash));
-      if (lethal) {
-        zone(DANGER_R, '#ffd43b', 0.12, 1.8, [6, 5]);
-        zone(KILL_R, '#ff5c5c', 0.1, 1.8, [6, 5]);
+      const b = blastOf(shell);
+      if (b) zone(b.danger, '#ffd43b', 0.12, 1.8, [6, 5]);
+      if (b && b.kill) {
+        zone(b.kill, '#ff5c5c', 0.1, 1.8, [6, 5]);
         if (spread) zone(0, '#ff2b2b', 0.35, 2, null);
       } else if (spread) zone(0, color, 0.16, 1.8, [5, 4]);
     };
@@ -666,18 +695,32 @@ const Marks = (() => {
           circle(xz, HEARD[it.gun] || HEARD.rifle, HEAR, 0.05, W(1.6, 1.6), [3, 6]);
         } else if (it.type === 'mortar' && xz) {
           // each ring's reach (an outline over the ground, in the mortar's wind), and the shortest it can fire
-          const rch = Mortar.reach(env.tables, it.weapon, it.shell, xz, it.wind, env.ground, env.world);
+          const rch = mortarReach(it, xz, env);
           if (rch) {
-            for (const r of rch.rings) {
-              if (r.pts) poly(r.pts, col, 0, W(1.2, 1.2), [4, 6], 0.45);
-              else circle(xz, r.max, col, 0, W(1.2, 1.2), [4, 6], 0.45);
+            // as on the field map: each ring a solid line in its own colour on a dark outline, with a faint fill. On Auto,
+            // bands instead: the ring used over each stretch of distance (fill between its edge and the band inside it)
+            if (rch.bands) {
+              for (const b of rch.bands) {
+                const rc = RING_COLORS[b.ring] || col;
+                ctx.beginPath();
+                for (const ring of b.inner ? [b.pts, b.inner] : [b.pts]) { ctx.moveTo(ring[0][0], ring[0][1]); for (let i = 1; i < ring.length; i++) ctx.lineTo(ring[i][0], ring[i][1]); ctx.closePath(); }
+                ctx.globalAlpha = 0.08; ctx.fillStyle = rc; ctx.fill('evenodd');
+                poly(b.pts, '#080b0e', 0, W(5, 8), null, 0.6); poly(b.pts, rc, 0, W(2.5, 4), null, 1);
+              }
+            } else {
+              for (const r of rch.rings) {
+                const rc = RING_COLORS[r.ring] || col;
+                if (r.pts) { poly(r.pts, '#080b0e', 0, W(5, 8), null, 0.6); poly(r.pts, rc, 0.06, W(2.5, 4), null, 1); }
+                else { circle(xz, r.max, '#080b0e', 0, W(5, 8), null, 0.6); circle(xz, r.max, rc, 0.06, W(2.5, 4), null, 1); }
+              }
             }
-            circle(xz, rch.min, '#ff6b6b', 0.08, W(1.2, 1.2), [2, 4]);
+            circle(xz, rch.min, '#080b0e', 0, W(5, 8), null, 0.5);
+            circle(xz, rch.min, '#ff6b6b', 0.16, W(2.5, 4), [5, 4]);
           }
           for (const { t, sol } of mortarShots(it, env)) {
             const c = sol.best ? col : '#ff6b6b';
             line([xz, t], c, W(1.5, 1.5), [2, 5], 0.8);
-            if (sol.best) impactZones(t, sol.best.dispersion, isLethal(it.shell), shellColor(it.shell), sol.best.spread);
+            if (sol.best) impactZones(t, sol.best.dispersion, it.shell, shellColor(it.shell), sol.best.spread);
             cross(t, W(4, 5), c, W(1, 1.2));
           }
         } else if (it.type === 'fia' && field) {
@@ -703,7 +746,7 @@ const Marks = (() => {
             if (typeof it.heading === 'number') { const tip = toward(xz, it.heading, 30); line([toward(xz, it.heading, 8), tip], ENEMY, W(1.5, 2), null, alpha(0.9, e)); head(tip, it.heading, ENEMY, 6, alpha(0.95, e)); }
           } else if (icon === 'fire-point') {                     // sized by the nearest mortar that can reach it
             const f = FIRE[it.fire] || FIRE.he, s = fireSpread(it, players, env);
-            impactZones(xz, s ? s.best.dispersion : 0, f === FIRE.he, f.color, s ? s.best.spread : null);
+            impactZones(xz, s ? s.sol.best.dispersion : 0, s ? s.shell : worstShell(FIRE_SHELL[it.fire] || FIRE_SHELL.he), f.color, s ? s.sol.best.spread : null);
             cross(xz, W(8, 6), f.color, W(1.2, 1.5));
           } else if (AIR[icon]) {
             const c = AIR[icon].color;

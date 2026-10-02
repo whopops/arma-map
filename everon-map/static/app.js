@@ -1203,7 +1203,7 @@
         const sm = isNew && isFireReq(ev.item) && !isMine(ev.owner) && TABLES && solutionMortar();
         if (sm) {
           const { sol } = fireSolution(sm.it, ev.item);
-          toast(`${(FIRE[ev.item.fire] || FIRE.he).name} requested by ${ev.owner}: ${sol.best ? fmtSolution(sol, true) : 'out of range'}`, 8000);
+          toast(`${(FIRE[ev.item.fire] || FIRE.he).name} requested by ${ev.owner}: ${sol.best ? fmtSolution(sol, true) : noReach(sol)}`, 8000);
         }
         renderItem(p, ev.item);
         break;
@@ -2276,22 +2276,31 @@
   // says, height differences and wind included. The range tables are a few mils off it (the site's aims landed 6 m long on
   // average, up to 20 m), so the elevation and flight time now come from the model alone; the tables only say which rings reach.
   const MUZZLE_H = 1.3; // the shell leaves the barrel this high above the mortar's ground
-  // Where rounds land around the aim: every round leaves at a random speed, the shell's base speed +/- about 1.07 m/s (never
-  // more than 3, the prefab's InitSpeedVariation) times the charge ring's multiplier: measured over 340 live rounds. That
-  // spreads them long and short. The barrel adds a small random direction: its muzzle is set to a group 1 m wide at 48 m
-  // (DispersionDiameter 1, DispersionRange 48), up to 10.4 mil off, spreading rounds sideways and long/short too. (The live
-  // test launched shells directly, so it didn't include the barrel part: that comes from the game's settings.)
+  // Where rounds land around the aim, measured by firing through the game's real mortars (reforger-map-tools firetest.py
+  // barrel: 400 rounds, every charge ring of the M252 and the 2B14, each round's launch recorded as it left the barrel;
+  // 1,080 rounds with the earlier direct launches):
+  // - Every round leaves at a random speed: the shell's base speed + SPEED_BIAS, +/- SPEED_SD (one standard deviation),
+  //   times the charge ring's multiplier. That spreads them long and short. (The game's speeds average 0.13 m/s high.)
+  // - The barrel throws each round a little off its direction, never more than 10.4 mil (DispersionDiameter 1 m at
+  //   DispersionRange 48 m) and mostly much less: BARREL_SD per mortar, up/down and sideways (the two mortars differ).
+  //   Up/down spreads rounds long and short, sideways spreads them left and right.
+  // The rounds then fly as the model says (to 0.25 m), and the ellipse P90 standard deviations across held 87-93% of the
+  // measured rounds, every ring at short, middle and long range.
   const SPEED_SD = 1.07;          // m/s on the base speed, one standard deviation
-  const BARREL = 0.5 / 48;        // rad, how far off the barrel can throw a round
+  const SPEED_BIAS = 0.13;        // m/s on the base speed: the game's launch speeds average this much above the shell's
+  const MIL = 2 * Math.PI / 6400;
+  const BARREL_SD = { M252: [3.09 * MIL, 4.19 * MIL], '2B14': [3.90 * MIL, 2.94 * MIL] }; // rad, sd up/down and sideways
   const P90 = 2.146;              // an ellipse this many standard deviations across holds 90% of the rounds
-  function spreadOf(v, coef, k, ang, dh, along, across, d) {
+  // the speed a shell leaves with on a charge ring, on average (aims and reach use it)
+  const ringSpeed = (phys, coef) => (phys.v0 + SPEED_BIAS) * coef;
+  function spreadOf(v, coef, k, ang, dh, along, across, d, w) {
     const f = (vv, aa) => flight(vv, k, aa, dh, along, across);
     const up = f(v + 1, ang), dn = f(v - 1, ang), hi = f(v, ang + 0.002), lo = f(v, ang - 0.002);
     if (!up || !dn || !hi || !lo) return null;
     const dRdv = (up.range - dn.range) / 2, dRda = (hi.range - lo.range) / 0.004;
-    const barrel = BARREL / 2; // the spread of a direction picked evenly inside the barrel's cone, along one axis
-    const sdLong = Math.hypot(dRdv * SPEED_SD * coef, dRda * barrel);
-    const sdSide = d * barrel / Math.cos(ang); // a sideways tilt of a steep barrel turns the shot further
+    const [bUp, bSide] = BARREL_SD[w] || BARREL_SD.M252;
+    const sdLong = Math.hypot(dRdv * SPEED_SD * coef, dRda * bUp);
+    const sdSide = d * bSide / Math.cos(ang); // a sideways tilt of a steep barrel turns the shot further
     return { long: P90 * sdLong, side: P90 * sdSide };
   }
 
@@ -2301,7 +2310,8 @@
   // that lands on the target from the muzzle, with the height difference and the wind. How far a ring reaches comes from the
   // model too (its MIN_ELEV shot, in this wind, to this height), not the table's last row, which is for flat ground in still
   // air and stops short of what the tube can do anyway. The table still sets each ring's shortest distance.
-  function solve(w, s, from, to, wind = null) {
+  // charge: the ring the crew has set (0-4), or null for the map to pick one per target (see autoRing).
+  function solve(w, s, from, to, wind = null, charge = null) {
     const W = weaponDef(w), rings = shellDef(w, s);
     const d = dist(from, to);
     // Exact ground at the mortar; at the target, the roof if it's on a building (that's where the rounds land).
@@ -2324,13 +2334,13 @@
         const lerp = j => a[j] + (b[j] - a[j]) * k;
         elev = lerp(1) - dh * lerp(3) / 100; tof = lerp(2);
       } else {
-        const coef = phys.rings[ring], v = phys.v0 * coef;
+        const coef = phys.rings[ring], v = ringSpeed(phys, coef);
         const real = highAngleFor(v, phys.k, d, dh - MUZZLE_H, along, across);
         if (!real) continue; // too high up, or into too strong a headwind, for this ring
         elev = real.ang * mpc / (2 * Math.PI);
         tof = real.tof;
         azAdj = -Math.atan2(real.drift, d) * mpc / (2 * Math.PI); // aim into the crosswind by what it would blow the round
-        spread = spreadOf(v, coef, phys.k, real.ang, dh - MUZZLE_H, along, across, d);
+        spread = spreadOf(v, coef, phys.k, real.ang, dh - MUZZLE_H, along, across, d, w);
       }
       if (elev > def.table[0][1] + 40) continue; // steeper than the tube goes: too close for this ring
       // dispersion: one number for the texts and friendly warnings (the ellipse's longer half); spread: the ellipse, 90% of rounds
@@ -2339,24 +2349,120 @@
         spread: spread && { long: Math.round(spread.long), side: Math.round(spread.side), az } });
     }
     out.rings.sort((x, y) => x.ring - y.ring);
-    out.best = out.rings[0] || null; // lowest ring that reaches = tightest dispersion
+    out.charge = charge != null && rings[charge] ? charge : null; // a shell without that ring picks its own
+    out.best = out.charge == null ? autoRing(out.rings, w, s, d) : out.rings.find(r => r.ring === out.charge) || null;
     out.mapAzMil = out.azMil; // the bearing on the map; azMil becomes what to set on the sight, aimed off for crosswind
     if (out.best) out.azMil = out.best.azMil;
     return out;
   }
 
+  // Auto: the ring for a target when the crew hasn't set one. Ring 3 covers the most ground (M252 0.3-2.3 km, 2B14
+  // 0.3-1.8 km), so it's kept whenever it lands nearly as tight as the tightest ring that reaches, which saves changing
+  // charges between targets. Close in, ring 3 is nearly vertical: 2-3x the spread of a low ring, and about 30 s in the
+  // air against 12-20 s. So when a ring lands at least a third tighter (ring 3's spread is over AUTO_SLACK times the
+  // tightest), the nearest ring to 3 within that is used instead. With short bands folded away (AUTO_MIN_RUN) the
+  // M252 HE fires ring 0 to its reach (about 410 m), ring 3 to 2.3 km and ring 4 beyond; the 2B14 HE ring 0 to 100 m,
+  // ring 1 to 300 m, then ring 3 and ring 4.
+  // The switch points are worked out once per shell on flat ground in still air (every AUTO_STEP m), so the ring only
+  // changes with distance, not back and forth with every bump in the ground. If the ring picked can't make it there (up
+  // a hill, into the wind) the nearest ring that can is used.
+  const AUTO_RING = 3, AUTO_SLACK = 1.5, AUTO_STEP = 10;
+  const autoBands = new Map();
+  // a ring kept for under AUTO_MIN_RUN m between two others isn't worth a charge change: the next ring out takes over
+  // (M252 smoke would otherwise use ring 2 for just 705-755 m)
+  const AUTO_MIN_RUN = 150;
+  function foldShortRuns(bands, okAt) {
+    for (let i = 0; i < bands.length;) {
+      let j = i;
+      while (j < bands.length && bands[j] === bands[i]) j++;
+      if (i > 0 && j < bands.length && bands[i - 1] != null && bands[i] != null && bands[j] != null && (j - i) * AUTO_STEP < AUTO_MIN_RUN) {
+        const fits = r => okAt.slice(i, j).every(ok => ok.includes(r)); // a ring that fires all along the run
+        const to = fits(bands[j]) ? bands[j] : fits(bands[i - 1]) ? bands[i - 1] : null;
+        if (to != null) bands.fill(to, i, j);
+      }
+      i = j;
+    }
+  }
+  function autoPref(w, s, d) {
+    const key = `${w}|${s}`;
+    if (!autoBands.has(key)) {
+      const rings = shellDef(w, s) || {}, phys = SHELL_PHYS[key], mpc = weaponDef(w)?.milsPerCircle || 6400, bands = [], okAt = [];
+      const far = Math.max(...Object.values(rings).map(def => def.table[def.table.length - 1][0])) + 600;
+      for (let dd = 0; dd <= far; dd += AUTO_STEP) {
+        const ok = [];
+        for (const [ring, def] of Object.entries(rings)) {
+          const t = def.table;
+          if (dd < t[0][0]) continue;
+          if (!(phys && phys.rings[ring])) { if (dd <= t[t.length - 1][0]) ok.push({ ring: +ring, dispersion: def.dispersion }); continue; }
+          const coef = phys.rings[ring], v = ringSpeed(phys, coef), real = highAngleFor(v, phys.k, dd, -MUZZLE_H, 0, 0);
+          if (!real || real.ang * mpc / (2 * Math.PI) > t[0][1] + 40) continue;
+          const sp = spreadOf(v, coef, phys.k, real.ang, -MUZZLE_H, 0, 0, dd, w);
+          ok.push({ ring: +ring, dispersion: sp ? Math.max(sp.long, sp.side) : def.dispersion });
+        }
+        okAt.push(ok.map(r => r.ring));
+        bands.push(ok.length ? nearestRing(ok.filter(r => r.dispersion <= Math.min(...ok.map(q => q.dispersion)) * AUTO_SLACK), AUTO_RING).ring : null);
+      }
+      foldShortRuns(bands, okAt);
+      autoBands.set(key, bands);
+    }
+    const bands = autoBands.get(key), i = Math.min(Math.floor(d / AUTO_STEP), bands.length - 1); // the step at or below: a ring is never picked short of its table minimum
+    return bands[i] ?? (d > bands.length * AUTO_STEP / 2 ? 9 : 0); // nothing on flat ground: the highest or lowest ring there is
+  }
+  // Where Auto uses each ring on flat ground in still air, for the map: [{ring, from, to}] in metres, nearest first.
+  function autoSegments(w, s) {
+    autoPref(w, s, 0);
+    const bands = autoBands.get(`${w}|${s}`), out = [];
+    for (let i = 0; i < bands.length;) {
+      let j = i;
+      while (j < bands.length && bands[j] === bands[i]) j++;
+      if (bands[i] != null) out.push({ ring: bands[i], from: i * AUTO_STEP, to: j * AUTO_STEP });
+      i = j;
+    }
+    return out;
+  }
+  const nearestRing = (rings, to) => rings.reduce((a, b) => (Math.abs(b.ring - to) < Math.abs(a.ring - to) ? b : a));
+  const autoRing = (rings, w, s, d) => (rings.length ? nearestRing(rings, autoPref(w, s, d)) : null);
+  // The ring a mortar fires with (its charge), or null for auto
+  const chargeOf = m => (Number.isInteger(m && m.charge) ? m.charge : null);
+  const solveFor = (m, to, shell = m.shell) => solve(m.weapon, shell, m.xz, to, m.wind, chargeOf(m));
+
+  // Auto's bands for the map: for each stretch of distance the ring Auto uses there, as an outline all round the mortar
+  // (pts, in map metres) with the previous band's outline as its inner edge, and the shortest and longest of its edge.
+  // A band's edge is where Auto hands over to the next ring (flat ground, still air: autoSegments) or where that ring
+  // runs out over the real ground and wind (the reach outline), whichever is nearer; the last band goes to its full reach.
+  function autoBandPolys(w, s, from, outline) {
+    const segs = autoSegments(w, s);
+    if (!outline || !segs.length) return null;
+    const out = [];
+    let prev = null, prevRad = null;
+    segs.forEach((sg, i) => {
+      const o = outline.rings.find(r => r.ring === sg.ring);
+      if (!o) return;
+      const last = i === segs.length - 1;
+      const rad = o.pts.map((q, k) => {
+        const d = Math.hypot(q[0] - from[0], q[1] - from[1]);
+        return Math.max(last ? d : Math.min(sg.to, d), prevRad ? prevRad[k] : 0); // never inside the band before it
+      });
+      const pts = rad.map((r, k) => { const az = k * 2 * Math.PI / rad.length; return [from[0] + r * Math.sin(az), from[1] + r * Math.cos(az)]; });
+      out.push({ ring: sg.ring, pts, inner: prev, near: Math.min(...rad), far: Math.max(...rad) });
+      prev = pts; prevRad = rad;
+    });
+    return out.length ? out : null;
+  }
   // How far a ring reaches in one direction, over the real ground and in the wind: the furthest point on bearing az that
   // its flattest shot (MIN_ELEV) still passes over on its way down. That is the same test solve() makes (whether that
   // shot comes down at the target's height at or beyond the target), so a target inside the outline gets a solution and
   // one outside doesn't. Ground in between doesn't count, as in solve(): the rounds come down steeply, from high up.
   // From ground (the 10 m heights; the sea's surface is 0) every REACH_STEP m. null without the shell's physics.
   const REACH_STEP = 5, REACH_BEARINGS = 72;
+  // the colour of each charge ring's outline on the map (ring 0 to 4: warm to cool outwards)
+  const RING_COLORS = ['#ffd43b', '#ff922b', '#f783ac', '#da77f2', '#74c0fc'];
   const reachGround = p => Math.max(heightAt(p) ?? 0, 0);
   function ringReach(phys, ring, from, h0, az, wind) {
     const coef = phys && phys.rings[ring];
     if (!coef) return null;
     const { along, across } = windParts(wind, az), path = [];
-    flight(phys.v0 * coef, phys.k, MIN_ELEV, -800, along, across, path);    // on down to 800 m below the muzzle
+    flight(ringSpeed(phys, coef), phys.k, MIN_ELEV, -800, along, across, path);    // on down to 800 m below the muzzle
     const sx = Math.sin(az * Math.PI / 180), sz = Math.cos(az * Math.PI / 180), muzzle = h0 + MUZZLE_H;
     let top = 0;
     path.forEach((q, i) => { if (q[1] > path[top][1]) top = i; });
@@ -2408,20 +2514,31 @@
     reachCache.set(key, out);
     return out;
   }
-  // How far the furthest-reaching ring goes towards one spot (for "out of range" notes), or null without the physics.
-  function reachToward(w, s, from, to, wind) {
+  // How far the furthest-reaching ring (or just ring `only`) goes towards one spot (for "out of range" notes), or null
+  // without the physics.
+  function reachToward(w, s, from, to, wind, only = null) {
     const phys = SHELL_PHYS[`${w}|${s}`], rings = shellDef(w, s);
     if (!phys || !rings || !HEIGHT) return null;
     const h0 = reachGround(from), az = bearing(from, to);
-    return Math.max(...Object.keys(rings).map(r => ringReach(phys, +r, from, h0, az, wind) || 0));
+    return Math.max(...Object.keys(rings).filter(r => only == null || +r === only).map(r => ringReach(phys, +r, from, h0, az, wind) || 0));
   }
   // "2.88–3.08 km" (or one figure when it hardly varies)
   const fmtReach = (a, b) => (b - a < 15 ? fmtDist(b) : b < 1000 ? `${Math.round(a)}–${Math.round(b)} m` : `${(a / 1000).toFixed(2)}–${(b / 1000).toFixed(2)} km`);
-  // Why a target is out of range: too close for every ring, or past the furthest reach that way.
-  function outOfRangeText(w, s, from, to, wind) {
-    const lim = shellLimits(w, s), d = dist(from, to);
+  // "ring 3" / "rings 1, 2"
+  const ringList = rs => `ring${rs.length > 1 ? 's' : ''} ${rs.join(', ')}`;
+  // Why mortar m can't hit a target: too close for every ring, or past the furthest reach that way. With a ring set,
+  // why that ring can't, and which rings could.
+  function outOfRangeText(m, to, shell = m.shell) {
+    const w = m.weapon, s = shell, d = dist(m.xz, to), sol = solveFor(m, to, shell), ch = sol.charge;
+    if (ch != null) {
+      const others = sol.rings.map(r => r.ring), alt = others.length ? ` · ${ringList(others)} can` : '';
+      const min = shellDef(w, s)[ch].table[0][0], r = reachToward(w, s, m.xz, to, m.wind, ch);
+      if (r != null && d > r) return `Ring ${ch} reaches ${fmtDist(r)} this way${alt}`;
+      return `Too close for ring ${ch}${d < min ? ` (at least ${fmtDist(min)})` : ''}${alt}`;
+    }
+    const lim = shellLimits(w, s);
     if (lim && d < lim.min) return `Too close (at least ${fmtDist(lim.min)})`;
-    const r = reachToward(w, s, from, to, wind);
+    const r = reachToward(w, s, m.xz, to, m.wind);
     return r != null ? `Out of range (reaches ${fmtDist(r)} this way)` : `Out of range (max ${fmtDist(lim ? lim.max : 0)})`;
   }
 
@@ -2456,10 +2573,11 @@
     return 'Click a target for a firing solution · move the mouse for a live solution';
   }
 
+  const noReach = sol => (sol.charge != null ? `ring ${sol.charge} can't reach` : 'out of range');
   function fmtSolution(sol, short = false) {
     const az = `${pad(Math.round(sol.az) % 360, 3)}° / ${Math.round(sol.azMil)} mil`;
     const dh = `${sol.dh >= 0 ? '+' : '−'}${Math.abs(Math.round(sol.dh))} m`;
-    if (!sol.best) return `Out of range · ${fmtDist(sol.d)}`;
+    if (!sol.best) return `${sol.charge != null ? `Ring ${sol.charge} can't reach` : 'Out of range'} · ${fmtDist(sol.d)}`;
     const b = sol.best;
     return short
       ? `Ring ${b.ring} · ${Math.round(b.elev)} mil · Az ${Math.round(sol.azMil)} · ${b.tof.toFixed(1)} s`
@@ -2482,9 +2600,22 @@
       `${a ? `aim ${Math.abs(a)} mil ${a < 0 ? 'left' : 'right'}` : 'no aim-off needed'} (included above)</p>`;
   }
 
+  // A mortar's reach: with a ring set, that ring's; on auto, from the shortest any ring fires to the longest ring's outline.
+  // {min, max} m from the tables, top: the outline ring (reachOutline) or null, ring: the ring set or null.
+  function mortarReach(m) {
+    const rings = shellDef(m.weapon, m.shell), ch = chargeOf(m), ring = ch != null && rings && rings[ch] ? ch : null;
+    const outline = reachOutline(m.weapon, m.shell, m.xz, m.wind);
+    if (ring == null) {
+      const lim = shellLimits(m.weapon, m.shell);
+      return lim && { ...lim, top: outline && outline.rings[outline.rings.length - 1], ring };
+    }
+    const t = rings[ring].table;
+    return { min: t[0][0], max: t[t.length - 1][0], top: outline && outline.rings.find(o => o.ring === ring), ring };
+  }
+
   function mortarInfoHtml(m) {
-    const W = weaponDef(m.weapon), lim = shellLimits(m.weapon, m.shell), alt = heightAt(m.xz);
-    let html = `<p><b>${esc(W ? W.label : m.weapon)}</b> · ${esc(m.shell)}</p>` +
+    const W = weaponDef(m.weapon), lim = mortarReach(m), alt = heightAt(m.xz), top = lim && lim.top;
+    let html = `<p><b>${esc(W ? W.label : m.weapon)}</b> · ${esc(m.shell)} · ${lim && lim.ring != null ? `ring ${lim.ring}` : 'auto ring'}</p>` +
       (m.wind ? `<div class="sub">Wind ${m.wind.s} m/s from ${pad(Math.round(m.wind.d) % 360, 3)}° (in its solutions)</div>` : '');
     if (myMortar()?.id !== m.id) {
       const on = state.followMortar === m.id;
@@ -2492,7 +2623,6 @@
         `${on ? 'Stop using its solutions' : 'Use its solutions'}</button></div>`;
     }
     if (alt != null) html += `<div class="sub">Altitude ${Math.round(alt)} m</div>`;
-    const outline = reachOutline(m.weapon, m.shell, m.xz, m.wind), top = outline && outline.rings[outline.rings.length - 1];
     if (lim && top) html += `<div class="sub">Reach ${fmtDist(lim.min)} to ${esc(fmtReach(top.near, top.far))}, by direction: further downhill and downwind</div>`;
     else if (lim) html += `<div class="sub">Reach ${fmtDist(lim.min)} – ${fmtDist(lim.max)}</div>`;
     html += `<div class="sub">Heard: firing ${fmtDist(GUNS.mortar.range)} · impacts ${fmtDist(impactHeard(m.shell))} (${esc(NOISE.find(n => n[0] === state.noise)[1].toLowerCase())})</div>` +
@@ -2508,12 +2638,29 @@
     return html;
   }
 
-  // Where rounds land around an aim point. The target zone is the spread, shaded red: with the shell's physics an ellipse
-  // along the line of fire holding 90% of the rounds (see spreadOf), otherwise a circle the range table's average dispersion
-  // across. For HE, a round landing on its edge kills KILL_RADIUS further out (dashed red, the kill zone) and endangers
-  // DANGER_RADIUS further out (dashed yellow, the danger zone). Smoke, illumination and practice rounds aren't lethal, so
-  // they show only the spread, in their own colour.
-  const isLethal = shell => /^HE/.test(shell || '');
+  // What one round does to soldiers around where it bursts, measured in the game (reforger-map-tools blasttest.py: real
+  // shells dropped among the game's riflemen on open ground, about 9,000 of them):
+  //   kill:   half of those standing go down (dead, or unconscious where the server allows it) this close;
+  //   danger: 1 in 10 is still wounded this far out; past it the fragments stop, and nobody was touched.
+  // The angle a round comes down at and the side of the burst made no difference, so the zones are round. The practice
+  // round has a small blast charge and the smoke rounds the HE warhead with a small charge, so they hurt too, close in.
+  // Illumination rounds carry no explosive (a time fuze releases a flare).
+  const BLAST = {
+    'HE M821': { kill: 18, danger: 27 },
+    'HE O-832DU': { kill: 11, danger: 16 },
+    'Practice M879': { kill: 0, danger: 5 },
+    'Smoke M819': { kill: 0, danger: 5 },
+    'Smoke D-832DU': { kill: 0, danger: 5 },
+  };
+  const blastOf = shell => BLAST[shell] || null;
+  // The worst of a fire request's kind (HE, smoke, illumination), for when no mortar in range says which shell it is
+  const worstBlast = re => Object.entries(BLAST).filter(([s]) => re.test(s)).map(([s, b]) => ({ shell: s, ...b }))
+    .sort((a, b) => b.danger - a.danger)[0] || null;
+  // Where rounds land around an aim point. The target zone is the spread: with the shell's physics an ellipse along the
+  // line of fire holding 90% of the rounds (see spreadOf), otherwise a circle the range table's average dispersion across.
+  // Around it, from BLAST: the kill zone (dashed red: a round landing on the spread's edge downs half of those standing
+  // this far out) and the danger zone (dashed yellow: wounds this far out). A shell that hurts nobody shows only its
+  // spread, in its own colour.
   const shellColor = shell => (/^Smoke/.test(shell) ? FIRE.smoke.color : /^Illum/.test(shell) ? FIRE.illum.color : '#adb5bd');
   // An ellipse around xz, `long` m along bearing az and `side` m across it (half-lengths), grown by `grow` m all round.
   function ellipseLL(xz, sh, grow = 0) {
@@ -2524,31 +2671,32 @@
     }
     return pts;
   }
-  function impactZones(layer, xz, spread, lethal, color, shape = null) {
+  function impactZones(layer, xz, spread, shell, color, shape = null) {
     const zone = (grow, style) => (shape ? L.polygon(ellipseLL(xz, shape, grow), style) : L.circle(toLL(xz), { radius: spread + grow, ...style }));
-    if (lethal) {
-      layer.addLayer(zone(DANGER_RADIUS, { color: '#ffd43b', weight: 1.8, dashArray: '6 5', fillColor: '#ffd43b', fillOpacity: 0.12, interactive: false }));
-      layer.addLayer(zone(KILL_RADIUS, { color: '#ff5c5c', weight: 1.8, dashArray: '6 5', fillColor: '#ff5c5c', fillOpacity: 0.1, interactive: false }));
+    const b = blastOf(shell);
+    if (b) layer.addLayer(zone(b.danger, { color: '#ffd43b', weight: 1.8, dashArray: '6 5', fillColor: '#ffd43b', fillOpacity: 0.12, interactive: false }));
+    if (b && b.kill) {
+      layer.addLayer(zone(b.kill, { color: '#ff5c5c', weight: 1.8, dashArray: '6 5', fillColor: '#ff5c5c', fillOpacity: 0.1, interactive: false }));
       if (spread) layer.addLayer(zone(0, { color: '#ff2b2b', weight: 2, fillColor: '#ff2b2b', fillOpacity: 0.35, interactive: false }));
     } else if (spread) {
       layer.addLayer(zone(0, { color, weight: 1.8, dashArray: '5 4', fillColor: color, fillOpacity: 0.16, interactive: false }));
     }
   }
-  // "90% land ±45 m long/short, ±12 m left/right · kill +20 m · danger +35 m"
+  // "90% land ±45 m long/short, ±12 m left/right · kill +18 m · danger +27 m"
   // (or the circle's size without the physics), and any friendlies inside the danger zone.
   function impactText(shell, spread, xz, shape = null) {
-    const where = shape ? `90% land ±${shape.long} m long/short, ±${shape.side} m left/right` : null;
-    if (!isLethal(shell)) return { zone: where || `Rounds land within about ${spread} m`, near: [] };
-    return { zone: where ? `${where} · kill +${KILL_RADIUS} m · danger +${DANGER_RADIUS} m`
-      : `Target zone ${spread} m · kill zone ${spread + KILL_RADIUS} m · danger zone ${spread + DANGER_RADIUS} m`,
-    near: friendliesNear({ xz }, spread + DANGER_RADIUS) };
+    const where = shape ? `90% land ±${shape.long} m long/short, ±${shape.side} m left/right` : spread ? `Rounds land within about ${spread} m` : '';
+    const b = blastOf(shell);
+    if (!b) return { zone: where, near: [] };
+    const hurt = [b.kill && `kill +${b.kill} m`, `danger +${b.danger} m`];
+    return { zone: [where, ...hurt].filter(Boolean).join(' · '), near: friendliesNear({ xz }, spread + b.danger) };
   }
   const friendlyWarning = near => (near.length
     ? `<p><b class="rc-no">Friendlies in the danger zone</b>: ${near.slice(0, 6).map(x => `${esc(x.name)} ${x.d < 1 ? '(inside)' : fmtDist(x.d)}`).join(', ')}</p>` : '');
 
   function targetPopup(owner, m, idx) {
     const t = m.targets[idx];
-    const sol = solve(m.weapon, m.shell, m.xz, t, m.wind);
+    const sol = solveFor(m, t);
     const W = weaponDef(m.weapon);
     const dh = sol.hTo != null ? `${sol.dh >= 0 ? '+' : '−'}${Math.abs(Math.round(sol.dh))} m` : '—';
     let extra = `<div class="stats">` +
@@ -2562,7 +2710,7 @@
       extra += `<p>${z.zone}</p>${friendlyWarning(z.near)}`;
     }
     extra += sol.rings.length ? solutionTable(sol) + windLine(sol)
-      : `<p style="color:var(--danger)">${esc(outOfRangeText(m.weapon, m.shell, m.xz, t, m.wind))} for ${esc(m.shell)}</p>`;
+      : `<p style="color:var(--danger)">${esc(outOfRangeText(m, t))} for ${esc(m.shell)}</p>`;
     if (sol.best) extra += nudgeTable(nudges(m, m.shell, t, sol), `Adjust ${NUDGE_M} m · ring ${sol.best.ring}`);
     if (isMine(owner)) extra += `<div class="row"><button class="danger" data-act="del-target" data-idx="${idx}">Remove target</button></div>`;
     return popupHtml(`Target ${idx + 1}`, `${m.weapon} ${m.shell} · by ${owner}${isMine(owner) ? ' (you)' : ''}`, t, extra);
@@ -2570,26 +2718,50 @@
 
   function renderMortar(p, m, layer, color, html) {
     const center = toLL(m.xz);
-    const rings = shellDef(m.weapon, m.shell) || {};
-    const entries = Object.entries(rings).sort((a, b) => +a[0] - +b[0]);
+    const rings = shellDef(m.weapon, m.shell) || {}, lim = mortarReach(m);
+    const entries = Object.entries(rings).filter(([ring]) => !lim || lim.ring == null || +ring === lim.ring).sort((a, b) => +a[0] - +b[0]);
     const mine = isMine(p.name);
-    // Each ring's reach: with the shell's physics an outline over the real ground in the mortar's wind (further downhill
-    // and downwind), labelled at its north point with its shortest and longest; otherwise the table's flat circle.
-    // Plus the overall minimum distance.
-    const ringStyle = { color, weight: 1.2, opacity: mine ? 0.75 : 0.45, dashArray: '4 6', fill: false, interactive: false };
-    const ringLabel = (xz, text) => L.marker(toLL(xz), { interactive: false, keyboard: false,
-      icon: L.divIcon({ className: '', iconSize: [0, 0], html: `<span class="ring-label">${text}</span>` }) });
-    const outline = reachOutline(m.weapon, m.shell, m.xz, m.wind);
-    entries.forEach(([ring, def]) => {
-      const r = outline && outline.rings.find(o => o.ring === +ring);
+    // (On Auto, bands instead of whole rings: see autoBandPolys.)
+    // Each ring's reach (only the ring set, when there is one): with the shell's physics an outline over the real ground
+    // in the mortar's wind (further downhill and downwind), labelled with its shortest and longest; otherwise the table's
+    // flat circle. Plus the minimum distance. To stand out over any terrain each ring is a solid line in its own colour
+    // (RING_COLORS, warm to cool outwards) on a dark outline of its own, with a faint fill, so where rings overlap the
+    // fill deepens: a point inside more rings is reachable with more of them. The labels sit on the north-east diagonal,
+    // clear of one another, in a pill with the ring's colour round it.
+    const ringStyle = ring => {
+      const c = RING_COLORS[ring] || color;
+      return { casing: { color: '#080b0e', weight: mine ? 5 : 4, opacity: mine ? 0.6 : 0.4, fill: false, interactive: false },
+        line: { color: c, weight: mine ? 2.4 : 1.8, opacity: mine ? 1 : 0.7, fillColor: c, fillOpacity: mine ? 0.06 : 0.03, interactive: false } };
+    };
+    const ringLabel = (xz, text, ring) => L.marker(toLL(xz), { interactive: false, keyboard: false,
+      icon: L.divIcon({ className: '', iconSize: [0, 0],
+        html: `<span class="ring-label" style="--c:${RING_COLORS[ring] || color}${mine ? '' : ';opacity:.75'}">${text}</span>` }) });
+    const outline = reachOutline(m.weapon, m.shell, m.xz, m.wind), NE = REACH_BEARINGS / 8; // the 45 degree point
+    // On Auto only the ring the mortar would use is shown at each distance: bands (ring 3 over most of the range), each
+    // out to where Auto hands over to the next ring, or to that ring's own reach over the ground and wind if that's less.
+    // With a ring set, its whole reach (below).
+    const bands = lim && lim.ring == null ? autoBandPolys(m.weapon, m.shell, m.xz, outline) : null;
+    if (bands) {
+      bands.forEach(b => {
+        const st = ringStyle(b.ring), outer = b.pts.map(toLL);
+        layer.addLayer(L.polygon(b.inner ? [outer, b.inner.map(toLL)] : outer, { ...st.line, stroke: false }));
+        layer.addLayer(L.polygon(outer, st.casing));
+        layer.addLayer(L.polygon(outer, { ...st.line, fill: false }));
+        layer.addLayer(ringLabel(b.pts[NE], `R${b.ring} to ${esc(fmtReach(b.near, b.far))}`, b.ring));
+      });
+    }
+    (bands ? [] : entries).forEach(([ring, def]) => {
+      const r = outline && outline.rings.find(o => o.ring === +ring), st = ringStyle(+ring);
       if (r) {
-        layer.addLayer(L.polygon(r.pts.map(toLL), ringStyle));
-        layer.addLayer(ringLabel(r.pts[0], `R${ring} ${esc(fmtReach(r.near, r.far))}`));
+        layer.addLayer(L.polygon(r.pts.map(toLL), st.casing));
+        layer.addLayer(L.polygon(r.pts.map(toLL), st.line));
+        layer.addLayer(ringLabel(r.pts[NE], `R${ring} ${esc(fmtReach(r.near, r.far))}`, +ring));
         return;
       }
-      const max = def.table[def.table.length - 1][0];
-      layer.addLayer(L.circle(center, { radius: max, ...ringStyle }));
-      layer.addLayer(ringLabel([m.xz[0], m.xz[1] + max], `R${ring} ${fmtDist(max)}`));
+      const max = def.table[def.table.length - 1][0], d = max * Math.SQRT1_2;
+      layer.addLayer(L.circle(center, { radius: max, ...st.casing }));
+      layer.addLayer(L.circle(center, { radius: max, ...st.line }));
+      layer.addLayer(ringLabel([m.xz[0] + d, m.xz[1] + d], `R${ring} ${fmtDist(max)}`, +ring));
     });
     // how far away its firing is heard (the game's mortar shot sound reaches 2 km), when the viewer asks for it
     if (state.hearMortar) {
@@ -2597,24 +2769,27 @@
       layer.addLayer(L.marker(toLL([m.xz[0], m.xz[1] - GUNS.mortar.range]), { interactive: false, keyboard: false,
         icon: L.divIcon({ className: '', iconSize: [0, 0], html: `<span class="ring-label">Heard ${fmtDist(GUNS.mortar.range)}</span>` }) }));
     }
-    const lim = shellLimits(m.weapon, m.shell);
-    if (lim) layer.addLayer(L.circle(center, { radius: lim.min, color: '#ff6b6b', weight: 1.2, dashArray: '2 4', fill: true, fillOpacity: 0.08, interactive: false }));
+    // the shortest distance any ring fires: a red disc, on its own dark outline like the rings
+    if (lim) {
+      layer.addLayer(L.circle(center, { radius: lim.min, color: '#080b0e', weight: 4.5, opacity: 0.5, fill: false, interactive: false }));
+      layer.addLayer(L.circle(center, { radius: lim.min, color: '#ff6b6b', weight: 2, dashArray: '5 4', fillColor: '#ff6b6b', fillOpacity: 0.16, interactive: false }));
+    }
 
     (m.targets || []).forEach((t, idx) => {
-      const sol = solve(m.weapon, m.shell, m.xz, t, m.wind);
+      const sol = solveFor(m, t);
       const ok = !!sol.best;
       layer.addLayer(L.polyline([center, toLL(t)], { color: ok ? color : '#ff6b6b', weight: 1.5, opacity: 0.8, dashArray: '2 5', interactive: false }));
-      if (ok) impactZones(layer, t, sol.best.dispersion, isLethal(m.shell), shellColor(m.shell), sol.best.spread);
+      if (ok) impactZones(layer, t, sol.best.dispersion, m.shell, shellColor(m.shell), sol.best.spread);
       if (ok && state.hearMortar) layer.addLayer(L.circle(toLL(t), { radius: impactHeard(m.shell), color: '#b197fc', weight: 1.2, dashArray: '2 6', fill: false, interactive: false }));
       // The mortar's crew (its owner, or anyone showing its solutions) can drag a target to correct fire; the label
       // follows with the new solution and the move is saved for everyone on release.
       const crew = mine || state.followMortar === m.id;
       const tm = L.marker(toLL(t), { keyboard: false, draggable: crew, icon: glyphIcon('✛', ok ? color : '#ff6b6b') });
-      const tLabel = s2 => esc(`T${idx + 1} · ${s2.best ? fmtSolution(s2, true) : 'out of range'}`);
+      const tLabel = s2 => esc(`T${idx + 1} · ${s2.best ? fmtSolution(s2, true) : noReach(s2)}`);
       tm.bindTooltip(tLabel(sol), { permanent: true, direction: 'right', offset: [12, 0], className: 'item-label' });
       if (crew) {
         tm.on('dragstart', () => dragStart(m.id));
-        tm.on('drag', () => tm.setTooltipContent(tLabel(solve(m.weapon, m.shell, m.xz, toXZ(tm.getLatLng()), m.wind))));
+        tm.on('drag', () => tm.setTooltipContent(tLabel(solveFor(m, toXZ(tm.getLatLng())))));
         tm.on('dragend', () => { dragEnd(); moveTarget(p, m, idx, toXZ(tm.getLatLng())); });
       }
       bindInfo(tm, () => targetPopup(p.name, p.items.get(m.id) || m, idx), () => t);
@@ -2647,13 +2822,13 @@
     const on = state.tool === 'mortar' && m && !state.mortarPlacing && lastCursor;
     mortarGhost.setLatLngs(on ? [toLL(m.xz), toLL(lastCursor)] : []);
     mortarGhostZones.clearLayers();
-    const sol = on && TABLES && solve(m.weapon, m.shell, m.xz, lastCursor, m.wind);
-    if (sol && sol.best) impactZones(mortarGhostZones, lastCursor, sol.best.dispersion, isLethal(m.shell), shellColor(m.shell), sol.best.spread);
+    const sol = on && TABLES && solveFor(m, lastCursor);
+    if (sol && sol.best) impactZones(mortarGhostZones, lastCursor, sol.best.dispersion, m.shell, shellColor(m.shell), sol.best.spread);
   }
   function mortarLive(el) {
     const m = myMortar();
     if (!m || state.mortarPlacing || !lastCursor || !TABLES) return false;
-    const sol = solve(m.weapon, m.shell, m.xz, lastCursor, m.wind);
+    const sol = solveFor(m, lastCursor);
     el.textContent = fmtSolution(sol);
     el.style.color = sol.best ? '' : 'var(--danger)';
     return true;
@@ -2670,6 +2845,7 @@
         id: m ? m.id : state.newMortarId, type: 'mortar', xz: roundXZ(xz), weapon: state.mortarWeapon, shell: state.mortarShell,
         targets: m ? m.targets : [], label: m ? m.label : 'Mortar', note: m ? m.note : '', color: m ? m.color : state.me.color,
         ...(readWindInputs() ? { wind: readWindInputs() } : {}),
+        ...(state.mortarCharge != null ? { charge: state.mortarCharge } : {}),
       });
       updateHint();
       return;
@@ -2689,7 +2865,24 @@
     if (!shells.includes(state.mortarShell)) state.mortarShell = shells[0];
     ss.innerHTML = shells.map(s => `<option>${esc(s)}</option>`).join('');
     ss.value = state.mortarShell;
+    fillChargeSelect();
   }
+  // Ring: Auto or a fixed charge, saved on your mortar like the wind. Rings the shell doesn't have are greyed out.
+  state.mortarCharge = null;
+  function fillChargeSelect() {
+    const rings = shellDef(state.mortarWeapon, state.mortarShell) || {}, cs = $('#mortar-charge');
+    cs.querySelectorAll('option[value=""] ~ option').forEach(o => { o.disabled = !rings[o.value]; });
+    cs.value = state.mortarCharge != null && rings[state.mortarCharge] ? String(state.mortarCharge) : '';
+  }
+  $('#mortar-charge').addEventListener('change', e => {
+    state.mortarCharge = e.target.value === '' ? null : +e.target.value;
+    const m = myMortar();
+    if (m) {
+      const { charge, ...rest } = m;
+      saveItem(state.mortarCharge == null ? rest : { ...rest, charge: state.mortarCharge });
+    }
+    updateLive();
+  });
   function onMortarSelect() {
     state.mortarWeapon = $('#mortar-weapon').value;
     if (!shellDef(state.mortarWeapon, $('#mortar-shell').value)) state.mortarShell = Object.keys(TABLES.weapons[state.mortarWeapon].shells)[0];
@@ -2752,20 +2945,20 @@
       $('#mortar-wind-s').value = m.wind ? m.wind.s : 0;
       $('#mortar-wind-d').value = m.wind ? m.wind.d : 0;
     }
+    if (m && document.activeElement !== $('#mortar-charge')) { state.mortarCharge = chargeOf(m); fillChargeSelect(); }
     const status = $('#mortar-status');
     $('#mortar-actions').classList.toggle('hidden', !m);
     if (!m) {
       status.innerHTML = '<div class="empty"><b>Friendly ▾ → Mortar</b> (F, 9) to place one.</div>';
       $('#mortar-targets').innerHTML = '';
     } else {
-      const lim = shellLimits(m.weapon, m.shell), alt = heightAt(m.xz);
-      const outline = reachOutline(m.weapon, m.shell, m.xz, m.wind), top = outline && outline.rings[outline.rings.length - 1];
+      const lim = mortarReach(m), alt = heightAt(m.xz), top = lim && lim.top;
       const reachText = top ? fmtReach(top.near, top.far) : lim ? `${(lim.max / 1000).toFixed(1)} km` : '—';
       status.innerHTML = `<div class="mp-pos"><span>Mortar</span><b>${grid(m.xz)}</b><span>${alt != null ? Math.round(alt) + ' m' : '—'}</span>` +
-        `<span title="How far its longest ring reaches, shortest and longest direction (the ground and the wind decide)">reach ${esc(reachText)}</span></div>` +
+        `<span title="How far ${lim && lim.ring != null ? `ring ${lim.ring}` : 'its longest ring'} reaches, shortest and longest direction (the ground and the wind decide)">reach ${esc(reachText)}</span></div>` +
         (m.targets.length ? '' : '<div class="empty" style="margin-top:6px">No targets yet. Click the map with the mortar tool.</div>');
       $('#mortar-targets').innerHTML = m.targets.map((t, i) => {
-        const sol = solve(m.weapon, m.shell, m.xz, t, m.wind), b = sol.best;
+        const sol = solveFor(m, t), b = sol.best;
         const head = `<div class="tgt-head"><span class="id">T${i + 1}</span><span>${grid(t)}</span><span>·</span><span>${fmtDist(sol.d)}</span>` +
           `<span class="sp"></span><button data-act="del-target" data-idx="${i}" title="Remove target" aria-label="Remove target">✕</button></div>`;
         const body = b
@@ -2773,7 +2966,7 @@
             `<div><span class="k">Elevation</span><span class="v">${Math.round(b.elev)}<small>mil</small></span></div>` +
             `<div><span class="k">Azimuth</span><span class="v">${Math.round(sol.azMil)}<small>mil</small></span></div>` +
             `<div><span class="k">Time</span><span class="v">${b.tof.toFixed(1)}<small>s</small></span></div></div>` + targetSub(m.shell, b.dispersion, t, b.spread)
-          : `<div class="fire-now bad">${esc(outOfRangeText(m.weapon, m.shell, m.xz, t, m.wind))}</div>`;
+          : `<div class="fire-now bad">${esc(outOfRangeText(m, t))}</div>`;
         return `<li data-idx="${i}">${head}${body}</li>`;
       }).join('');
     }
@@ -2814,7 +3007,7 @@
             `<div><span class="k">Azimuth</span><span class="v">${Math.round(sol.azMil)}<small>mil</small></span></div>` +
             `<div><span class="k">Time</span><span class="v">${b.tof.toFixed(1)}<small>s</small></span></div></div>` +
             `<div class="req-foot"><span class="fire-sub">${esc(shell)} · asked ${fmtAgo(Date.now() - (it.at || Date.now()))}</span>${add}</div>`
-          : `<div class="req-foot"><span class="fire-now bad">${esc(outOfRangeText(m.weapon, shell, m.xz, fireAim(it), m.wind))} for ${esc(shell)}</span>${add}</div>`;
+          : `<div class="req-foot"><span class="fire-now bad">${esc(outOfRangeText(m, fireAim(it), shell))} for ${esc(shell)}</span>${add}</div>`;
         return `<li data-req="${esc(it.id)}">${head}${body}</li>`;
       }).join('');
   }
@@ -4823,13 +5016,13 @@
   function fireSolution(m, req) {
     const f = FIRE[req.fire] || FIRE.he;
     const shell = Object.keys(weaponDef(m.weapon)?.shells || {}).find(s => f.shell.test(s)) || m.shell;
-    return { shell, sol: solve(m.weapon, shell, m.xz, fireAim(req), m.wind) };
+    return { shell, sol: solveFor(m, fireAim(req), shell) };
   }
   const fireAim = req => (req.points ? polyCentroid(req.points) : req.xz);
-  // A point request's circles (see impactZones): target zone = the mortar's spread, kill zone KILL_RADIUS and danger
-  // zone DANGER_RADIUS beyond it. Sized for the mortar you follow or your own if it can reach, otherwise the nearest
-  // one that can; with no mortar in range the spread is unknown and only one round's zones are drawn.
-  const KILL_RADIUS = 20, DANGER_RADIUS = 35;
+  // A point request's circles (see impactZones): target zone = the mortar's spread, and the shell's kill and danger
+  // zones (BLAST) beyond it. Sized for the mortar you follow or your own if it can reach, otherwise the nearest one that
+  // can; with no mortar in range the spread is unknown and only one round's zones are drawn, for the worst shell of the
+  // kind asked for.
   function fireSpread(req) {
     if (!TABLES) return null;
     const mine = solutionMortar()?.it;
@@ -4844,10 +5037,12 @@
   }
   function fireZones(req) {
     const s = fireSpread(req), target = s ? s.sol.best.dispersion : 0;
-    return { s, target, shape: s ? s.sol.best.spread : null, kill: target + KILL_RADIUS, danger: target + DANGER_RADIUS };
+    const shell = s ? s.shell : worstBlast((FIRE[req.fire] || FIRE.he).shell)?.shell, b = blastOf(shell);
+    return { s, target, shape: s ? s.sol.best.spread : null, shell, blast: b,
+      kill: b && b.kill ? target + b.kill : null, danger: b ? target + b.danger : null };
   }
-  // Friendly markings a request would put in danger: inside an area or within DANGER_RADIUS of it, or inside a point's
-  // danger zone.
+  // Friendly markings a request would put in danger: inside an area or within its shell's danger distance of it, or
+  // inside a point's danger zone.
   const isFriendly = it => (it.type === 'marker' && ['infantry', 'unit-inf-f', 'unit-arm-f', 'radio', 'rally'].includes(it.icon)) ||
     isOurPost(it) || it.type === 'emplacement' || it.type === 'mortar';
   function friendliesNear(req, R) {
@@ -4864,12 +5059,12 @@
       layer.addLayer(poly);
     } else {
       const z = fireZones(it);
-      impactZones(layer, c, z.target, f === FIRE.he, f.color, z.shape);
+      impactZones(layer, c, z.target, z.shell, f.color, z.shape);
     }
     const m = L.marker(toLL(c), { keyboard: false, riseOnHover: true, zIndexOffset: 400, icon: L.divIcon({ className: 'fire-glyph', iconSize: [0, 0],
       html: `<svg viewBox="0 0 24 24" style="--c:${f.color}"><circle cx="12" cy="12" r="8"/><path d="M12 1v7M12 16v7M1 12h7M16 12h7"/></svg>` }) });
     const sm = TABLES && solutionMortar(), sol = sm && fireSolution(sm.it, it).sol;
-    const name = `${it.label || 'Fire mission'} · ${f.name}${sol ? ` · ${sol.best ? fmtSolution(sol, true) : 'out of range'}` : ''}`;
+    const name = `${it.label || 'Fire mission'} · ${f.name}${sol ? ` · ${sol.best ? fmtSolution(sol, true) : noReach(sol)}` : ''}`;
     m.bindTooltip(esc(isMine(p.name) ? name : `${name} (${p.name})`), { permanent: true, direction: 'right', offset: [14, 0], className: 'item-label fire-label' });
     bindInfo(m, html, () => c);
     layer.addLayer(m);
@@ -4880,7 +5075,7 @@
   function nudges(m, shell, xz, sol) {
     const circle = weaponDef(m.weapon)?.milsPerCircle || 6400, ring = sol.best.ring, d = NUDGE_M;
     return [['North', 0, d], ['South', 0, -d], ['East', d, 0], ['West', -d, 0]].map(([dir, dx, dz]) => {
-      const s2 = solve(m.weapon, shell, m.xz, [xz[0] + dx, xz[1] + dz], m.wind), r = s2.rings.find(q => q.ring === ring);
+      const s2 = solveFor(m, [xz[0] + dx, xz[1] + dz], shell), r = s2.rings.find(q => q.ring === ring);
       const daz = ((s2.azMil - sol.azMil + circle / 2) % circle + circle) % circle - circle / 2;
       return { dir, elev: r ? r.elev - sol.best.elev : null, az: daz };
     });
@@ -4924,21 +5119,22 @@
     }
     const c = fireAim(it), ends = areaEnds(it.points, c);
     const row = (name, xz) => {
-      const sol = solve(s.m.weapon, s.shell, s.m.xz, xz, s.m.wind);
+      const sol = solveFor(s.m, xz, s.shell);
       return `<tr><td>${name}<div class="sub">${grid(xz, 4)} · ${fmtDist(sol.d)}</div></td><td>${fmtSolution(sol, true)}</td></tr>`;
     };
     return `<h4 class="pop-h">Across the area · ${who}, ${esc(s.shell)}</h4><table class="fire trp-table"><tr><th>Aim</th><th>Solution</th></tr>` +
       row('Middle', c) + Object.entries(ends).map(([name, xz]) => row(`${name} end`, xz)).join('') + '</table>';
   }
   function fireHtml(it, owner) {
-    const f = FIRE[it.fire] || FIRE.he, c = fireAim(it), he = f === FIRE.he, z = it.points ? null : fireZones(it);
+    const f = FIRE[it.fire] || FIRE.he, c = fireAim(it), z = it.points ? null : fireZones(it);
     let size;
     if (it.points) {
       const xs = it.points.map(q => q[0]), zs = it.points.map(q => q[1]);
       size = ['Across', `${Math.round(Math.max(...xs) - Math.min(...xs))} × ${Math.round(Math.max(...zs) - Math.min(...zs))} m`];
     } else if (z.shape) size = ['Spread (9 in 10)', `±${z.shape.long} m long · ±${z.shape.side} m side`];
-    else size = he ? [z.target ? 'Target / kill / danger' : 'Kill / danger', `${z.target ? `${z.target} / ` : ''}${z.kill} / ${z.danger} m`]
-      : ['Spread', z.target ? `±${z.target} m` : '—'];
+    else if (z.kill) size = [z.target ? 'Target / kill / danger' : 'Kill / danger', `${z.target ? `${z.target} / ` : ''}${z.kill} / ${z.danger} m`];
+    else if (z.danger) size = [z.target ? 'Spread / danger' : 'Danger', `${z.target ? `±${z.target} / ` : ''}${z.danger} m`];
+    else size = ['Spread', z.target ? `±${z.target} m` : '—'];
     let html = `<div class="stats"><div><span class="k">Fire</span><span class="v">${f.name}</span></div>` +
       `<div><span class="k">${size[0]}</span><span class="v">${size[1]}</span></div>` +
       `<div><span class="k">Asked</span><span class="v">${fmtAgo(Date.now() - (it.at || Date.now()))}</span></div></div>` +
@@ -4947,12 +5143,12 @@
       const s = z.s, who = s && `${esc(s.m.label || 'Mortar')}${isMine(s.p.name) ? '' : ` (${esc(s.p.name)})`}`;
       html += s
         ? `<p class="sub">Sized for ${who}, ring ${s.sol.best.ring}</p>`
-        : `<p class="sub">No mortar in range${he ? ': zones for a single round' : ''}</p>`;
+        : `<p class="sub">No mortar in range${z.blast ? `: zones for a single round of ${esc(z.shell)}` : ''}</p>`;
     }
-    if (he) {
-      const near = friendliesNear(it, it.points ? DANGER_RADIUS : z.danger);
-      html += friendlyWarning(near);
-    }
+    if (z && z.blast) html += `<p class="sub">${esc(impactText(z.shell, z.target, c, z.shape).zone)}</p>`;
+    // friendlies: within a point's danger zone, or within the worst shell of this kind's danger distance of an area
+    const areaBlast = it.points && worstBlast(f.shell), reach = it.points ? areaBlast && areaBlast.danger : z.danger;
+    if (reach) html += friendlyWarning(friendliesNear(it, reach));
     const mortars = allVisibleItems(i => i.type === 'mortar');
     if (!TABLES) html += '<p class="sub">Firing tables are still loading.</p>';
     else if (!mortars.length) html += '<p class="sub">No mortar on the map.</p>';

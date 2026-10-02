@@ -542,6 +542,9 @@ def validate_item(item):
             return "Bad mortar shell."
         if not isinstance(targets, list) or len(targets) > MAX_MORTAR_TARGETS or not all(_is_point(p) for p in targets):
             return "Bad mortar targets."
+        # The charge ring the crew fires with (left out = the map picks one per target)
+        if "charge" in item and not (isinstance(item["charge"], int) and not isinstance(item["charge"], bool) and 0 <= item["charge"] <= 4):
+            return "Bad charge ring."
         # Wind the crew has read off the in-game map: speed in m/s and the compass direction it blows from
         wind = item.get("wind")
         if wind is not None and not (isinstance(wind, dict) and set(wind) <= {"s", "d"} and all(

@@ -51,9 +51,11 @@
       <header><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4.5M12 17.5V22M2 12h4.5M17.5 12H22"/></svg><h2>Mortar</h2><span id="fire-count-head" class="count warn" title="Fire requests waiting"></span>
         <button type="button" id="mortar-close" class="icon-btn" title="Hide the mortar panel" aria-label="Hide the mortar panel">⟩</button></header>
       <div class="mp-body">
-            <div class="pair">
+            <div class="pair mortar-load">
               <label class="field"><span>Weapon</span><select id="mortar-weapon"></select></label>
               <label class="field"><span>Shell</span><select id="mortar-shell"></select></label>
+              <label class="field" title="The charge ring you fire with. Auto uses ring 3 for most targets, ring 0 or 1 close in (much tighter and quicker) and ring 4 past ring 3's reach."><span>Ring</span>
+                <select id="mortar-charge"><option value="">Auto</option><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
             </div>
             <div class="trio" id="mortar-wind">
               <label class="field" title="Read it off the in-game map (weather). Leave at 0 for no wind."><span>Wind m/s</span><input id="mortar-wind-s" type="number" min="0" max="40" step="1" value="0" inputmode="numeric"></label>
