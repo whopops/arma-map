@@ -433,6 +433,7 @@
     { key: 'vehicles', label: 'Vehicle spawns', on: false, icon: `<span class="lg-dot" style="--c:${C.vehicle}"></span>` },
     { key: 'refuel', label: 'Refuel points', on: false, icon: `<span class="lg-dot" style="--c:${C.fuel}"></span>` },
     { key: 'repair', label: 'Repair points', on: false, icon: `<span class="lg-dot" style="--c:${C.repair}"></span>` },
+    { key: 'fuelStations', label: 'Fuel stations', on: false, icon: badge('F', C.fuel) },
   ];
   const refLayers = {};
   let FIA_KNOWN = []; // [{name, xz}] - every spot a Conflict FIA cache can appear
@@ -632,6 +633,9 @@
     d.refuel.forEach(v => dot(v.xz, C.fuel, 6, () => popupHtml('Refuel point', '', v.xz)).addTo(fuel));
     const rep = g('repair');
     d.repair.forEach(v => dot(v.xz, C.repair, 6, () => popupHtml('Repair point', '', v.xz)).addTo(rep));
+    // Fuel stations: from the game's own map symbols (places.json), so every map has them.
+    const fs = g('fuelStations');
+    d.fuelStations.forEach(v => glyphMarker(v.xz, 'F', C.fuel, 'poi', () => popupHtml(v.name || 'Fuel station', v.name ? 'Fuel station' : '', v.xz)).addTo(fs));
 
     const fia = g('fia');
     FIA_KNOWN = d.fia;
@@ -657,14 +661,24 @@
     refLayers.lzs = { addTo() { lzShadeOn = true; syncLzShade(); }, remove() { lzShadeOn = false; syncLzShade(); } };
     refLayers.coverage = coverageLayer;
 
-    // Layer checkboxes, each showing the icon it puts on the map
+    // Layer checkboxes, each showing the icon it puts on the map. A layer this map has no data for is left out (and a
+    // group heading with nothing under it), and so is the FIA section when the map has no cache spots.
+    $('.acc[data-sec="fia"]').classList.toggle('hidden', !d.fia.length);
+    let group = null;
+    const groupsShown = new Set();
     LAYER_DEFS.forEach(def => {
       const box = $(def.box || '#layers');
-      if (def.group) box.insertAdjacentHTML('beforeend', `<div class="layer-group-title">${def.group}</div>`);
+      if (def.group) group = def.group;
+      const count = def.countText ?? (def.countFn ? def.countFn(d) : d[def.key].length);
+      if (count === 0 && !def.dynamic) return;
+      if (!def.box && group && !groupsShown.has(group)) {
+        groupsShown.add(group);
+        box.insertAdjacentHTML('beforeend', `<div class="layer-group-title">${group}</div>`);
+      }
       const row = document.createElement('label');
       row.className = 'layer';
       row.innerHTML = `<input type="checkbox" ${def.on ? 'checked' : ''}><span class="lg">${def.icon}</span><span class="lbl">${def.label}</span>` +
-        `<span class="n"${def.dynamic ? ` id="${def.key}-n"` : ''}>${def.countText ?? (def.countFn ? def.countFn(d) : d[def.key].length)}</span>`;
+        `<span class="n"${def.dynamic ? ` id="${def.key}-n"` : ''}>${count}</span>`;
       const cb = row.querySelector('input');
       cb.addEventListener('change', () => cb.checked ? refLayers[def.key].addTo(map) : refLayers[def.key].remove());
       box.appendChild(row);
@@ -6733,9 +6747,10 @@
   // ---------------------------------------------------------------------------
   // Boot
   // ---------------------------------------------------------------------------
-  // The reference layers (towns, Conflict bases, caches, supplies) exist for Everon only so far; another map gets the
-  // same layer list with nothing in it, plus its roads and terrain.
-  const emptyReference = () => ({ towns: [], landmarks: [], caves: [], conflict: [], mob: [], supplies: [], vehicles: [], refuel: [], repair: [], fia: [] });
+  // The reference layers (Conflict bases, caches, supplies) exist for Everon only so far; another map starts from this
+  // empty set, and buildReference leaves out the layers that stay empty. Towns, landmarks and fuel stations come from
+  // every map's places.json.
+  const emptyReference = () => ({ towns: [], landmarks: [], caves: [], conflict: [], mob: [], supplies: [], vehicles: [], refuel: [], repair: [], fia: [], fuelStations: [] });
   // Everything that depends on the room's map, loaded once it is known (after joining). A page only ever shows one map:
   // joining a room on another map afterwards reloads it. Returns false when it does.
   let startedMap = null;
@@ -6756,7 +6771,10 @@
     Promise.all([
       def.poi ? fetch(def.poi).then(r => r.json()) : Promise.resolve({}),
       fetch(`${def.dir}/places.json`).then(r => r.json()).catch(() => null),
-    ]).then(([ref, places]) => ({ ...emptyReference(), ...ref, towns: places?.towns || [], landmarks: places?.landmarks || [] }))
+    ]).then(([ref, places]) => ({ ...emptyReference(), ...ref, towns: places?.towns || [], landmarks: places?.landmarks || [],
+      // a station drawn with one symbol per pump shows once
+      fuelStations: (places?.pois || []).filter(p => p.type === 'Fuel station')
+        .filter((p, i, all) => !all.slice(0, i).some(q => q.type === p.type && dist(q.xz, p.xz) < 50)) }))
       .then(d => { buildReference(d); refreshFia(); loadRoads(); })
       .catch(err => { console.error(err); toast('Could not load reference data.', 6000); });
     // the line-of-sight index says how big the 10 m grids are, so it comes first

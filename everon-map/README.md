@@ -181,7 +181,8 @@ correct fire.
   range. Also: radio network links, radio masts and HQ start positions.
 - **Terrain**: forest, roads, foot paths, hill shading, contour lines (10-50 m; the cursor readout then shows height).
 - **Planning overlays**: line-of-sight shading and helicopter landing (good, marginal, no-go).
-- **Resources**: supply stashes, infinite supply points (Everon), vehicle spawns, refuel and repair points.
+- **Resources**: supply stashes, infinite supply points, vehicle spawns, refuel and repair points (Everon only), and
+  fuel stations (every map, from the game's map symbols). A layer a map has no data for is not listed.
 - **Line of sight**: Measured (0.5 m, the default on computers) or Light (10 m, the default on phones). **Foliage
   strength** tunes how much leaves block in Measured.
 
@@ -425,7 +426,8 @@ result for both views (`rmt.py fieldmap <world>`: `static/data/maps/<map>/` with
   `map.json`). A tile that is in `static/data/maps/everon/tiles/` is used first, so installing Everon's own tiles
   replaces them; then delete `upstream`. Kolguyev and Arland tiles are baked in.
 - **Positions**: town and landmark names come from the game's map descriptors (`places.json`); caves are approximate.
-- **Kolguyev and Arland**: they have no bases, supplies or caches yet.
+- **Kolguyev and Arland**: they have no bases, supplies, vehicle spawns or caches yet, so those layers and the FIA
+  section are hidden there. They need exporting from the game's Conflict scenarios (not done by reforger-map-tools yet).
 - **Adding a map**: put its folder in `static/data/maps/<map>/` (`rmt.py fieldmap <world> --as <map>` does it). The
   server lists every folder with a `map.json`, so the map appears in the join screen and the 3D view with no code
   change. `map.json` holds `title`, `world` (size in metres), the 500 m grid (`tile`, `cols`, `rows`), the 10 m grid
