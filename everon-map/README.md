@@ -20,9 +20,9 @@ Open the site, pick a username and a **room code**. Everyone who uses the same c
 first person into a room picks its map; anyone who joins later gets that map.
 
 The server stores nothing about you: your markings leave the room when you close the tab (or within ~16 s if your
-browser drops). Your own browser keeps a copy of them for 12 hours, though, so a reload, a crash, a phone that put the
-tab to sleep or a server restart doesn't lose them: you rejoin the room by yourself and they go back up (on a fresh tab,
-join the same room on the same map to get them back). Use **Export plan** / **Import plan** (My markings) to keep a
+browser drops). Your own browser keeps a copy of them for 5 minutes after you leave, though, so a reload, a crash, a
+phone that put the tab to sleep or a server restart doesn't lose them: you rejoin the room by yourself and they go back
+up (on a fresh tab, join the same room on the same map within 5 minutes to get them back). Use **Export plan** / **Import plan** (My markings) to keep a
 plan longer or move it to another room.
 
 ### Layout

@@ -6604,6 +6604,7 @@
     state.es = es;
     es.onmessage = m => { try { onEvent(JSON.parse(m.data)); } catch (err) { console.error(err); } };
     es.addEventListener('bye', m => {
+      if (left) return; // our own leave on the way out, not a removal
       let reason = '';
       try { reason = JSON.parse(m.data).reason || ''; } catch { /* older server */ }
       // Removed by the admin: don't bring this room's markings back next time.
@@ -6624,10 +6625,11 @@
   // ---------------------------------------------------------------------------
   // Kept markings: this browser keeps a copy of your own markings per map and room (localStorage, nothing on the
   // server), so a reload, a crash, a tab the phone put to sleep or a server restart doesn't lose them. Rejoining the
-  // room puts them back. Copies older than KEEP_HOURS are dropped.
+  // room puts them back. A copy last touched more than KEEP_MINUTES ago is dropped; while you're in the room it is
+  // touched every minute, so the time counts from when you left or lost the connection.
   // ---------------------------------------------------------------------------
   const KEEP_PREFIX = 'everon-kept:';
-  const KEEP_HOURS = 12;
+  const KEEP_MINUTES = 5;
   const keepKey = me => `${KEEP_PREFIX}${me.map}:${me.room}`;
   let keepTimer = null;
   function writeKept() {
@@ -6642,13 +6644,14 @@
       else localStorage.removeItem(keepKey(me));
     } catch { /* storage unavailable or full */ }
   }
+  setInterval(writeKept, 60e3);
   function keepMine() {
     if (!keepTimer) keepTimer = setTimeout(writeKept, 500);
   }
   function keptMine(me) {
     try {
       const kept = JSON.parse(localStorage.getItem(keepKey(me)) || 'null');
-      if (kept && Array.isArray(kept.items) && kept.items.length && Date.now() - kept.at < KEEP_HOURS * 3600e3) return kept.items;
+      if (kept && Array.isArray(kept.items) && kept.items.length && Date.now() - kept.at < KEEP_MINUTES * 60e3) return kept.items;
     } catch { /* storage unavailable or damaged */ }
     return null;
   }
@@ -6664,7 +6667,7 @@
       if (!k || !k.startsWith(KEEP_PREFIX)) continue;
       let at = 0;
       try { at = JSON.parse(localStorage.getItem(k)).at || 0; } catch { /* damaged: drop it */ }
-      if (Date.now() - at >= KEEP_HOURS * 3600e3) localStorage.removeItem(k);
+      if (Date.now() - at >= KEEP_MINUTES * 60e3) localStorage.removeItem(k);
     }
   } catch { /* storage unavailable */ }
 
@@ -6698,6 +6701,7 @@
     if (!state.me || left) return;
     left = true;
     writeKept();
+    if (state.es) { state.es.close(); state.es = null; } // the server's goodbye must not reach the page now
     const body = JSON.stringify({ id: state.me.id, token: state.me.token });
     if (!navigator.sendBeacon('/api/leave', body)) {
       fetch('/api/leave', { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'application/json' } }).catch(() => {});
