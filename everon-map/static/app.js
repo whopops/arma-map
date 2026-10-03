@@ -4405,9 +4405,11 @@
           `<path d="M${ex.toFixed(1)} ${ey.toFixed(1)}l${(-ux * 5 - uy * 3).toFixed(1)} ${(-uy * 5 + ux * 3).toFixed(1)}M${ex.toFixed(1)} ${ey.toFixed(1)}l${(-ux * 5 + uy * 3).toFixed(1)} ${(-uy * 5 - ux * 3).toFixed(1)}" stroke="#74c0fc" stroke-width="1.4"/>`;
       }
       const ac = x.across, al = x.along, sgn = ac >= 0 ? 1 : -1;
-      // bottom left, out of the way of the aim points (they sit above the target)
-      if (Math.abs(ac) >= 0.5) svg += `<path d="M${sgn > 0 ? 8 : 44} ${H - 20}h${sgn * 36}l${-sgn * 6} -4m${sgn * 6} 4l${-sgn * 6} 4" fill="none" stroke="#74c0fc" stroke-width="1.6"/>`;
-      svg += `<text x="6" y="${H - 6}" fill="#74c0fc" font-size="10" font-family="var(--mono)">` +
+      // bottom left, out of the way of the aim points (they sit above the target); bottom right when a range-line
+      // reticle's labels are on the left
+      const rt = g && g.lines && g.side === 'left', x0 = rt ? W - 50 : 0;
+      if (Math.abs(ac) >= 0.5) svg += `<path d="M${x0 + (sgn > 0 ? 8 : 44)} ${H - 20}h${sgn * 36}l${-sgn * 6} -4m${sgn * 6} 4l${-sgn * 6} 4" fill="none" stroke="#74c0fc" stroke-width="1.6"/>`;
+      svg += `<text x="${rt ? W - 6 : 6}" y="${H - 6}"${rt ? ' text-anchor="end"' : ''} fill="#74c0fc" font-size="10" font-family="var(--mono)">` +
         `wind ${Math.abs(ac).toFixed(1)} across · ${Math.abs(al).toFixed(1)} ${al >= 0 ? 'behind' : 'ahead'} m/s</text>`;
       const dv = x.hold - x.holdCalm, dl = D * Math.tan(x.aimOff * Math.PI / 180);
       const parts = [Math.abs(dl) >= 0.3 ? `${Math.abs(dl).toFixed(1)} m ${dl > 0 ? 'right' : 'left'}` : '',

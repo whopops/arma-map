@@ -98,4 +98,20 @@ async function testImport() {
   console.log('Import success, total failure, and partial failure passed.');
 }
 
-(async () => {testMortarLimitsAndParity(); testTerrainInvalidation(); await testImport();})().catch(e=>{console.error(e);process.exitCode=1;});
+function testScopedGuns() {
+  const start = app.indexOf('  const steps = (a, b, s)');
+  const SCOPES = new Function(app.slice(start, app.indexOf('  const GUN_CHOICES', start)) + ';return SCOPES')();
+  const py = fs.readFileSync(path.join(__dirname,'server.py'),'utf8').match(/SCOPED_GUNS = \{([\s\S]*?)\n\}/)[1];
+  const server = Object.fromEntries([...py.matchAll(/"([^"]+)": "([^"]+)"/g)].map(m=>[m[1],m[2]]));
+  assert.deepEqual(Object.fromEntries(Object.entries(SCOPES).map(([k,g])=>[k,g.round])), server, 'SCOPES in app.js and SCOPED_GUNS in server.py differ');
+  for (const [k,g] of Object.entries(SCOPES)) if (g.lines)
+    g.lines.forEach((l,i) => i && assert.ok(l[0] > g.lines[i-1][0] && l[1] > g.lines[i-1][1], `${k}: range lines out of order`));
+  const file = path.join(__dirname,'static/data/bullets.json');
+  if (fs.existsSync(file)) {
+    const rounds = JSON.parse(fs.readFileSync(file,'utf8')).rounds;
+    for (const g of Object.values(SCOPES)) assert.ok(rounds[g.round], `bullets.json has no ${g.round}`);
+  }
+  console.log(`Scoped guns match the server${fs.existsSync(file) ? ' and bullets.json' : ''}.`);
+}
+
+(async () => {testMortarLimitsAndParity(); testTerrainInvalidation(); testScopedGuns(); await testImport();})().catch(e=>{console.error(e);process.exitCode=1;});
