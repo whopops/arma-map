@@ -6624,14 +6624,15 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Kept markings: this browser keeps a copy of your own markings per map and room (localStorage, nothing on the
+  // Kept markings: this browser keeps a copy of your own markings per map, room and name (localStorage, nothing on the
   // server), so a reload, a crash, a tab the phone put to sleep or a server restart doesn't lose them. Rejoining the
   // room puts them back. A copy last touched more than KEEP_MINUTES ago is dropped; while you're in the room it is
   // touched every minute, so the time counts from when you left or lost the connection.
   // ---------------------------------------------------------------------------
   const KEEP_PREFIX = 'everon-kept:';
   const KEEP_MINUTES = 5;
-  const keepKey = me => `${KEEP_PREFIX}${me.map}:${me.room}`;
+  // the name too, so two players sharing a browser (two tabs) never get each other's markings
+  const keepKey = me => `${KEEP_PREFIX}${me.map}:${me.room}:${me.name.toLowerCase()}`;
   let keepTimer = null;
   function writeKept() {
     clearTimeout(keepTimer);
