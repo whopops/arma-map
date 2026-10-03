@@ -3,7 +3,8 @@
 Serves the web app (the field map at / and /map, the 3D view at /3d/, both reading the same map data under /data/),
 caches map tiles on disk, and relays shared markings between connected players in the same room. Nothing about players is stored:
 a player's markings exist only while their browser tab is connected, and a
-room (with its briefing) disappears when its last player leaves.
+room (with its briefing) disappears when its last player leaves. (The page keeps a copy of
+the player's own markings in their browser and uploads them again when they rejoin.)
 
 Run:  python server.py [--port 8765] [--host 0.0.0.0] [--admin-password PASSWORD]
 

@@ -19,8 +19,11 @@ Open the site, pick a username and a **room code**. Everyone who uses the same c
 **New code** makes a random one. **Invite** (next to your name, top left) copies a link that fills the code in. The
 first person into a room picks its map; anyone who joins later gets that map.
 
-Nothing is stored for you: your markings disappear when you close the tab (or within ~16 s if your browser drops).
-Use **Export plan** / **Import plan** (My markings) to keep a plan between sessions.
+The server stores nothing about you: your markings leave the room when you close the tab (or within ~16 s if your
+browser drops). Your own browser keeps a copy of them for 5 minutes after you leave, though, so a reload, a crash, a
+phone that put the tab to sleep or a server restart doesn't lose them: you rejoin the room by yourself and they go back
+up (on a fresh tab, join the same room on the same map within 5 minutes to get them back). Use **Export plan** / **Import plan** (My markings) to keep a
+plan longer or move it to another room.
 
 ### Layout
 
