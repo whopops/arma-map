@@ -42,7 +42,7 @@ right-click finishes.
 |---|---|---|
 | Friendly | F | 1 My position · 2 Infantry · 3 Armour · 4 Advance arrow · 5 Rally point · 6 Objective · 7 Radio backpack · 8 AA gun · 9 Mortar |
 | Enemy | E | 1 Contact report · 2 Infantry · 3 Armour · 4 Sniper · 5 Roadblock / ambush · 6 Enemy in area · 7 Approach arrow · 8 Patrol route · 9 Enemy line of sight · 0 AA gun |
-| Plan | P | 1 Marker · 2 Route · 3 Ambush · 4 Range line · 5 Elevation profile · 6 Hull-down finder · 7 Overwatch finder · 8 Route planner · 9 Landing zone check · 0 Who can hear it · Rocket launcher shot |
+| Plan | P | 1 Marker · 2 Route · 3 Ambush · 4 Range line · 5 Elevation profile · 6 Hull-down finder · 7 Overwatch finder · 8 Route planner · 9 Landing zone check · 0 Who can hear it · Shot calculator |
 | Support | S | 1 Fire support request · 2 Gun run (CAS) · 3 Medevac · 4 Pickup / insertion · 5 Resupply drop |
 | Defend | D | 1 TRP · 2 Sectors of fire · 3 MG nest · 4 Bunker · 5 Sandbags · 6 Barbed wire · 7 Checkpoint · 8 Roadblock |
 | Hazards | H | 1 AT minefield · 2 AP minefield · 3 Blocked or mined road · 4 Bridge out |
@@ -78,8 +78,13 @@ right-click finishes.
 - **Ambush**: linear or L-shaped; click both ends of the kill zone, then your side. Drag its handles to adjust.
 - **Range line / Elevation profile**: distance and bearing, plus a side-on view of ground, trees and buildings with the
   sight line. Profile lets you pick eye heights (prone, crouched, standing, vehicle).
-- **Rocket launcher shot**: click where you fire from, then the target. Pick the launcher (RPG-7 with PG-7VM, PG-7VL
-  or PG-7VR, M72A3 LAW, RPG-22, RPG-75), the RPG-7's sight (iron or PGO-7 scope), your stance and the target, and
+- **Shot calculator**: click where you fire from, then the target. Pick the weapon: a rocket launcher (RPG-7 with
+  PG-7VM, PG-7VL or PG-7VR, M72A3 LAW, RPG-22, RPG-75), a scoped rifle or machine gun (SVD with PSO-1, M21 with ART II,
+  M16A2 and carbine with 4x20, AK-74N, AKS-74UN, RPK-74N and PKMN with 1P29, UK59 with 4x8) or a heavy or vehicle gun
+  (NSV with SPP, BTR-70 and BRDM-2 KPVT and PKT on the PP-61, LAV-25 M242 HEI-T and APDS-T). Launchers take the RPG-7's
+  sight (iron or PGO-7 scope), your stance and the target; scoped weapons are aimed at a man's chest, the NSV, BTR-70
+  and BRDM-2 at a LAV-25 and the LAV-25 at a BTR-70. Turret scopes give the zero to set and the hold (in thousandths
+  too on the PSO-1 and SPP); the PP-61 and LAV-25 give the range line. Type
   type the wind as the in-game map shows it. The popup gives the sight mark to set, how far above or below the target
   to hold it, the compass bearing to aim on (off the target into or with the wind) and the flight time. On the map, a
   yellow aim line runs from you on that bearing to a crosshair at the aim point, labelled with the bearing, sight mark
@@ -88,8 +93,9 @@ right-click finishes.
   or the PGO-7's reticle with the range line to use), so a hold like "25 m above" shows how far that is against the
   vehicle. With wind, a dashed ring marks where the mark would go in still air and a blue arrow runs to where it goes
   now, with the wind's crosswind and head or tail parts in the corner. The popup also says how far the wind moves the
-  hold (sideways and up or down). The PGO-7 reticle is drawn from the game's own; the iron sights are sketches. Any range line gets the same
-  with its **Rocket launcher shot** button. See [Rockets](#rockets).
+  hold (sideways and up or down). The PGO-7 and the guns' reticles are drawn to scale from the game's own; the
+  launchers' iron sights are sketches. Any range line gets the same with its **Shot calculator** button. See
+  [Rockets](#rockets). The guns need `static/data/bullets.json` (reforger-map-tools `bullettest.py`).
 - **Hull-down finder**: pick enemy, your vehicle (BTR-70, BRDM-2, LAV-25) and reach, click the enemy. Green: turret
   seen, hull hidden. Yellow: through trees. Blue: hidden ground within 30 m of green, to wait in. The popup lists the
   closest spots. Hull heights are estimates (`HULL` in `static/app.js`).

@@ -937,7 +937,7 @@
     } else if (it.type === 'range') {
       extra += `<p><b>${fmtDist(dist(it.from, it.to))}</b> · ${fmtBearing(bearing(it.from, it.to))}</p><div class="sub">To grid ${grid(it.to)}</div>` +
         sightHtml(sightProfile(it.from, it.to, it.h1 ?? 1.6, it.h2 ?? 1.6)) +
-        (isMine(owner) ? `<button type="button" class="rk-add" data-rk-add data-id="${esc(it.id)}">Rocket launcher shot</button>` : '');
+        (isMine(owner) ? `<button type="button" class="rk-add" data-rk-add data-id="${esc(it.id)}">Shot calculator</button>` : '');
     }
     if (it.type === 'mortar') extra += mortarInfoHtml(it);
     if (it.type === 'marker' && it.icon === 'infantry' && it.at) extra += `<p class="sub">Updated ${fmtAgo(Date.now() - it.at)}</p>`;
@@ -1576,8 +1576,8 @@
           hint: 'Hover to check a spot · click to mark a landing zone' },
         { tool: 'audible', name: 'Who can hear it', short: 'Heard from', icon: svg('<path d="M9 18V6l9-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/>', 'color:#b197fc') },
         '-', // last, so the tools above keep their number keys
-        { tool: 'rocket', name: 'Rocket launcher shot', short: 'Rocket', icon: svg('<path d="M3 19l9-9"/><path d="M12 10l3.5-3.5 3 1-1-3L21 3" /><path d="M10.5 8.5l5 5" /><circle cx="19" cy="17" r="2.5" stroke-dasharray="2 1.6"/>'),
-          hint: 'Click where you fire from, then the target · sight setting and aim bearing, with wind' },
+        { tool: 'rocket', name: 'Shot calculator', short: 'Shot', icon: svg('<path d="M3 19l9-9"/><path d="M12 10l3.5-3.5 3 1-1-3L21 3" /><path d="M10.5 8.5l5 5" /><circle cx="19" cy="17" r="2.5" stroke-dasharray="2 1.6"/>'),
+          hint: 'Click where you fire from, then the target · rockets, scoped rifles, MGs and vehicle guns: sight setting, hold and aim bearing, with wind' },
       ] },
     { id: 'support', name: 'Support', key: 'S', color: '#ff922b', title: 'Fire missions, gun runs, medevac, pickups, resupply',
       icon: svg('<circle cx="12" cy="12" r="7.5"/><path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/>', 'color:#ff922b'),
@@ -1901,8 +1901,8 @@
           if (tool === 'rocket') { // a range line with the rocket calculator on it, opened as soon as it's drawn
             const [l, r] = state.rkChoice.split('|');
             state.openPopupId = id;
-            saveItem({ id, type: 'range', from: roundXZ(from), to: roundXZ(xz), label: `Rocket shot ${mine.filter(i => i.rocket).length + 1}`, note: '',
-              color: state.me.color, h1: 1.6, h2: 1, rocket: { l, r, s: l === 'RPG-7' ? state.rkSight : 'iron' }, ...(state.rkWind ? { wind: state.rkWind } : {}) });
+            saveItem({ id, type: 'range', from: roundXZ(from), to: roundXZ(xz), label: `Shot ${mine.filter(i => i.rocket).length + 1}`, note: '',
+              color: state.me.color, h1: 1.6, h2: 1, rocket: { l, r, s: SCOPES[l] ? 'scope' : l === 'RPG-7' ? state.rkSight : 'iron' }, ...(state.rkWind ? { wind: state.rkWind } : {}) });
           } else if (tool === 'profile') { // opens its popup, with the profile, as soon as it's drawn
             state.openPopupId = id;
             saveItem({ id, type: 'range', from: roundXZ(from), to: roundXZ(xz), label: `Profile ${mine.filter(i => i.h1 != null && !i.rocket).length + 1}`, note: '', color: state.me.color,
@@ -4059,10 +4059,46 @@
   // cross from the right: along, up, side). The game's rockets don't fly like the sights assume: motor rockets (PG-7VM,
   // PG-7VL) turn into a crosswind while they burn, the others drift with it, and some range marks are a degree off. So the
   // shot is solved from the flights, then the angle it needs above the line of sight is turned into the nearest mark.
-  let ROCKETS = null;
+  let ROCKETS = null, BULLETS = null;
   const ROCKET_CHOICES = [['RPG-7', 'PG-7VM'], ['RPG-7', 'PG-7VL'], ['RPG-7', 'PG-7VR'], ['M72A3', 'M72A3'], ['RPG-22', 'PG-22'], ['RPG-75', 'RPG-75']];
   const ROCKET_AIM = '#ffd43b'; // the aim line and crosshair (app.css .rk-aim)
-  const rocketName = (l, r) => l === r ? (l === 'M72A3' ? 'M72A3 LAW' : l) : `${l} ${r}`;
+  // Scoped rifles, machine guns and vehicle guns, flown the same way as the rockets (reforger-map-tools bullettest.py,
+  // data/bullets.json: each round at its weapon's launch speed). `zeros`: a turret scope's ranges (its SightRangeInfo
+  // list; the game zeroes the reticle centre for the range set). `lines`: a sight with range lines instead, [range,
+  // texture row] measured off its reticle texture, `pxdeg` px per degree (m_fReticlePortion of the texture spans
+  // m_fReticleAngularSize), `axis` the row the bore points at (fitted to the measured flights). `reticle`: how it's drawn.
+  // `target`: what it's drawn against (man-sized for the infantry weapons; a LAV-25 for the NSV, BTR-70 and BRDM-2; a
+  // BTR-70 for the LAV-25).
+  const steps = (a, b, s) => Array.from({ length: Math.round((b - a) / s) + 1 }, (_, i) => a + i * s);
+  const PP61 = { pxdeg: 152.8, axis: 512, reticle: 'pp61', mils: 0.06 };
+  const LAV25 = { pxdeg: 376.4, axis: 511.5, reticle: 'lav' };
+  const SCOPES = {
+    'SVD': { name: 'SVD · PSO-1', round: '7N1 (SVD)', group: 'Rifles and machine guns', target: 'man', zeros: steps(100, 1000, 100), reticle: 'pso1', mils: 0.06 },
+    'M21': { name: 'M21 · ART II', round: 'M118 (M21)', group: 'Rifles and machine guns', target: 'man', zeros: steps(300, 900, 100), reticle: 'art2' },
+    'M16A2': { name: 'M16A2 · 4x20', round: 'M855 (M16A2)', group: 'Rifles and machine guns', target: 'man', zeros: steps(200, 500, 100), reticle: 'cross' },
+    'M16A2 carbine': { name: 'M16A2 carbine · 4x20', round: 'M855 (M16A2 carbine)', group: 'Rifles and machine guns', target: 'man', zeros: steps(200, 500, 100), reticle: 'cross' },
+    'AK-74N': { name: 'AK-74N · 1P29', round: '7N6 (AK-74)', group: 'Rifles and machine guns', target: 'man', zeros: steps(100, 500, 100), reticle: 'post' },
+    'AKS-74UN': { name: 'AKS-74UN · 1P29', round: '7N6 (AKS-74U)', group: 'Rifles and machine guns', target: 'man', zeros: steps(100, 500, 100), reticle: 'post' },
+    'RPK-74N': { name: 'RPK-74N · 1P29', round: '7N6 (RPK-74)', group: 'Rifles and machine guns', target: 'man', zeros: steps(100, 500, 100), reticle: 'post' },
+    'PKMN': { name: 'PKMN · 1P29', round: '57N323S (PKM, UK59)', group: 'Rifles and machine guns', target: 'man', zeros: steps(100, 500, 100), reticle: 'post' },
+    'UK59': { name: 'UK59 · 4x8', round: '57N323S (PKM, UK59)', group: 'Rifles and machine guns', target: 'man', zeros: steps(100, 1000, 100), reticle: 'uk59' },
+    'NSV': { name: 'NSV · SPP', round: 'B32 (NSV)', group: 'Heavy and vehicle guns', target: 'lav', zeros: steps(400, 2000, 100), reticle: 'spp', mils: 0.06 },
+    'BTR-70 KPVT': { name: 'BTR-70 · KPVT', round: 'BZ (KPVT)', group: 'Heavy and vehicle guns', target: 'lav', ...PP61, side: 'left',
+      // [range, row, 1 = a long, labelled line]
+      lines: [[400, 531.5, 1], [600, 544.5], [800, 560, 1], [1000, 581], [1200, 600.5, 1], [1400, 623], [1600, 651.5, 1], [1800, 687], [2000, 727.5, 1]] },
+    'BTR-70 PKT': { name: 'BTR-70 · PKT', round: '57N323S (PKT)', group: 'Heavy and vehicle guns', target: 'lav', ...PP61, side: 'right',
+      lines: [[200, 539], [400, 556.5, 1], [600, 578], [800, 612, 1], [1000, 654], [1200, 718, 1], [1400, 791.5], [1500, 837, 1]] },
+    'LAV-25 M242 HE': { name: 'LAV-25 · M242 HEI-T', round: 'M792 HEI-T (M242)', group: 'Heavy and vehicle guns', target: 'btr', ...LAV25, side: 'left',
+      lines: [[600, 511.5, 1], [1000, 567.5, 1], [1200, 608.5, 1], [1400, 652.5, 1], [1600, 705.5, 1], [1800, 773.5, 1], [2000, 859.5, 1], [2200, 941.5, 1]] },
+    'LAV-25 M242 AP': { name: 'LAV-25 · M242 APDS-T', round: 'M791 APDS-T (M242)', group: 'Heavy and vehicle guns', target: 'btr', ...LAV25, side: 'right',
+      lines: [[1000, 511.5, 1], [1900, 567.5, 1], [2400, 608.5, 1], [2900, 652.5, 1], [3400, 705.5, 1]] },
+  };
+  // The BRDM-2's turret is the BTR-70's (BRDM2_turret.et inherits BTR70_Turret.et): same guns, same PP-61 sight
+  SCOPES['BRDM-2 KPVT'] = { ...SCOPES['BTR-70 KPVT'], name: 'BRDM-2 · KPVT' };
+  SCOPES['BRDM-2 PKT'] = { ...SCOPES['BTR-70 PKT'], name: 'BRDM-2 · PKT' };
+  const GUN_CHOICES = Object.entries(SCOPES).map(([k, g]) => [k, g.round]);
+  const tableOf = r => (ROCKETS && ROCKETS.rockets[r]) || (BULLETS && BULLETS.rounds[r]) || null;
+  const rocketName = (l, r) => SCOPES[l] ? SCOPES[l].name : l === r ? (l === 'M72A3' ? 'M72A3 LAW' : l) : `${l} ${r}`;
   const ROCKET_MIN_E = -15, ROCKET_MAX_E = 25; // degrees: a little past the tested elevations, the nearest one turned to fit
 
   // The still-air flight at elevation e (deg), between the two test elevations around it: interpolated in each flight's own
@@ -4111,8 +4147,10 @@
       lo = h ? e : null;
     }
     if (hi == null) {
-      if (reached) return { err: 'Too far above you for this rocket to reach' };
-      return { err: `Out of reach: it blows up after ${R.life.toFixed(1)} s, about ${fmtDist(rocketFlight(R, 0).at(-1)[0])} out on level ground` };
+      if (reached) return { err: 'Too far above you to reach' };
+      const far = fmtDist(rocketFlight(R, 0).at(-1)[0]);
+      return { err: !R.bullet ? `Out of reach: it blows up after ${R.life.toFixed(1)} s, about ${far} out on level ground`
+        : `Further than the measured flights go (${R.life.toFixed(0)} s, about ${far} on level ground)` };
     }
     if (lo == null) return hi === ROCKET_MIN_E ? { err: 'Too steeply below you' } : { e: hi, ...f(hi) };
     for (let n = 0; n < 30; n++) {
@@ -4121,21 +4159,38 @@
     }
     return { e: hi, ...f(hi) };
   }
-  // The sight's marks for this launcher and rocket: [[range m, bore angle above the line of sight, deg]], nearest first.
+  // The sight's marks for this weapon and round: [[range m, bore angle above the line of sight, deg]], nearest first.
+  // A turret scope's marks are its zeroing ranges, at the angle that puts a level shot on that range (what the game
+  // zeroes the reticle centre for); a range-line sight's are its lines, as measured off its reticle.
+  const zeroCache = new Map();
   function rocketMarks(l, r, s) {
+    const g = SCOPES[l];
+    if (g && g.lines) return g.lines.map(([R, row]) => [R, (row - g.axis) / g.pxdeg]);
+    if (g) {
+      const key = `${l}|${r}`;
+      if (!zeroCache.has(key)) {
+        const T = tableOf(r);
+        zeroCache.set(key, g.zeros.map(R => { const a = rocketAim(T, R, 0, { along: 0, fromRight: 0 }); return a.err ? null : [R, a.e]; }).filter(Boolean));
+      }
+      return zeroCache.get(key);
+    }
     const L_ = ROCKETS.launchers[l], m = s === 'pgo7' && L_.sights.pgo7 ? L_.sights.pgo7[r] : L_.sights.iron;
     return Object.entries(m).map(([k, a]) => [+k, a]).sort((a, b) => a[0] - b[0]);
   }
+  // What a gun's shot is aimed at: a man's chest, or a vehicle's hull (m above the ground), and its outline
+  const GUN_TARGET_H = { man: 1.2, lav: 1.3, btr: 1.2 };
   function rocketSolve(it) {
-    const { l, r, s } = it.rocket, R = ROCKETS && ROCKETS.rockets[r];
+    const { l, r, s } = it.rocket, R = tableOf(r), g = SCOPES[l];
     if (!R || !HEIGHT) return null;
     const D = dist(it.from, it.to), az = bearing(it.from, it.to);
-    const H = ground(it.to) + (it.h2 ?? 1) - ground(it.from) - (it.h1 ?? 1.6);
+    const h2 = g ? GUN_TARGET_H[g.target] : (it.h2 ?? 1);
+    const H = ground(it.to) + h2 - ground(it.from) - (it.h1 ?? 1.6);
     const { along, across } = windParts(it.wind, az), w = { along, fromRight: -across }; // across + = blowing to the right
     const sol = rocketAim(R, D, H, w);
     if (sol.err) return { D, H, az, ...sol };
     const calm = it.wind && it.wind.s > 0 ? rocketAim(R, D, H, { along: 0, fromRight: 0 }) : null;
-    const need = sol.e - ROCKETS.launchers[l].spawn - Math.atan2(H, D) * 180 / Math.PI; // bore above the line of sight
+    const spawn = g ? 0 : ROCKETS.launchers[l].spawn;
+    const need = sol.e - spawn - Math.atan2(H, D) * 180 / Math.PI; // bore above the line of sight
     const marks = rocketMarks(l, r, s);
     const mark = marks.reduce((b, m) => Math.abs(m[1] - need) < Math.abs(b[1] - need) ? m : b);
     // the range the sight would need for this angle, along its marks (straight on past the end ones)
@@ -4147,41 +4202,50 @@
     const aimOff = -Math.atan2(sol.side, D) * 180 / Math.PI; // deg, + = aim right of the target
     const past = need > marks.at(-1)[1] ? 1 : need < marks[0][1] ? -1 : 0; // beyond the sight's marks
     // the same mark held for still air: what the wind adds to the hold is the difference (and all of the aim-off)
-    const holdCalm = calm && !calm.err ? D * Math.tan((calm.e - ROCKETS.launchers[l].spawn - Math.atan2(H, D) * 180 / Math.PI - mark[1]) * Math.PI / 180) : null;
-    return { D, H, az, sol, need, mark, equiv, past, hold, holdCalm, aimOff, aim: (az + aimOff + 360) % 360, calm, R,
+    const holdCalm = calm && !calm.err ? D * Math.tan((calm.e - spawn - Math.atan2(H, D) * 180 / Math.PI - mark[1]) * Math.PI / 180) : null;
+    return { D, H, h2, az, sol, need, mark, equiv, past, hold, holdCalm, aimOff, aim: (az + aimOff + 360) % 360, calm, R, g,
       upwind: sol.side * w.fromRight > 0, along, across };
   }
   function rocketHtml(owner, it) {
     if (!ROCKETS) return '<p class="sub">Loading rocket data…</p>';
-    const mine = isMine(owner), dis = mine ? '' : ' disabled', { l, r, s } = it.rocket, wind = it.wind || { s: 0, d: 0 };
+    const mine = isMine(owner), dis = mine ? '' : ' disabled', { l, r, s } = it.rocket, wind = it.wind || { s: 0, d: 0 }, g = SCOPES[l];
     const opt = (v, t, sel) => `<option value="${esc(v)}"${sel ? ' selected' : ''}>${esc(t)}</option>`;
     const sel = (k, opts) => `<select data-rk="${k}" data-id="${esc(it.id)}"${dis}>${opts}</select>`;
+    const group = (name, list) => `<optgroup label="${esc(name)}">${list.map(([a, b]) => opt(`${a}|${b}`, rocketName(a, b), a === l && b === r)).join('')}</optgroup>`;
+    const weapons = group('Rocket launchers', ROCKET_CHOICES) +
+      [...new Set(Object.values(SCOPES).map(q => q.group))].map(gr => group(gr, GUN_CHOICES.filter(([a]) => SCOPES[a].group === gr))).join('');
     let html = '<div class="rk-form">' +
-      `<label>Launcher ${sel('w', ROCKET_CHOICES.map(([a, b]) => opt(`${a}|${b}`, rocketName(a, b), a === l && b === r)).join(''))}</label>` +
+      `<label>Weapon ${sel('w', weapons)}</label>` +
       (l === 'RPG-7' ? `<label>Sight ${sel('s', opt('iron', 'Iron sight', s !== 'pgo7') + opt('pgo7', 'PGO-7 scope', s === 'pgo7'))}</label>` : '') +
-      `<label>You ${sel('h1', EYES.slice(0, 3).map(([v, t]) => opt(v, t, (it.h1 ?? 1.6) === v)).join(''))}</label>` +
-      `<label>Target ${sel('h2', [[0.5, 'Prone'], [1, 'Vehicle hull'], [1.6, 'Standing'], [2.2, 'Vehicle top']].map(([v, t]) => opt(v, t, (it.h2 ?? 1) === v)).join(''))}</label>` +
+      (g && g.target === 'man' ? `<label>You ${sel('h1', EYES.slice(0, 3).map(([v, t]) => opt(v, t, (it.h1 ?? 1.6) === v)).join(''))}</label>` : '') +
+      (!g ? `<label>You ${sel('h1', EYES.slice(0, 3).map(([v, t]) => opt(v, t, (it.h1 ?? 1.6) === v)).join(''))}</label>` +
+        `<label>Target ${sel('h2', [[0.5, 'Prone'], [1, 'Vehicle hull'], [1.6, 'Standing'], [2.2, 'Vehicle top']].map(([v, t]) => opt(v, t, (it.h2 ?? 1) === v)).join(''))}</label>` : '') +
       `<label>Wind <span><input data-rk="ws" data-id="${esc(it.id)}" type="number" min="0" max="40" step="0.5" value="${wind.s || 0}"${dis}> m/s from ` +
       `<input data-rk="wd" data-id="${esc(it.id)}" type="number" min="0" max="359" step="1" value="${Math.round(wind.d || 0)}"${dis}>°</span></label></div>`;
+    if (g && !tableOf(r)) return html + '<p class="sub">This weapon\'s measured flights aren\'t on the site yet (reforger-map-tools bullettest.py).</p>';
     const x = rocketSolve(it);
     if (!x) return html + '<p class="sub">Terrain still loading…</p>';
     const up = `${Math.round(x.H) >= 0 ? '+' : ''}${Math.round(x.H)} m`;
     if (x.err) return html + `<p><b class="rc-no">${esc(x.err)}</b></p><p class="sub">${fmtDist(x.D)}, target ${up}.</p>`;
-    const pgo = s === 'pgo7' && l === 'RPG-7';
+    const pgo = s === 'pgo7' && l === 'RPG-7', lined = pgo || (g && g.lines);
     const latM = x.D * Math.tan(x.aimOff * Math.PI / 180); // the wind's aim-off at the target, m (+ = right)
-    const holdTxt = (Math.abs(x.hold) < 0.4 ? 'on the target' : `${Math.abs(x.hold).toFixed(1)} m ${x.hold > 0 ? 'high' : 'low'}`) +
-      (Math.abs(latM) >= 0.3 ? `, ${Math.abs(latM).toFixed(1)} m ${latM > 0 ? 'right' : 'left'}` : '');
-    const markTxt = pgo ? `${x.mark[0]} m line` : `${x.mark[0]} m`;
+    const small = g ? 0.1 : 0.4; // below this the hold is "on the target" (a bullet's hold matters to the decimetre)
+    const holdTxt = (Math.abs(x.hold) < small ? 'on the target' : `${Math.abs(x.hold).toFixed(1)} m ${x.hold > 0 ? 'high' : 'low'}`) +
+      (Math.abs(latM) >= small ? `, ${Math.abs(latM).toFixed(1)} m ${latM > 0 ? 'right' : 'left'}` : '');
+    const markTxt = lined ? `${x.mark[0]} m line` : g ? `zero ${x.mark[0]} m` : `${x.mark[0]} m`;
     const side = Math.abs(x.aimOff) < 0.05 ? 'straight at it' : `${Math.abs(x.aimOff).toFixed(1)}° ${x.aimOff > 0 ? 'right' : 'left'} of it, ` +
       `${Math.abs(x.D * Math.tan(x.aimOff * Math.PI / 180)).toFixed(1)} m`;
-    html += `<div class="stats rk wrap"><div><span class="k">${pgo ? 'Line' : 'Sight'}</span><span class="v">${markTxt}</span></div>` +
-      `<div><span class="k">Hold</span><span class="v">${holdTxt}</span></div>` +
+    // on a scope with a thousandths scale, the hold in its ticks too (up/down, and left/right for the wind)
+    const ticks = g && g.mils ? ` (${[Math.abs(x.need - x.mark[1]) >= g.mils / 4 ? `${(Math.abs(x.need - x.mark[1]) / g.mils).toFixed(1)} ${x.hold > 0 ? 'up' : 'down'}` : '',
+      Math.abs(x.aimOff) >= g.mils / 4 ? `${(Math.abs(x.aimOff) / g.mils).toFixed(1)} ${x.aimOff > 0 ? 'right' : 'left'}` : ''].filter(Boolean).join(', ') || 'centre'} ticks)` : '';
+    html += `<div class="stats rk wrap"><div><span class="k">${lined ? 'Line' : g ? 'Zero' : 'Sight'}</span><span class="v">${markTxt}</span></div>` +
+      `<div><span class="k">Hold</span><span class="v">${holdTxt}${ticks}</span></div>` +
       `<div><span class="k">Aim</span><span class="v">${x.aim.toFixed(1)}°</span></div>` +
       `<div><span class="k">Flight</span><span class="v">${x.sol.t.toFixed(1)} s</span></div></div>` +
       `<p class="sub">Target ${fmtDist(x.D)} away on ${x.az.toFixed(1)}°, ${up}. Aim ${side}` +
       (pgo && Math.abs(x.aimOff) >= 0.05 ? ` (target on the ${(Math.abs(x.aimOff) / ROCKETS.pgo7_lead_deg).toFixed(1)} mark ${x.aimOff > 0 ? 'left' : 'right'} of centre)` : '') +
-      `. Needs ${x.need.toFixed(2)}° over the line of sight` + (x.past > 0 ? `, more than the top ${pgo ? 'line' : 'mark'} gives`
-        : x.past < 0 ? `, less than the lowest ${pgo ? 'line' : 'mark'} gives` : `, as a ${Math.round(x.equiv / 5) * 5} m ${pgo ? 'line' : 'mark'} would`) +
+      `. Needs ${x.need.toFixed(2)}° over the line of sight` + (x.past > 0 ? `, more than the top ${lined ? 'line' : g ? 'zero' : 'mark'} gives`
+        : x.past < 0 ? `, less than the lowest ${lined ? 'line' : g ? 'zero' : 'mark'} gives` : `, as a ${Math.round(x.equiv / 5) * 5} m ${lined ? 'line' : g ? 'zero' : 'mark'} would`) +
       (x.sol.e < x.R.elevs[0] || x.sol.e > x.R.elevs.at(-1) ? ` (${x.sol.e.toFixed(0)}° from level: steeper than the tested shots, so less exact)` : '') + '.</p>';
     html += sightPicture(x, it);
     if (x.calm && !x.calm.err) {
@@ -4189,9 +4253,9 @@
       html += `<p class="sub">Wind ${wind.s} m/s from ${pad(Math.round(wind.d) % 360, 3)}°: without aiming off it would land ` +
         `${Math.abs(x.sol.side).toFixed(1)} m ${x.sol.side > 0 ? 'right' : 'left'}` +
         (Math.abs(de * Math.PI / 180 * x.D) >= 0.3 ? ` and ${Math.abs(de * Math.PI / 180 * x.D).toFixed(1)} m ${de > 0 ? 'low' : 'high'}` : '') + '.' +
-        (x.upwind && Math.abs(x.sol.side) > 0.3 ? ' Its motor turns it into the wind while it burns, so it ends up upwind.' : '') + '</p>';
+        (!g && x.upwind && Math.abs(x.sol.side) > 0.3 ? ' Its motor turns it into the wind while it burns, so it ends up upwind.' : '') + '</p>';
     }
-    if (x.R.spread > 5) html += `<p class="sub">This rocket's motor varies: about ±${Math.round(x.R.spread)} m in range from one to the next.</p>`;
+    if (!g && x.R.spread > 5) html += `<p class="sub">This rocket's motor varies: about ±${Math.round(x.R.spread)} m in range from one to the next.</p>`;
     return html;
   }
   // What you see in the sights: the target at its real size for its distance, and where the sight's mark (iron sights:
@@ -4204,20 +4268,78 @@
     1.6: { name: 'standing soldier', h: 1.8, parts: [['rect', -0.22, 0, 0.44, 1.5], ['circle', 0, 1.62, 0.13]] },
   };
   SIGHT_TARGETS[2.2] = SIGHT_TARGETS[1];
+  // What a gun's shot is drawn against: a man for the infantry weapons, a LAV-25 for the NSV, BTR-70 and BRDM-2 (what
+  // they'd be shooting at), a BTR-70 for the LAV-25. Side-on outlines, to scale.
+  const GUN_TARGETS = {
+    man: SIGHT_TARGETS[1.6],
+    lav: { name: 'LAV-25', h: 2.75, parts: [['rect', -3.2, 0.5, 6.4, 1.55], ['rect', -2.4, 2.05, 4.6, 0.2], ['rect', -0.5, 2.1, 1.8, 0.65],
+      ['rect', 1.3, 2.42, 2.2, 0.09], ['circle', -2.5, 0.52, 0.52], ['circle', -1.2, 0.52, 0.52], ['circle', 0.9, 0.52, 0.52], ['circle', 2.2, 0.52, 0.52]] },
+    btr: { name: 'BTR-70', h: 2.3, parts: [['rect', -3.7, 0.55, 7.4, 1.2], ['rect', -3.0, 1.75, 6.0, 0.3], ['rect', -0.3, 2.0, 1.0, 0.45],
+      ['rect', 0.7, 2.18, 1.6, 0.08], ['circle', -2.8, 0.5, 0.5], ['circle', -1.4, 0.5, 0.5], ['circle', 1.4, 0.5, 0.5], ['circle', 2.8, 0.5, 0.5]] },
+  };
+  // A gun's reticle, in degrees from its aim point (measured off the game's reticle textures; see SCOPES): ox,oy the
+  // aim point in px, k px per degree, sel the chosen line's angle (range-line sights). Returns SVG.
+  function gunReticle(g, ox, oy, k, sel) {
+    const W1 = '#e8eef3', P = (d, w = 1.1, c = W1) => `<path d="${d}" stroke="${c}" stroke-width="${w}" fill="none"/>`;
+    const X = d => (ox + d * k).toFixed(1), Y = d => (oy + d * k).toFixed(1); // + = right / down
+    const chev = (dy, hw = 0.032, hh = 0.059, c = W1) => P(`M${X(-hw)} ${Y(dy + hh)}L${X(0)} ${Y(dy)}L${X(hw)} ${Y(dy + hh)}`, 1.3, c);
+    let s = '';
+    if (g.reticle === 'pso1' || g.reticle === 'spp') {
+      // the side scale: a tick every thousandth (0.06°) to 10 each side, every fifth long; lines beyond; the chevron
+      s += P(`M${X(-1.92)} ${Y(0)}H${X(-0.73)}M${X(0.73)} ${Y(0)}H${X(1.92)}`);
+      for (let i = -10; i <= 10; i++) if (i) s += P(`M${X(i * 0.06)} ${Y(0)}V${Y(i % 5 ? 0.059 : 0.118)}`, 0.9);
+      s += chev(0, 0.032, 0.059, '#ffd43b');
+      if (g.reticle === 'pso1') [0.205, 0.438, 0.691].forEach(d => s += chev(d));
+      s += P(`M${X(0)} ${Y(g.reticle === 'pso1' ? 0.78 : 1.27)}V${Y(4)}`);
+    } else if (g.reticle === 'cross') {
+      s += P(`M${X(-3)} ${Y(0)}H${X(3)}M${X(0)} ${Y(-3)}V${Y(3)}`, 0.8, '#ffd43b');
+      s += P(`M${X(-3)} ${Y(0)}H${X(-0.37)}M${X(0.37)} ${Y(0)}H${X(3)}M${X(0)} ${Y(-3)}V${Y(-0.34)}M${X(0)} ${Y(0.34)}V${Y(3)}`, 3);
+    } else if (g.reticle === 'art2') {
+      s += P(`M${X(-3)} ${Y(0)}H${X(3)}M${X(0)} ${Y(-3)}V${Y(3)}`, 0.8, '#ffd43b');
+      s += P(`M${X(-3)} ${Y(0)}H${X(-0.76)}M${X(0.76)} ${Y(0)}H${X(3)}M${X(0)} ${Y(0.68)}V${Y(3)}`, 3);
+    } else if (g.reticle === 'uk59') {
+      s += P(`M${X(-3)} ${Y(0)}H${X(-0.34)}M${X(0.34)} ${Y(0)}H${X(3)}M${X(0)} ${Y(-3)}V${Y(-0.33)}M${X(0)} ${Y(0.49)}V${Y(3)}`, 1);
+      s += chev(0, 0.125, 0.18, '#ffd43b');
+    } else if (g.reticle === 'post') {
+      // the 1P29's post, coming down from the top to a point: the point is the aim
+      s += `<path d="M${X(-0.13)} ${Y(-4)}V${Y(-0.3)}L${X(0)} ${Y(0)}L${X(0.13)} ${Y(-0.3)}V${Y(-4)}" fill="rgba(255,212,59,.25)" stroke="#ffd43b" stroke-width="1.2"/>`;
+    } else if (g.lines) {
+      // range lines below the aim mark (PP-61: KPVT left, PKT right; LAV-25: HE left, AP right), the chosen one in yellow,
+      // labelled in hundreds of metres
+      const sx = g.side === 'left' ? -1 : 1;
+      const long = g.reticle === 'pp61' ? 0.96 : 1.12, inner = g.reticle === 'pp61' ? 0 : 0.85;
+      s += chev(0, 0.04, 0.06);
+      s += P(`M${X(0)} ${Y(0)}V${Y((g.lines.at(-1)[1] - g.axis) / g.pxdeg + 0.05)}`);
+      if (g.reticle === 'pp61') for (let i = -12; i <= 12; i++) s += P(`M${X(i * 0.06)} ${Y(-0.21)}V${Y(-0.21 - (i % 5 ? 0.04 : 0.08))}`, 0.8);
+      else s += P(`M${X(-0.19)} ${Y(-0.155)}H${X(0.19)}M${X(0)} ${Y(-0.155)}V${Y(-0.4)}`);
+      g.lines.forEach(([R, row, big]) => {
+        const a = (row - g.axis) / g.pxdeg, on = Math.abs(a - sel) < 1e-6;
+        const len = big ? long : inner + (long - inner) / 2;
+        s += P(`M${X(sx * inner)} ${Y(a)}H${X(sx * len)}`, on ? 2 : 1, on ? '#ffd43b' : W1);
+        if (big || on) s += `<text x="${X(sx * (len + 0.04))}" y="${(+Y(a) + 3).toFixed(1)}" fill="${on ? '#ffd43b' : W1}" font-size="9" font-family="var(--mono)"${sx < 0 ? ' text-anchor="end"' : ''}>${R / 100}</text>`;
+      });
+    }
+    return s;
+  }
   function sightPicture(x, it) {
-    const { l, r, s } = it.rocket, pgo = s === 'pgo7' && l === 'RPG-7';
+    const { l, r, s } = it.rocket, pgo = s === 'pgo7' && l === 'RPG-7', g = x.g;
     const D = x.D, deg = m => Math.atan2(m, D) * 180 / Math.PI;
-    const T = SIGHT_TARGETS[it.h2 ?? 1] || SIGHT_TARGETS[1], h2 = it.h2 ?? 1;
+    const T = g ? GUN_TARGETS[g.target] : SIGHT_TARGETS[it.h2 ?? 1] || SIGHT_TARGETS[1], h2 = x.h2;
     const ax = deg(D * Math.tan(x.aimOff * Math.PI / 180)), ay = deg(h2) + deg(x.hold); // the mark's place, deg
     const cy0 = x.holdCalm != null ? deg(h2) + deg(x.holdCalm) : null; // where it would go in still air (straight above)
-    // the view: target and both aim points, padded; never closer than a few target heights; the PGO-7 shows its lines
-    const minH = pgo ? 3.4 : Math.max(deg(T.h) * 4, 0.6);
-    const lo = Math.min(0, ay, cy0 ?? ay) - (pgo ? 0.3 : 0), hi = Math.max(deg(T.h), ay, cy0 ?? ay) + (pgo ? 0.3 : 0);
-    // (the PGO-7 view is as wide as the reticle's lateral scale, ±3°, plus its range numbers, and centred on it)
+    // the view: target and both aim points, padded; never closer than a few target heights; a reticle with marks or
+    // lines is shown far enough to see them
+    const lineSpan = g && g.lines ? (g.lines.at(-1)[1] - g.axis) / g.pxdeg : 0;
+    const minH = pgo ? 3.4 : g ? Math.max(deg(T.h) * 3, g.lines ? lineSpan + 0.5 : g.reticle === 'pso1' ? 1.1 : 0.5) : Math.max(deg(T.h) * 4, 0.6);
+    const reticleTop = g && g.lines ? ay + x.mark[1] + 0.45 : ay;
+    const lo = Math.min(0, ay, cy0 ?? ay) - (pgo ? 0.3 : 0), hi = Math.max(deg(T.h), ay, reticleTop, cy0 ?? ay) + (pgo ? 0.3 : 0);
+    // (the PGO-7 view is as wide as the reticle's lateral scale, ±3°, plus its range numbers, and centred on it; a gun's
+    // reticle is centred too)
     const spanY = Math.max(minH, (hi - lo) * 1.5);
-    const spanX = pgo ? Math.max(7.4, Math.abs(ax) * 2 + 7.4) : Math.max(spanY * 1.45, Math.abs(ax) * 2.6 + deg(8));
+    const spanX = pgo ? Math.max(7.4, Math.abs(ax) * 2 + 7.4)
+      : g ? Math.max(spanY * 1.45, Math.abs(ax) * 2 + (g.lines ? 2.8 : 1.4)) : Math.max(spanY * 1.45, Math.abs(ax) * 2.6 + deg(8));
     const W = 280, H = Math.round(W * spanY / spanX), k = W / spanX;
-    const cx = W / 2 - (pgo ? ax : ax / 2) * k, cy = H / 2 + ((lo + hi) / 2) * k;
+    const cx = W / 2 - (pgo || g ? ax : ax / 2) * k, cy = H / 2 + ((lo + hi) / 2) * k;
     const X = d => (cx + d * k).toFixed(1), Y = d => (cy - d * k).toFixed(1);
     const m2d = deg; // metres at the target to degrees
     let svg = `<rect width="${W}" height="${H}" fill="#1b2630"/><rect x="0" y="${Y(0)}" width="${W}" height="${Math.max(0, H - +Y(0))}" fill="#2c3a24"/>`;
@@ -4242,6 +4364,10 @@
       Object.keys(P['PG-7VL']).forEach((m, i) => svg += `<text x="${(+gx(5) + 3).toFixed(1)}" y="${(+gy(top[i]) + 3).toFixed(1)}">${String(+m / 100).replace('.', ',')}</text>`);
       Object.keys(P['PG-7VR']).forEach((m, i) => svg += `<text x="${(ox - 5).toFixed(1)}" y="${(+gy(low[i]) - 2).toFixed(1)}" text-anchor="end">${String(+m / 100).replace('.', ',')}</text>`);
       svg += '</g>';
+    } else if (g) {
+      // the gun's reticle: a turret scope's centre on the aim point; a range-line sight's chosen line there, its aim
+      // mark above it by that line's angle
+      svg += gunReticle(g, ox, g.lines ? Y0 - x.mark[1] * k : Y0, k, x.mark[1]);
     } else if (l === 'M72A3') {
       // rear peep and front cross-hair, centred on the aim point (see-through, so the target stays in view)
       svg += `<circle cx="${ox}" cy="${oy}" r="26" fill="none" stroke="#e8eef3" stroke-width="1.2" opacity="0.7"/>` +
@@ -4275,13 +4401,17 @@
     }
     svg += `<circle cx="${ox}" cy="${oy}" r="3.2" fill="none" stroke="#ffd43b" stroke-width="1.4"/>`;
     const lat = Math.abs(D * Math.tan(x.aimOff * Math.PI / 180)), hold = Math.abs(x.hold);
-    const holdTxt = hold < 0.4 ? 'on' : `${hold.toFixed(1)} m (${(hold / T.h).toFixed(1)}× the ${T.name}'s height) ${x.hold > 0 ? 'above' : 'below'}`;
-    const latTxt = lat < 0.3 ? '' : `, ${lat.toFixed(1)} m ${x.aimOff > 0 ? 'right' : 'left'}`;
-    const what = pgo ? `the ${x.mark[0]} m line where it meets the centre line` : l === 'M72A3' ? `the ${x.mark[0]} m cross-hair` : `the front sight's tip (sight on ${x.mark[0]} m)`;
+    const small = g ? 0.1 : 0.4;
+    const holdTxt = hold < small ? 'on' : `${hold.toFixed(1)} m (${(hold / T.h).toFixed(1)}× the ${T.name}'s height) ${x.hold > 0 ? 'above' : 'below'}`;
+    const latTxt = lat < small ? '' : `, ${lat.toFixed(1)} m ${x.aimOff > 0 ? 'right' : 'left'}`;
+    const gunWhat = g && (g.lines ? `the ${x.mark[0]} m ${{ pp61: { left: 'KPVT', right: 'PKT' }, lav: { left: 'HE', right: 'AP' } }[g.reticle][g.side]} line`
+      : `${{ pso1: 'the top chevron', spp: 'the chevron', cross: 'the cross', art2: 'the cross', uk59: 'the chevron', post: "the post's tip" }[g.reticle]} (zeroed for ${x.mark[0]} m)`);
+    const what = g ? gunWhat : pgo ? `the ${x.mark[0]} m line where it meets the centre line` : l === 'M72A3' ? `the ${x.mark[0]} m cross-hair` : `the front sight's tip (sight on ${x.mark[0]} m)`;
     const lead = pgo && lat >= 0.3 ? ` (the red dot on the ${(Math.abs(x.aimOff) / ROCKETS.pgo7_lead_deg).toFixed(1)} side mark, ${x.aimOff > 0 ? 'left' : 'right'} of centre)` : '';
+    const source = g ? 'reticle drawn to scale from the game\'s own' : pgo ? 'reticle from the game\'s PGO-7' : 'sight shapes are a sketch';
     return `<div class="sight-pic"><svg viewBox="0 0 ${W} ${H}" width="100%">${svg}</svg>` +
       `<p class="sub">Put ${what} ${holdTxt} the red dot${latTxt}${lead}.${windTxt} Drawn ${Math.round(k * deg(1))} px per metre at the target; ` +
-      `${pgo ? 'reticle from the game\'s PGO-7' : 'sight shapes are a sketch'}.</p></div>`;
+      `${source}.</p></div>`;
   }
   document.addEventListener('change', e => {
     const el = e.target.closest('[data-rk]');
@@ -4289,7 +4419,10 @@
     if (!it || !it.rocket) return;
     const next = { ...it, rocket: { ...it.rocket } };
     const k = el.dataset.rk, v = el.value;
-    if (k === 'w') { [next.rocket.l, next.rocket.r] = v.split('|'); if (next.rocket.l !== 'RPG-7') next.rocket.s = 'iron'; }
+    if (k === 'w') {
+      [next.rocket.l, next.rocket.r] = v.split('|');
+      next.rocket.s = SCOPES[next.rocket.l] ? 'scope' : next.rocket.l === 'RPG-7' ? (it.rocket.s === 'pgo7' ? 'pgo7' : 'iron') : 'iron';
+    }
     if (k === 's') next.rocket.s = v;
     if (k === 'h1' || k === 'h2') next[k] = +v;
     if (k === 'ws' || k === 'wd') {
@@ -4309,7 +4442,7 @@
     if (!it) return;
     const [l, r] = state.rkChoice.split('|');
     state.openPopupId = it.id;
-    saveItem({ ...it, rocket: { l, r, s: l === 'RPG-7' ? state.rkSight : 'iron' }, ...(state.rkWind ? { wind: state.rkWind } : {}) });
+    saveItem({ ...it, rocket: { l, r, s: SCOPES[l] ? 'scope' : l === 'RPG-7' ? state.rkSight : 'iron' }, ...(state.rkWind ? { wind: state.rkWind } : {}) });
   });
 
   // --- Elevation profile: a side-on slice of the ground between two points, with the sight line across it ----------
@@ -6662,6 +6795,10 @@
     .then(r => r.json())
     .then(d => { ROCKETS = d; rerenderMortars(); }) // rocket shots draw their aim line once the flights are in
     .catch(err => { console.error(err); toast('Could not load rocket data.', 6000); });
+  fetch('data/bullets.json')
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { if (!d) return; Object.values(d.rounds).forEach(R => { R.bullet = true; }); BULLETS = d; zeroCache.clear(); rerenderMortars(); })
+    .catch(err => console.error(err)); // until bullettest.py has run, the guns just say their data isn't there
   // Map data is cached by browsers for a week: the 10 m files carry los/index.json's version (new on every bake), and
   // DATA_V only until that index has loaded.
   const DATA_V = 4;

@@ -518,6 +518,14 @@ NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 SHELL_RE = re.compile(r"^[A-Za-z0-9 ._()/+-]{1,40}$")
 # Launchers and the rockets they fire, as static/data/rockets.json names them
 ROCKET_LAUNCHERS = {"RPG-7": ("PG-7VM", "PG-7VL", "PG-7VR"), "M72A3": ("M72A3",), "RPG-22": ("PG-22",), "RPG-75": ("RPG-75",)}
+# Scoped rifles, machine guns and vehicle guns and their rounds, as static/data/bullets.json names them (SCOPES in app.js)
+SCOPED_GUNS = {
+    "SVD": "7N1 (SVD)", "M21": "M118 (M21)", "M16A2": "M855 (M16A2)", "M16A2 carbine": "M855 (M16A2 carbine)",
+    "AK-74N": "7N6 (AK-74)", "AKS-74UN": "7N6 (AKS-74U)", "RPK-74N": "7N6 (RPK-74)", "PKMN": "57N323S (PKM, UK59)",
+    "UK59": "57N323S (PKM, UK59)", "NSV": "B32 (NSV)", "BTR-70 KPVT": "BZ (KPVT)", "BTR-70 PKT": "57N323S (PKT)",
+    "BRDM-2 KPVT": "BZ (KPVT)", "BRDM-2 PKT": "57N323S (PKT)", "LAV-25 M242 HE": "M792 HEI-T (M242)",
+    "LAV-25 M242 AP": "M791 APDS-T (M242)",
+}
 
 
 def _is_wind(wind):
@@ -648,9 +656,12 @@ def validate_item(item):
     if t == "range" and "rocket" in item:
         # The rocket calculator on a range line: launcher, its rocket and sight (static/data/rockets.json), and the wind
         rk = item["rocket"]
-        if not (isinstance(rk, dict) and set(rk) <= {"l", "r", "s"} and rk.get("r") in ROCKET_LAUNCHERS.get(rk.get("l"), ())
-                and rk.get("s") in {"iron", "pgo7"} and (rk["s"] == "iron" or rk["l"] == "RPG-7")):
-            return "Bad rocket launcher."
+        launcher = (isinstance(rk, dict) and set(rk) <= {"l", "r", "s"} and rk.get("r") in ROCKET_LAUNCHERS.get(rk.get("l"), ())
+                    and rk.get("s") in {"iron", "pgo7"} and (rk["s"] == "iron" or rk["l"] == "RPG-7"))
+        gun = (isinstance(rk, dict) and set(rk) <= {"l", "r", "s"} and rk.get("l") in SCOPED_GUNS
+               and rk.get("r") == SCOPED_GUNS[rk["l"]] and rk.get("s") == "scope")
+        if not (launcher or gun):
+            return "Bad weapon."
         if not _is_wind(item.get("wind")):
             return "Bad wind."
     if t == "mortar":
