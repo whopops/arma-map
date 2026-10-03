@@ -8,20 +8,18 @@
   // ---------------------------------------------------------------------------
   const OFFSET = 50;
   const SCALE = 12.501;
-  // The maps a room can be opened on (the server keeps the same list). size: the world's side in metres. Every map's
+  // The maps a room can be opened on, as the server lists them (/api/maps: one per data/maps/<id>/map.json). Every map's
   // data lives in data/maps/<id>/ (roads.json, places.json, light/, los/, plants/, foliage.json, foliage/, tiles/), as
-  // baked by reforger-map-tools; only Everon's satellite tiles come from elsewhere (the server's /tiles/ cache).
-  // poi: extra reference layers (Conflict bases, caves, supplies...), Everon only so far. plants/plantsDir: the
-  // plant list and tile files the Measured line of sight reads.
-  const MAPS = {
-    everon: { id: 'everon', name: 'Everon', size: 12800, dir: 'data/maps/everon', tiles: '/tiles/{z}/{x}/{y}.jpg', poi: 'data/everon.json',
-      foliage: 'data/maps/everon/foliage/foliage_profiles.json', plants: 'data/maps/everon/foliage.json', plantsDir: 'data/maps/everon/plants' },
-    kolguyev: { id: 'kolguyev', name: 'Kolguyev', size: 12800, dir: 'data/maps/kolguyev', tiles: '/maptiles/kolguyev/{z}/{x}/{y}.jpg',
-      foliage: 'data/maps/kolguyev/foliage/foliage_profiles.json', plants: 'data/maps/kolguyev/foliage.json', plantsDir: 'data/maps/kolguyev/plants' },
-    arland: { id: 'arland', name: 'Arland', size: 4096, dir: 'data/maps/arland', tiles: '/maptiles/arland/{z}/{x}/{y}.jpg',
-      foliage: 'data/maps/arland/foliage/foliage_profiles.json', plants: 'data/maps/arland/foliage.json', plantsDir: 'data/maps/arland/plants' },
-  };
-  let MAP = MAPS.everon;
+  // baked by reforger-map-tools. size: the world's side in metres. poi: extra reference layers (Conflict bases, caves,
+  // supplies...) when the map has them. plants/plantsDir: the plant list and tile files the Measured line of sight reads.
+  const mapDef = (id, m) => ({
+    id, name: m.title || id, size: m.world, dir: `data/maps/${id}`, tiles: m.tiles, poi: m.poi || null,
+    foliage: `data/maps/${id}/foliage/foliage_profiles.json`, plants: m.hasPlants ? `data/maps/${id}/foliage.json` : null,
+    plantsDir: `data/maps/${id}/plants`,
+  });
+  let MAPS = {}, DEFAULT_MAP = null;
+  // until the list arrives: an empty 12.8 km map with no tiles
+  let MAP = { id: '', name: '', size: 12800, dir: '', tiles: null, poi: null, foliage: null, plants: null, plantsDir: null };
   let WORLD = MAP.size;
   const mapLosDir = () => `${MAP.dir}/los`;
   const CRS = L.Util.extend({}, L.CRS, {
@@ -78,13 +76,13 @@
       // the 50 m offset makes Leaflet ask for a column just past the last tile at some zooms: nothing is there. The
       // range is Everon's and Kolguyev's; a smaller map simply has no file for the rest (the server answers 404).
       const z = 5 - c.z, n = 2 ** (7 - z), y = -(c.y + 1);
-      if (c.x < 0 || y < 0 || c.x >= n || y >= n) return BLANK_TILE;
+      if (!MAP.tiles || c.x < 0 || y < 0 || c.x >= n || y >= n) return BLANK_TILE;
       return MAP.tiles.replace('{z}', z).replace('{x}', c.x).replace('{y}', y);
     },
   });
   let tileLayer = null;
-  // The satellite picture, the map's edges and the view for the map in MAP; the join screen shows Everon until a room's
-  // own map is known. Every layer's `bounds` option is read when a tile is asked for, so they are updated here.
+  // The satellite picture, the map's edges and the view for the map in MAP; the join screen shows the one picked in its
+  // list until a room's own map is known. Every layer's `bounds` option is read when a tile is asked for, so they are updated here.
   function showMapBase() {
     WORLD = MAP.size;
     worldBounds = L.latLngBounds(toLL([0, 0]), toLL([WORLD, WORLD]));
@@ -92,7 +90,7 @@
     tileLayer = new MapTiles('', { minZoom: -1, maxZoom: 7, minNativeZoom: 0, maxNativeZoom: 5, bounds: worldBounds, keepBuffer: 3, errorTileUrl: BLANK_TILE }).addTo(map);
     tileLayer.bringToBack();
     map.setMaxBounds(worldBounds.pad(0.25));
-    // Everon opens at zoom 0; a smaller map opens zoomed in far enough to fill the window.
+    // A 12.8 km map opens at zoom 0; a smaller map opens zoomed in far enough to fill the window.
     map.invalidateSize({ animate: false });
     const size = map.getSize(), fit = size.x && size.y ? Math.log2(Math.min(size.x, size.y) / (WORLD / SCALE)) : 0;
     map.setView(toLL([WORLD / 2, WORLD / 2]), Math.min(3, Math.max(0, Math.round(fit * 2) / 2)), { animate: false });
@@ -873,7 +871,7 @@
   async function api(path, body) {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+    if (!res.ok) throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status });
     return data;
   }
   const saveItem = item => api('/api/item', { id: state.me.id, token: state.me.token, item })
@@ -1209,6 +1207,7 @@
         });
         setBriefing(ev.briefing || null, false);
         setClock(ev.clock, ev.now);
+        if (state.restore) { restoreMine(state.restore); state.restore = null; }
         break;
       case 'clock':
         setClock(ev.clock, ev.now);
@@ -1253,6 +1252,7 @@
         break;
       }
     }
+    if (ev.type === 'snapshot' || isMine(ev.owner)) keepMine();
     refreshLists();
   }
 
@@ -3305,10 +3305,12 @@
     try { const v = parseFloat(localStorage.getItem(LOS_STRENGTH_KEY)); if (v >= 0 && v <= 1.5) return v; } catch { /* storage unavailable */ }
     return 1;
   })();
-  state.losMode = (() => {
+  // read again once the room's map is known (startMap)
+  const savedLosMode = () => {
     try { const v = localStorage.getItem(LOS_MODE_KEY); if (modeAvailable(v)) return v; } catch { /* storage unavailable */ }
     return defaultLosMode();
-  })();
+  };
+  state.losMode = savedLosMode();
   // What the worker needs to find this map's files.
   const workerCfg = () => ({
     size: WORLD, losDir: mapLosDir(),
@@ -6538,11 +6540,15 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Session: username prompt every visit, nothing remembered
+  // Session: username prompt every visit. Only this tab remembers who you were (sessionStorage), so a reload puts you
+  // straight back in the room; closing the tab forgets it.
   // ---------------------------------------------------------------------------
+  const SESSION_KEY = 'everon-session';
   function showJoin(message) {
     if (state.es) { state.es.close(); state.es = null; }
     state.me = null;
+    state.restore = null;
+    state.restoring = false;
     [...state.players.keys()].forEach(removePlayer);
     refreshLists();
     $('#identity').classList.add('hidden');
@@ -6552,35 +6558,60 @@
     setTimeout(() => $('#join-name').focus(), 0);
   }
 
-  $('#join-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    const btn = e.target.querySelector('button');
-    btn.disabled = true;
+  async function joinRoom(name, room, mapId) {
+    if (!DEFAULT_MAP) await loadMaps();
+    const me = await api('/api/join', { name, room, map: mapId });
+    state.me = me;
+    state.restoring = true; // nothing loaded yet: don't let a leave overwrite the kept copy
+    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ name: me.name, room: me.room, map: me.map })); } catch { /* storage unavailable */ }
+    // The room code goes in the address (after #, so it never reaches the server's logs): a reload or an
+    // invite link fills it in again.
+    history.replaceState(null, '', `#room=${encodeURIComponent(me.room)}`);
+    // the room's map, which may not be the one picked (a room that's already open keeps its own)
+    if (!startMap(me.map)) return;
+    // Markings this browser kept from your last visit to this room go back up once the room has loaded.
+    state.restore = keptMine(me);
+    state.restoring = !!state.restore;
+    $('#join-map').value = MAP.id;
+    $('#room-map').textContent = MAP.name;
+    $('#me-avatar').style.background = me.color;
+    $('#me-avatar').textContent = [...me.name][0].toUpperCase();
+    $('#me-name').textContent = me.name;
+    $('#room-code').textContent = me.room;
+    $('#identity').classList.remove('hidden');
+    $('#join').classList.add('hidden');
+    document.activeElement?.blur(); // so tool hotkeys work straight away
+    connect();
+  }
+
+  async function submitJoin(retries = 0) {
+    const btn = $('#join-form').querySelector('button[type=submit], button:not([type])');
+    if (btn) btn.disabled = true;
     $('#join-error').textContent = '';
     try {
-      const me = await api('/api/join', { name: $('#join-name').value, room: $('#join-room').value, map: $('#join-map').value });
-      state.me = me;
-      // the room's map, which may not be the one picked (a room that's already open keeps its own)
-      if (!startMap(me.map)) return;
-      $('#join-map').value = MAP.id;
-      $('#room-map').textContent = MAP.name;
-      $('#me-avatar').style.background = me.color;
-      $('#me-avatar').textContent = [...me.name][0].toUpperCase();
-      $('#me-name').textContent = me.name;
-      // The room code goes in the address (after #, so it never reaches the server's logs): a reload or an
-      // invite link fills it in again.
-      history.replaceState(null, '', `#room=${encodeURIComponent(me.room)}`);
-      $('#room-code').textContent = me.room;
-      $('#identity').classList.remove('hidden');
-      $('#join').classList.add('hidden');
-      document.activeElement?.blur(); // so tool hotkeys work straight away
-      connect();
+      await joinRoom($('#join-name').value, $('#join-room').value, $('#join-map').value);
     } catch (err) {
+      // After a reload the old session may not have left yet; give it a moment.
+      if (err.status === 409 && retries > 0) { setTimeout(() => submitJoin(retries - 1), 1500); return; }
       $('#join-error').textContent = err.message === 'Failed to fetch' ? 'Cannot reach the map server. Is it running?' : err.message;
     } finally {
-      btn.disabled = false;
+      if (btn) btn.disabled = false;
     }
-  });
+  }
+  $('#join-form').addEventListener('submit', e => { e.preventDefault(); submitJoin(); });
+
+  // The server forgot this session (it restarted, or the connection was gone too long, e.g. a phone that slept):
+  // join the same room again under the same name, and your kept markings go back up.
+  async function rejoin(old) {
+    try {
+      await joinRoom(old.name, old.room, old.map);
+      toast('Reconnected to the room.');
+    } catch (err) {
+      $('#join-name').value = old.name;
+      $('#join-room').value = old.room;
+      showJoin(err.message === 'Failed to fetch' ? 'Lost connection to the map server. Press Join to try again.' : err.message);
+    }
+  }
 
   function connect() {
     const { id, token } = state.me;
@@ -6588,20 +6619,104 @@
     state.es = es;
     es.onmessage = m => { try { onEvent(JSON.parse(m.data)); } catch (err) { console.error(err); } };
     es.addEventListener('bye', m => {
+      if (left) return; // our own leave on the way out, not a removal
       let reason = '';
       try { reason = JSON.parse(m.data).reason || ''; } catch { /* older server */ }
+      // Removed by the admin: don't bring this room's markings back next time.
+      if (state.me) forgetMine(state.me);
+      try { sessionStorage.removeItem(SESSION_KEY); } catch { /* storage unavailable */ }
       showJoin(reason || 'Your session ended. Enter a username to rejoin.');
     });
     es.onerror = () => {
-      if (es.readyState === EventSource.CLOSED && state.es === es) showJoin('Lost connection to the map server. Enter a username to rejoin.');
+      if (es.readyState !== EventSource.CLOSED || state.es !== es) return;
+      const old = state.me;
+      es.close();
+      state.es = null;
+      if (old) rejoin(old);
+      else showJoin('Lost connection to the map server. Enter a username to rejoin.');
     };
   }
 
-  // Closing the tab removes your markings right away; if this signal is lost the server drops you after 15 s.
+  // ---------------------------------------------------------------------------
+  // Kept markings: this browser keeps a copy of your own markings per map and room (localStorage, nothing on the
+  // server), so a reload, a crash, a tab the phone put to sleep or a server restart doesn't lose them. Rejoining the
+  // room puts them back. A copy last touched more than KEEP_MINUTES ago is dropped; while you're in the room it is
+  // touched every minute, so the time counts from when you left or lost the connection.
+  // ---------------------------------------------------------------------------
+  const KEEP_PREFIX = 'everon-kept:';
+  const KEEP_MINUTES = 5;
+  const keepKey = me => `${KEEP_PREFIX}${me.map}:${me.room}`;
+  let keepTimer = null;
+  function writeKept() {
+    clearTimeout(keepTimer);
+    keepTimer = null;
+    const me = state.me;
+    if (!me || state.restoring) return; // while restoring, the copy holds more than the server does yet
+    const mine = state.players.get(me.name);
+    const items = mine ? [...mine.items.values()] : [];
+    try {
+      if (items.length) localStorage.setItem(keepKey(me), JSON.stringify({ at: Date.now(), items }));
+      else localStorage.removeItem(keepKey(me));
+    } catch { /* storage unavailable or full */ }
+  }
+  setInterval(writeKept, 60e3);
+  function keepMine() {
+    if (!keepTimer) keepTimer = setTimeout(writeKept, 500);
+  }
+  function keptMine(me) {
+    try {
+      const kept = JSON.parse(localStorage.getItem(keepKey(me)) || 'null');
+      if (kept && Array.isArray(kept.items) && kept.items.length && Date.now() - kept.at < KEEP_MINUTES * 60e3) return kept.items;
+    } catch { /* storage unavailable or damaged */ }
+    return null;
+  }
+  function forgetMine(me) {
+    clearTimeout(keepTimer);
+    keepTimer = null;
+    try { localStorage.removeItem(keepKey(me)); } catch { /* storage unavailable */ }
+  }
+  // Old copies (other rooms, other days) go at startup so they don't fill the browser's storage.
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(KEEP_PREFIX)) continue;
+      let at = 0;
+      try { at = JSON.parse(localStorage.getItem(k)).at || 0; } catch { /* damaged: drop it */ }
+      if (Date.now() - at >= KEEP_MINUTES * 60e3) localStorage.removeItem(k);
+    }
+  } catch { /* storage unavailable */ }
+
+  // Upload the kept markings the server doesn't have, one at a time (waiting out the rate limit if there are many).
+  async function restoreMine(items) {
+    const me = state.me;
+    const mine = state.players.get(me.name);
+    const todo = items.filter(it => !(mine && mine.items.has(it.id)));
+    let put = 0;
+    for (const item of todo) {
+      for (let tries = 0; tries < 20; tries++) {
+        if (state.me !== me) return; // left or rejoined meanwhile; the copy stays as it was
+        try { await api('/api/item', { id: me.id, token: me.token, item }); put++; break; }
+        catch (err) {
+          if (err.status === 429) { await new Promise(r => setTimeout(r, 1000)); continue; }
+          if (err.status === 401) return;
+          break; // this one isn't accepted any more (limits or rules changed); carry on with the rest
+        }
+      }
+    }
+    if (state.me !== me) return;
+    state.restoring = false;
+    writeKept();
+    if (put) toast(`Put back ${put} of your marking${put === 1 ? '' : 's'}.`);
+  }
+
+  // Closing the tab removes your markings from the room right away (this browser keeps its copy); if this signal is
+  // lost the server drops you after 15 s.
   let left = false;
   function leave() {
     if (!state.me || left) return;
     left = true;
+    writeKept();
+    if (state.es) { state.es.close(); state.es = null; } // the server's goodbye must not reach the page now
     const body = JSON.stringify({ id: state.me.id, token: state.me.token });
     if (!navigator.sendBeacon('/api/leave', body)) {
       fetch('/api/leave', { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'application/json' } }).catch(() => {});
@@ -6639,7 +6754,7 @@
   // joining a room on another map afterwards reloads it. Returns false when it does.
   let startedMap = null;
   function startMap(id) {
-    const def = MAPS[id] || MAPS.everon;
+    const def = MAPS[id] || MAPS[DEFAULT_MAP];
     if (startedMap) {
       if (startedMap === def.id) return true;
       toast(`Switching to ${def.name}…`);
@@ -6648,7 +6763,7 @@
     }
     startedMap = def.id;
     if (MAP !== def || !tileLayer) { MAP = def; showMapBase(); }
-    if (!modeAvailable(state.losMode)) state.losMode = defaultLosMode();
+    state.losMode = savedLosMode();
     renderLosDetail();
     // Town and landmark names come from the game's map descriptors (places.json); a map with a reference file of its own
     // (Everon's bases, caves, supplies...) adds everything else from it.
@@ -6714,12 +6829,34 @@
       .then(buf => { HEIGHT = new Int16Array(buf); rerenderMortars(); refreshLists(); contourLayer.redraw(); hillshadeLayer.redraw(); lzShadeLayer.redraw(); })
       .catch(err => { console.error(err); toast('Could not load terrain heights - mortar solutions ignore elevation.', 6000); });
   }
-  // Until a room's map is known the join screen shows the one picked in its list (Everon to begin with).
+  // Until a room's map is known the join screen shows the one picked in its list (the server's first map to begin with).
+  let mapsLoading = null;
+  function loadMaps() {
+    mapsLoading = mapsLoading || fetch('/api/maps').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => {
+      MAPS = Object.fromEntries(Object.entries(d.maps).map(([id, m]) => [id, mapDef(id, m)]));
+      DEFAULT_MAP = MAPS[d.default] ? d.default : Object.keys(MAPS)[0];
+      if (!DEFAULT_MAP) throw new Error('no maps');
+      $('#join-map').replaceChildren(...Object.values(MAPS).map(m => new Option(m.name, m.id)));
+      if (!startedMap) { MAP = MAPS[DEFAULT_MAP]; showMapBase(); }
+    }).catch(err => { mapsLoading = null; throw err; });
+    return mapsLoading;
+  }
   showMapBase();
+  loadMaps().catch(err => { console.error('maps', err); $('#join-error').textContent = 'Could not load the map list. Is the map server running?'; });
   $('#join-map').addEventListener('change', e => {
-    if (startedMap) return;
-    MAP = MAPS[e.target.value] || MAPS.everon;
+    if (startedMap || !MAPS[e.target.value]) return;
+    MAP = MAPS[e.target.value];
     showMapBase();
   });
-  $('#join-name').focus();
+  // A reload of a tab that was in a room goes straight back in.
+  const last = (() => { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } })();
+  if (last && last.room && last.room === roomFromHash()) {
+    $('#join-name').value = last.name || '';
+    loadMaps().then(() => {
+      if (MAPS[last.map] && !startedMap) { $('#join-map').value = last.map; MAP = MAPS[last.map]; showMapBase(); }
+      submitJoin(2);
+    }).catch(() => { /* the join screen already says the map list didn't load */ });
+  } else {
+    $('#join-name').focus();
+  }
 })();

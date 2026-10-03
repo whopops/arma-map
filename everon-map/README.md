@@ -19,8 +19,11 @@ Open the site, pick a username and a **room code**. Everyone who uses the same c
 **New code** makes a random one. **Invite** (next to your name, top left) copies a link that fills the code in. The
 first person into a room picks its map; anyone who joins later gets that map.
 
-Nothing is stored for you: your markings disappear when you close the tab (or within ~16 s if your browser drops).
-Use **Export plan** / **Import plan** (My markings) to keep a plan between sessions.
+The server stores nothing about you: your markings leave the room when you close the tab (or within ~16 s if your
+browser drops). Your own browser keeps a copy of them for 5 minutes after you leave, though, so a reload, a crash, a
+phone that put the tab to sleep or a server restart doesn't lose them: you rejoin the room by yourself and they go back
+up (on a fresh tab, join the same room on the same map within 5 minutes to get them back). Use **Export plan** / **Import plan** (My markings) to keep a
+plan longer or move it to another room.
 
 ### Layout
 
@@ -313,7 +316,7 @@ double-click **Start Everon Map.cmd**) and open http://localhost:8765/ (the 3D v
 
 ### Reverse proxy
 
-Serve over **HTTPS**: session tokens travel with every request. The pages call absolute paths (`/api/…`, `/tiles/…`,
+Serve over **HTTPS**: session tokens travel with every request. The pages call absolute paths (`/api/…`,
 `/maptiles/…`, `/data/…`, `/los-worker.js`, `/admin`, and the 3D view at `/3d/…`), so give the site its own domain
 or subdomain, or forward all of those (with the field map's own files) to it, the 3D view included. Disable response
 buffering so live updates arrive at once. Caddy example:
@@ -407,21 +410,27 @@ Security:
 
 | Path | What |
 |---|---|
-| `server.py` | Web server, rooms, live updates, admin, Everon tile cache |
+| `server.py` | Web server, rooms, live updates, admin, the map list and tiles |
 | `static/` | The field map (`index.html`, `app.js`, `app.css`), the line-of-sight worker (`los-worker.js`, used by both views) and the admin page |
-| `static/3d/` | The 3D view: its page and scripts, and `maps.json` (the maps it offers: size, grid, camera start) |
+| `static/3d/` | The 3D view: its page and scripts (its `maps.json` is the server's map list) |
 | `static/data/everon.json` | Everon's bases, supplies, vehicle spawns, caves and FIA cache spots (from the game) |
 | `static/data/mortar-tables.json` | The in-game firing tables (used only to decide which rings reach) |
 | `static/data/rockets.json` | Measured rocket flights, wind effects and the launchers' sight marks (reforger-map-tools `rockettest.py score`) |
-| `static/data/maps/<map>/` | Per map, read by both views: `tiles/` (Kolguyev, Arland), `roads.json`, `places.json`, `los/` (500 m tiles), `light/` (10 m grids), `plants/`, `foliage.json`, `foliage/foliage_profiles.json`, and `trees/` (the 3D view's shaped trees) |
+| `static/data/maps/<map>/` | Per map, read by both views: `map.json` (see below), `tiles/` (satellite tiles), `roads.json`, `places.json`, `los/` (500 m tiles), `light/` (10 m grids), `plants/`, `foliage.json`, `foliage/foliage_profiles.json`, and `trees/` (the 3D view's shaped trees) |
 
 This folder holds only what runs the site. Everything that makes its map data lives in `reforger-map-tools`: it
 exports a map from the game, bakes it (`rmt.py bake`), scores the line of sight (`rmt.py check`) and installs the
-result for both views (`rmt.py fieldmap <world>`: `static/data/maps/<map>/`, the 3D trees and `static/3d/maps.json`).
+result for both views (`rmt.py fieldmap <world>`: `static/data/maps/<map>/` with its `map.json`, and the 3D trees).
 
-- **Everon tiles**: still fetched from an outside tile server and cached in `tile_cache/` (`TILE_UPSTREAM` in
-  `server.py`). Kolguyev and Arland tiles are baked in.
+- **Everon tiles**: still fetched from an outside tile server and cached in `tile_cache/` (`upstream` in Everon's
+  `map.json`). A tile that is in `static/data/maps/everon/tiles/` is used first, so installing Everon's own tiles
+  replaces them; then delete `upstream`. Kolguyev and Arland tiles are baked in.
 - **Positions**: town and landmark names come from the game's map descriptors (`places.json`); caves are approximate.
 - **Kolguyev and Arland**: they have no bases, supplies, vehicle spawns or caches yet, so those layers and the FIA
   section are hidden there. They need exporting from the game's Conflict scenarios (not done by reforger-map-tools yet).
-- **Adding a map**: maps are listed in `MAPS` in both `static/app.js` and `server.py`.
+- **Adding a map**: put its folder in `static/data/maps/<map>/` (`rmt.py fieldmap <world> --as <map>` does it). The
+  server lists every folder with a `map.json`, so the map appears in the join screen and the 3D view with no code
+  change. `map.json` holds `title`, `world` (size in metres), the 500 m grid (`tile`, `cols`, `rows`), the 10 m grid
+  (`lightCols`, `lightCell`), `unit`, the 3D camera `start`, `hasTrees`, and optionally `order` (place in the list;
+  the first is the default), `slug` (the game world it came from) and `upstream` (`url` and `cache` folder for tiles
+  fetched from another site). A reference file of bases and caches at `static/data/<map>.json` is picked up too.
