@@ -178,7 +178,8 @@ correct fire.
   range. Also: radio network links, radio masts and HQ start positions.
 - **Terrain**: forest, roads, foot paths, hill shading, contour lines (10-50 m; the cursor readout then shows height).
 - **Planning overlays**: line-of-sight shading and helicopter landing (good, marginal, no-go).
-- **Resources**: supply stashes, infinite supply points (Everon), vehicle spawns, refuel and repair points.
+- **Resources**: supply stashes, infinite supply points, vehicle spawns, refuel and repair points (Everon only), and
+  fuel stations (every map, from the game's map symbols). A layer a map has no data for is not listed.
 - **Line of sight**: Measured (0.5 m, the default on computers) or Light (10 m, the default on phones). **Foliage
   strength** tunes how much leaves block in Measured.
 
@@ -421,5 +422,6 @@ result for both views (`rmt.py fieldmap <world>`: `static/data/maps/<map>/`, the
 - **Everon tiles**: still fetched from an outside tile server and cached in `tile_cache/` (`TILE_UPSTREAM` in
   `server.py`). Kolguyev and Arland tiles are baked in.
 - **Positions**: town and landmark names come from the game's map descriptors (`places.json`); caves are approximate.
-- **Kolguyev and Arland**: they have no bases, supplies or caches yet.
+- **Kolguyev and Arland**: they have no bases, supplies, vehicle spawns or caches yet, so those layers and the FIA
+  section are hidden there. They need exporting from the game's Conflict scenarios (not done by reforger-map-tools yet).
 - **Adding a map**: maps are listed in `MAPS` in both `static/app.js` and `server.py`.
