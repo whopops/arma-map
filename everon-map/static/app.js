@@ -4082,12 +4082,14 @@
   // data/bullets.json: each round at its weapon's launch speed). `zeros`: a turret scope's ranges (its SightRangeInfo
   // list; the game zeroes the reticle centre for the range set). `lines`: a sight with range lines instead, [range,
   // texture row] measured off its reticle texture, `pxdeg` px per degree (m_fReticlePortion of the texture spans
-  // m_fReticleAngularSize), `axis` the row the bore points at (fitted to the measured flights). `reticle`: how it's drawn.
+  // m_fReticleAngularSize), `centre` the texture's centre row (where the aim mark is drawn), `axis` the row the bore
+  // points at, per gun (least-squares fitted to the measured flights in bullets.json; the game's lines don't all match
+  // the flights, and the hold covers the rest). `reticle`: how it's drawn.
   // `target`: what it's drawn against (man-sized for the infantry weapons; a LAV-25 for the NSV, BTR-70 and BRDM-2; a
   // BTR-70 for the LAV-25).
   const steps = (a, b, s) => Array.from({ length: Math.round((b - a) / s) + 1 }, (_, i) => a + i * s);
-  const PP61 = { pxdeg: 152.8, axis: 512, reticle: 'pp61', mils: 0.06 };
-  const LAV25 = { pxdeg: 376.4, axis: 511.5, reticle: 'lav' };
+  const PP61 = { pxdeg: 152.8, axis: 512, centre: 512, reticle: 'pp61', mils: 0.06 };
+  const LAV25 = { pxdeg: 376.4, axis: 511.5, centre: 511.5, reticle: 'lav' };
   const SCOPES = {
     'SVD': { name: 'SVD · PSO-1', round: '7N1 (SVD)', group: 'Rifles and machine guns', target: 'man', zeros: steps(100, 1000, 100), reticle: 'pso1', mils: 0.06 },
     'M21': { name: 'M21 · ART II', round: 'M118 (M21)', group: 'Rifles and machine guns', target: 'man', zeros: steps(300, 900, 100), reticle: 'art2' },
@@ -4099,14 +4101,14 @@
     'PKMN': { name: 'PKMN · 1P29', round: '57N323S (PKM, UK59)', group: 'Rifles and machine guns', target: 'man', zeros: steps(100, 500, 100), reticle: 'post' },
     'UK59': { name: 'UK59 · 4x8', round: '57N323S (PKM, UK59)', group: 'Rifles and machine guns', target: 'man', zeros: steps(100, 1000, 100), reticle: 'uk59' },
     'NSV': { name: 'NSV · SPP', round: 'B32 (NSV)', group: 'Heavy and vehicle guns', target: 'lav', zeros: steps(400, 2000, 100), reticle: 'spp', mils: 0.06 },
-    'BTR-70 KPVT': { name: 'BTR-70 · KPVT', round: 'BZ (KPVT)', group: 'Heavy and vehicle guns', target: 'lav', ...PP61, side: 'left',
+    'BTR-70 KPVT': { name: 'BTR-70 · KPVT', round: 'BZ (KPVT)', group: 'Heavy and vehicle guns', target: 'lav', ...PP61, axis: 525.5, side: 'left',
       // [range, row, 1 = a long, labelled line]
       lines: [[400, 531.5, 1], [600, 544.5], [800, 560, 1], [1000, 581], [1200, 600.5, 1], [1400, 623], [1600, 651.5, 1], [1800, 687], [2000, 727.5, 1]] },
-    'BTR-70 PKT': { name: 'BTR-70 · PKT', round: '57N323S (PKT)', group: 'Heavy and vehicle guns', target: 'lav', ...PP61, side: 'right',
+    'BTR-70 PKT': { name: 'BTR-70 · PKT', round: '57N323S (PKT)', group: 'Heavy and vehicle guns', target: 'lav', ...PP61, axis: 524, side: 'right',
       lines: [[200, 539], [400, 556.5, 1], [600, 578], [800, 612, 1], [1000, 654], [1200, 718, 1], [1400, 791.5], [1500, 837, 1]] },
-    'LAV-25 M242 HE': { name: 'LAV-25 · M242 HEI-T', round: 'M792 HEI-T (M242)', group: 'Heavy and vehicle guns', target: 'btr', ...LAV25, side: 'left',
+    'LAV-25 M242 HE': { name: 'LAV-25 · M242 HEI-T', round: 'M792 HEI-T (M242)', group: 'Heavy and vehicle guns', target: 'btr', ...LAV25, axis: 378, side: 'left',
       lines: [[600, 511.5, 1], [1000, 567.5, 1], [1200, 608.5, 1], [1400, 652.5, 1], [1600, 705.5, 1], [1800, 773.5, 1], [2000, 859.5, 1], [2200, 941.5, 1]] },
-    'LAV-25 M242 AP': { name: 'LAV-25 · M242 APDS-T', round: 'M791 APDS-T (M242)', group: 'Heavy and vehicle guns', target: 'btr', ...LAV25, side: 'right',
+    'LAV-25 M242 AP': { name: 'LAV-25 · M242 APDS-T', round: 'M791 APDS-T (M242)', group: 'Heavy and vehicle guns', target: 'btr', ...LAV25, axis: 428.5, side: 'right',
       lines: [[1000, 511.5, 1], [1900, 567.5, 1], [2400, 608.5, 1], [2900, 652.5, 1], [3400, 705.5, 1]] },
   };
   // The BRDM-2's turret is the BTR-70's (BRDM2_turret.et inherits BTR70_Turret.et): same guns, same PP-61 sight
@@ -4323,11 +4325,12 @@
       // range lines below the aim mark (PP-61: KPVT left, PKT right; LAV-25: HE left, AP right), the chosen one in yellow,
       // labelled in hundreds of metres
       const sx = g.side === 'left' ? -1 : 1;
-      const long = g.reticle === 'pp61' ? 0.96 : 1.12, inner = g.reticle === 'pp61' ? 0 : 0.85;
-      s += chev(0, 0.04, 0.06);
-      s += P(`M${X(0)} ${Y(0)}V${Y((g.lines.at(-1)[1] - g.axis) / g.pxdeg + 0.05)}`);
-      if (g.reticle === 'pp61') for (let i = -12; i <= 12; i++) s += P(`M${X(i * 0.06)} ${Y(-0.21)}V${Y(-0.21 - (i % 5 ? 0.04 : 0.08))}`, 0.8);
-      else s += P(`M${X(-0.19)} ${Y(-0.155)}H${X(0.19)}M${X(0)} ${Y(-0.155)}V${Y(-0.4)}`);
+      // (the aim mark and the scale above it sit at the texture's centre, which needn't be the bore's row)
+      const long = g.reticle === 'pp61' ? 0.96 : 1.12, inner = g.reticle === 'pp61' ? 0 : 0.85, c = (g.centre - g.axis) / g.pxdeg;
+      s += chev(c, 0.04, 0.06);
+      s += P(`M${X(0)} ${Y(c)}V${Y((g.lines.at(-1)[1] - g.axis) / g.pxdeg + 0.05)}`);
+      if (g.reticle === 'pp61') for (let i = -12; i <= 12; i++) s += P(`M${X(i * 0.06)} ${Y(c - 0.21)}V${Y(c - 0.21 - (i % 5 ? 0.04 : 0.08))}`, 0.8);
+      else s += P(`M${X(-0.19)} ${Y(c - 0.155)}H${X(0.19)}M${X(0)} ${Y(c - 0.155)}V${Y(c - 0.4)}`);
       g.lines.forEach(([R, row, big]) => {
         const a = (row - g.axis) / g.pxdeg, on = Math.abs(a - sel) < 1e-6;
         const len = big ? long : inner + (long - inner) / 2;
@@ -4345,9 +4348,9 @@
     const cy0 = x.holdCalm != null ? deg(h2) + deg(x.holdCalm) : null; // where it would go in still air (straight above)
     // the view: target and both aim points, padded; never closer than a few target heights; a reticle with marks or
     // lines is shown far enough to see them
-    const lineSpan = g && g.lines ? (g.lines.at(-1)[1] - g.axis) / g.pxdeg : 0;
+    const lineSpan = g && g.lines ? (g.lines.at(-1)[1] - Math.min(g.centre, g.lines[0][1])) / g.pxdeg : 0;
     const minH = pgo ? 3.4 : g ? Math.max(deg(T.h) * 3, g.lines ? lineSpan + 0.5 : g.reticle === 'pso1' ? 1.1 : 0.5) : Math.max(deg(T.h) * 4, 0.6);
-    const reticleTop = g && g.lines ? ay + x.mark[1] + 0.45 : ay;
+    const reticleTop = g && g.lines ? ay + x.mark[1] - (g.centre - g.axis) / g.pxdeg + 0.45 : ay;
     const lo = Math.min(0, ay, cy0 ?? ay) - (pgo ? 0.3 : 0), hi = Math.max(deg(T.h), ay, reticleTop, cy0 ?? ay) + (pgo ? 0.3 : 0);
     // (the PGO-7 view is as wide as the reticle's lateral scale, ±3°, plus its range numbers, and centred on it; a gun's
     // reticle is centred too)
