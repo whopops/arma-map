@@ -1,0 +1,17 @@
+{
+ "title": "Kolguyev",
+ "slug": "cain-1ea95d",
+ "order": 2,
+ "world": 12800.0,
+ "tile": 500.0,
+ "cols": 26,
+ "rows": 26,
+ "lightCols": 1300,
+ "lightCell": 10,
+ "unit": 0.02,
+ "start": [
+  6750.0,
+  6250.0
+ ],
+ "hasTrees": true
+}

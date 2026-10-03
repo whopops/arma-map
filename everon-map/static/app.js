@@ -8,20 +8,18 @@
   // ---------------------------------------------------------------------------
   const OFFSET = 50;
   const SCALE = 12.501;
-  // The maps a room can be opened on (the server keeps the same list). size: the world's side in metres. Every map's
+  // The maps a room can be opened on, as the server lists them (/api/maps: one per data/maps/<id>/map.json). Every map's
   // data lives in data/maps/<id>/ (roads.json, places.json, light/, los/, plants/, foliage.json, foliage/, tiles/), as
-  // baked by reforger-map-tools; only Everon's satellite tiles come from elsewhere (the server's /tiles/ cache).
-  // poi: extra reference layers (Conflict bases, caves, supplies...), Everon only so far. plants/plantsDir: the
-  // plant list and tile files the Measured line of sight reads.
-  const MAPS = {
-    everon: { id: 'everon', name: 'Everon', size: 12800, dir: 'data/maps/everon', tiles: '/tiles/{z}/{x}/{y}.jpg', poi: 'data/everon.json',
-      foliage: 'data/maps/everon/foliage/foliage_profiles.json', plants: 'data/maps/everon/foliage.json', plantsDir: 'data/maps/everon/plants' },
-    kolguyev: { id: 'kolguyev', name: 'Kolguyev', size: 12800, dir: 'data/maps/kolguyev', tiles: '/maptiles/kolguyev/{z}/{x}/{y}.jpg',
-      foliage: 'data/maps/kolguyev/foliage/foliage_profiles.json', plants: 'data/maps/kolguyev/foliage.json', plantsDir: 'data/maps/kolguyev/plants' },
-    arland: { id: 'arland', name: 'Arland', size: 4096, dir: 'data/maps/arland', tiles: '/maptiles/arland/{z}/{x}/{y}.jpg',
-      foliage: 'data/maps/arland/foliage/foliage_profiles.json', plants: 'data/maps/arland/foliage.json', plantsDir: 'data/maps/arland/plants' },
-  };
-  let MAP = MAPS.everon;
+  // baked by reforger-map-tools. size: the world's side in metres. poi: extra reference layers (Conflict bases, caves,
+  // supplies...) when the map has them. plants/plantsDir: the plant list and tile files the Measured line of sight reads.
+  const mapDef = (id, m) => ({
+    id, name: m.title || id, size: m.world, dir: `data/maps/${id}`, tiles: m.tiles, poi: m.poi || null,
+    foliage: `data/maps/${id}/foliage/foliage_profiles.json`, plants: m.hasPlants ? `data/maps/${id}/foliage.json` : null,
+    plantsDir: `data/maps/${id}/plants`,
+  });
+  let MAPS = {}, DEFAULT_MAP = null;
+  // until the list arrives: an empty 12.8 km map with no tiles
+  let MAP = { id: '', name: '', size: 12800, dir: '', tiles: null, poi: null, foliage: null, plants: null, plantsDir: null };
   let WORLD = MAP.size;
   const mapLosDir = () => `${MAP.dir}/los`;
   const CRS = L.Util.extend({}, L.CRS, {
@@ -78,13 +76,13 @@
       // the 50 m offset makes Leaflet ask for a column just past the last tile at some zooms: nothing is there. The
       // range is Everon's and Kolguyev's; a smaller map simply has no file for the rest (the server answers 404).
       const z = 5 - c.z, n = 2 ** (7 - z), y = -(c.y + 1);
-      if (c.x < 0 || y < 0 || c.x >= n || y >= n) return BLANK_TILE;
+      if (!MAP.tiles || c.x < 0 || y < 0 || c.x >= n || y >= n) return BLANK_TILE;
       return MAP.tiles.replace('{z}', z).replace('{x}', c.x).replace('{y}', y);
     },
   });
   let tileLayer = null;
-  // The satellite picture, the map's edges and the view for the map in MAP; the join screen shows Everon until a room's
-  // own map is known. Every layer's `bounds` option is read when a tile is asked for, so they are updated here.
+  // The satellite picture, the map's edges and the view for the map in MAP; the join screen shows the one picked in its
+  // list until a room's own map is known. Every layer's `bounds` option is read when a tile is asked for, so they are updated here.
   function showMapBase() {
     WORLD = MAP.size;
     worldBounds = L.latLngBounds(toLL([0, 0]), toLL([WORLD, WORLD]));
@@ -92,7 +90,7 @@
     tileLayer = new MapTiles('', { minZoom: -1, maxZoom: 7, minNativeZoom: 0, maxNativeZoom: 5, bounds: worldBounds, keepBuffer: 3, errorTileUrl: BLANK_TILE }).addTo(map);
     tileLayer.bringToBack();
     map.setMaxBounds(worldBounds.pad(0.25));
-    // Everon opens at zoom 0; a smaller map opens zoomed in far enough to fill the window.
+    // A 12.8 km map opens at zoom 0; a smaller map opens zoomed in far enough to fill the window.
     map.invalidateSize({ animate: false });
     const size = map.getSize(), fit = size.x && size.y ? Math.log2(Math.min(size.x, size.y) / (WORLD / SCALE)) : 0;
     map.setView(toLL([WORLD / 2, WORLD / 2]), Math.min(3, Math.max(0, Math.round(fit * 2) / 2)), { animate: false });
@@ -3291,10 +3289,12 @@
     try { const v = parseFloat(localStorage.getItem(LOS_STRENGTH_KEY)); if (v >= 0 && v <= 1.5) return v; } catch { /* storage unavailable */ }
     return 1;
   })();
-  state.losMode = (() => {
+  // read again once the room's map is known (startMap)
+  const savedLosMode = () => {
     try { const v = localStorage.getItem(LOS_MODE_KEY); if (modeAvailable(v)) return v; } catch { /* storage unavailable */ }
     return defaultLosMode();
-  })();
+  };
+  state.losMode = savedLosMode();
   // What the worker needs to find this map's files.
   const workerCfg = () => ({
     size: WORLD, losDir: mapLosDir(),
@@ -6544,6 +6544,7 @@
     btn.disabled = true;
     $('#join-error').textContent = '';
     try {
+      if (!DEFAULT_MAP) await loadMaps();
       const me = await api('/api/join', { name: $('#join-name').value, room: $('#join-room').value, map: $('#join-map').value });
       state.me = me;
       // the room's map, which may not be the one picked (a room that's already open keeps its own)
@@ -6624,7 +6625,7 @@
   // joining a room on another map afterwards reloads it. Returns false when it does.
   let startedMap = null;
   function startMap(id) {
-    const def = MAPS[id] || MAPS.everon;
+    const def = MAPS[id] || MAPS[DEFAULT_MAP];
     if (startedMap) {
       if (startedMap === def.id) return true;
       toast(`Switching to ${def.name}…`);
@@ -6633,7 +6634,7 @@
     }
     startedMap = def.id;
     if (MAP !== def || !tileLayer) { MAP = def; showMapBase(); }
-    if (!modeAvailable(state.losMode)) state.losMode = defaultLosMode();
+    state.losMode = savedLosMode();
     renderLosDetail();
     // Town and landmark names come from the game's map descriptors (places.json); a map with a reference file of its own
     // (Everon's bases, caves, supplies...) adds everything else from it.
@@ -6696,11 +6697,23 @@
       .then(buf => { HEIGHT = new Int16Array(buf); rerenderMortars(); refreshLists(); contourLayer.redraw(); hillshadeLayer.redraw(); lzShadeLayer.redraw(); })
       .catch(err => { console.error(err); toast('Could not load terrain heights - mortar solutions ignore elevation.', 6000); });
   }
-  // Until a room's map is known the join screen shows the one picked in its list (Everon to begin with).
+  // Until a room's map is known the join screen shows the one picked in its list (the server's first map to begin with).
+  let mapsLoading = null;
+  function loadMaps() {
+    mapsLoading = mapsLoading || fetch('/api/maps').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => {
+      MAPS = Object.fromEntries(Object.entries(d.maps).map(([id, m]) => [id, mapDef(id, m)]));
+      DEFAULT_MAP = MAPS[d.default] ? d.default : Object.keys(MAPS)[0];
+      if (!DEFAULT_MAP) throw new Error('no maps');
+      $('#join-map').replaceChildren(...Object.values(MAPS).map(m => new Option(m.name, m.id)));
+      if (!startedMap) { MAP = MAPS[DEFAULT_MAP]; showMapBase(); }
+    }).catch(err => { mapsLoading = null; throw err; });
+    return mapsLoading;
+  }
   showMapBase();
+  loadMaps().catch(err => { console.error('maps', err); $('#join-error').textContent = 'Could not load the map list. Is the map server running?'; });
   $('#join-map').addEventListener('change', e => {
-    if (startedMap) return;
-    MAP = MAPS[e.target.value] || MAPS.everon;
+    if (startedMap || !MAPS[e.target.value]) return;
+    MAP = MAPS[e.target.value];
     showMapBase();
   });
   $('#join-name').focus();
