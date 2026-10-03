@@ -1,6 +1,7 @@
 """Regression checks; run with python -B -m unittest test_server.py."""
 import concurrent.futures
 import io
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ from unittest.mock import patch
 
 import server
 import build_release
+
+UPSTREAM = "https://tiles.example/{z}/{x}/{y}.jpg"
 
 
 class ServerTests(unittest.TestCase):
@@ -373,14 +376,13 @@ class ServerTests(unittest.TestCase):
                 self.response = args
 
         with tempfile.TemporaryDirectory() as cache:
-            with patch.object(server, "TILE_CACHE", cache), \
-                    patch.object(server, "_missing_tiles", set()), \
+            with patch.object(server, "_missing_tiles", set()), \
                     patch.object(server.urllib.request, "urlopen", side_effect=upstream), \
                     patch.object(server.os, "fdopen", side_effect=WritingFile), \
                     patch.object(server.os, "replace", side_effect=publish):
                 requests = [Request(), Request()]
                 with concurrent.futures.ThreadPoolExecutor(2) as pool:
-                    futures = [pool.submit(server.Handler.tile, req, 0, 1, 1) for req in requests]
+                    futures = [pool.submit(server.Handler.upstream_tile, req, UPSTREAM, cache, 0, 1, 1) for req in requests]
                     for future in futures:
                         future.result(timeout=5)
             self.assertEqual(len(set(temporary_paths)), 2)
@@ -395,13 +397,90 @@ class ServerTests(unittest.TestCase):
                 raise AssertionError("failed publish must not report success")
 
         with tempfile.TemporaryDirectory() as cache:
-            with patch.object(server, "TILE_CACHE", cache), \
-                    patch.object(server, "_missing_tiles", set()), \
+            with patch.object(server, "_missing_tiles", set()), \
                     patch.object(server.urllib.request, "urlopen", return_value=io.BytesIO(b"\xff\xd8test")), \
                     patch.object(server.os, "replace", side_effect=OSError("publish failed")):
                 with self.assertRaisesRegex(OSError, "publish failed"):
-                    server.Handler.tile(Request(), 0, 1, 1)
+                    server.Handler.upstream_tile(Request(), UPSTREAM, cache, 0, 1, 1)
             self.assertEqual(list(Path(cache).rglob("*.part")), [])
+
+
+class MapListTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.maps = Path(self.tmp.name, "maps")
+        for p in [patch.object(server, "MAPS_DIR", str(self.maps)), patch.object(server, "STATIC", self.tmp.name),
+                  patch.object(server, "ROOT", self.tmp.name), patch.object(server, "_maps_cache", {"key": None, "maps": {}})]:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def add(self, map_id, **info):
+        d = self.maps / map_id
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "map.json").write_text(json.dumps(info), encoding="utf8")
+        return d
+
+    def test_every_folder_with_a_map_json_is_listed_in_order(self):
+        self.add("zeta", title="Zeta", world=4096)
+        self.add("alpha", title="Alpha", world=12800, order=2, upstream={"url": "https://x/{z}/{x}/{y}.jpg"})
+        self.add("beta", title="Beta", world=12800, order=1)
+        (self.add("beta2", world=12800) / "foliage.json").write_text("{}")
+        (self.maps / "nojson").mkdir()
+        self.add("broken", title="Broken")  # no world size
+        self.add("Bad Name", world=1)
+        Path(self.tmp.name, "data").mkdir()
+        Path(self.tmp.name, "data", "alpha.json").write_text("{}")
+        listed = server.public_maps()
+        self.assertEqual(list(listed["maps"]), ["beta", "alpha", "beta2", "zeta"])
+        self.assertEqual(listed["default"], "beta")
+        self.assertEqual(server.default_map(), "beta")
+        alpha = listed["maps"]["alpha"]
+        self.assertNotIn("upstream", alpha)
+        self.assertEqual(alpha["tiles"], "/maptiles/alpha/{z}/{x}/{y}.jpg")
+        self.assertEqual(alpha["poi"], "/data/alpha.json")
+        self.assertNotIn("poi", listed["maps"]["zeta"])
+        self.assertEqual(listed["maps"]["beta2"]["title"], "Beta2")
+        self.assertTrue(listed["maps"]["beta2"]["hasPlants"])
+        self.assertFalse(listed["maps"]["zeta"]["hasPlants"])
+
+    def test_a_new_or_changed_map_json_is_picked_up(self):
+        self.add("one", world=100)
+        self.assertEqual(list(server.load_maps()), ["one"])
+        self.add("two", world=100, order=0)
+        self.assertEqual(list(server.load_maps()), ["two", "one"])
+
+    def test_join_accepts_only_listed_maps(self):
+        self.add("isle", world=100)
+        hub = server.Hub()
+        code, me = hub.join("alice", "room1", ipaddress.ip_address("10.0.0.1"))
+        self.assertEqual((code, me["map"]), (200, "isle"))
+        self.assertEqual(hub.join("bob", "room2", ipaddress.ip_address("10.0.0.2"), "nowhere")[0], 400)
+
+    def tile_request(self, map_id):
+        class Request:
+            def send_bytes(self, *args):
+                self.response = ("bytes",) + args
+
+            def send_file(self, *args):
+                self.response = ("file",) + args
+
+            def upstream_tile(self, *args):
+                self.response = ("upstream",) + args
+        req = Request()
+        server.Handler.map_tile(req, map_id, "0", "1", "1")
+        return req.response
+
+    def test_tiles_come_from_the_folder_then_the_upstream(self):
+        own = self.add("own", world=100)
+        (own / "tiles" / "0" / "1").mkdir(parents=True)
+        (own / "tiles" / "0" / "1" / "1.jpg").write_bytes(b"\xff\xd8")
+        self.add("up", world=100, upstream={"url": UPSTREAM, "cache": "tile_cache"})
+        self.add("sneaky", world=100, upstream={"url": UPSTREAM, "cache": "../outside"})
+        self.assertEqual(self.tile_request("own")[0], "file")
+        self.assertEqual(self.tile_request("up"), ("upstream", UPSTREAM, os.path.join(self.tmp.name, "tile_cache"), "0", "1", "1"))
+        self.assertEqual(self.tile_request("sneaky")[:2], ("bytes", 404))
+        self.assertEqual(self.tile_request("own2")[:2], ("bytes", 404))
 
 
 if __name__ == "__main__":

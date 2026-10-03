@@ -1,0 +1,21 @@
+{
+ "title": "Everon",
+ "slug": "eden-853e92",
+ "order": 1,
+ "world": 12800.0,
+ "tile": 500.0,
+ "cols": 26,
+ "rows": 26,
+ "lightCols": 1300,
+ "lightCell": 10,
+ "unit": 0.01,
+ "start": [
+  4560.0,
+  6880.0
+ ],
+ "hasTrees": true,
+ "upstream": {
+  "url": "https://reforger.recoil.org/map-tiles/everon/{z}/{x}/{y}/tile.jpg",
+  "cache": "tile_cache"
+ }
+}
