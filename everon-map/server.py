@@ -3,7 +3,8 @@
 Serves the web app (the field map at / and /map, the 3D view at /3d/, both reading the same map data under /data/),
 caches map tiles on disk, and relays shared markings between connected players in the same room. Nothing about players is stored:
 a player's markings exist only while their browser tab is connected, and a
-room (with its briefing) disappears when its last player leaves.
+room (with its briefing) disappears when its last player leaves. (The page keeps a copy of
+the player's own markings in their browser and uploads them again when they rejoin.)
 
 Run:  python server.py [--port 8765] [--host 0.0.0.0] [--admin-password PASSWORD]
 
@@ -45,15 +46,13 @@ from urllib.parse import parse_qs, urlparse
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
-TILE_CACHE = os.path.join(ROOT, "tile_cache")
 BANS_FILE = os.path.join(ROOT, "bans.json")
 TRUST_PROXY = False  # set by --behind-proxy
 ADMIN_ALLOW = None   # set by --admin-allow: networks the admin view answers to (None = everywhere)
-TILE_UPSTREAM = "https://reforger.recoil.org/map-tiles/everon/{z}/{x}/{y}/tile.jpg"
-# The maps a room can be opened on. Everon's satellite tiles come from the cache above; the others' are files under
-# static/data/maps/<map>/tiles/ (see the /maptiles/ route).
-MAPS = ("everon", "kolguyev", "arland")
-DEFAULT_MAP = "everon"
+# The maps a room can be opened on: every static/data/maps/<map>/ folder with a map.json (see load_maps). A new map
+# needs only its folder, as reforger-map-tools' `rmt.py fieldmap` installs it.
+MAPS_DIR = os.path.join(STATIC, "data", "maps")
+MAP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 GZIP_TYPES = {"text/html", "text/css", "application/javascript", "application/json"}
 COMPRESSED_CACHE = os.path.join(ROOT, "compressed_cache")
 _gzip_cache = collections.OrderedDict()  # metadata only; compressed bodies live on disk
@@ -238,13 +237,13 @@ class Hub:
         if not ROOM_RE.match(room):
             return 400, {"error": "Room codes are 3-32 letters, numbers, - or _."}
         if map_id is None:
-            map_id = DEFAULT_MAP
-        if map_id not in MAPS:
+            map_id = default_map()
+        if map_id not in load_maps():
             return 400, {"error": "Unknown map."}
         with self.lock:
             others = self._in_room(room)
             # The map belongs to the room: whoever opens it picks, everyone who joins later gets the same one.
-            map_id = self.rooms[room].get("map", DEFAULT_MAP) if others and room in self.rooms else map_id
+            map_id = self.rooms[room].get("map") or default_map() if others and room in self.rooms else map_id
             if len(self.players) >= MAX_PLAYERS:
                 return 503, {"error": "The map server is full right now. Try again later."}
             if len(others) >= MAX_ROOM_PLAYERS:
@@ -268,7 +267,7 @@ class Hub:
                 return None, None
             body = self.snapshots.get(p.room)
             if body is None:
-                snapshot = {"type": "snapshot", "room": p.room, "map": self.rooms.get(p.room, {}).get("map", DEFAULT_MAP),
+                snapshot = {"type": "snapshot", "room": p.room, "map": self.rooms.get(p.room, {}).get("map") or default_map(),
                             "players": [o.public() for o in self._in_room(p.room)],
                             "briefing": self.rooms.get(p.room, {}).get("briefing"),
                             "clock": self.rooms.get(p.room, {}).get("clock")}
@@ -449,7 +448,7 @@ class Hub:
                 b = info.get("briefing")
                 out.append({
                     "room": code,
-                    "map": info.get("map", DEFAULT_MAP),
+                    "map": info.get("map") or default_map(),
                     "created": int(info.get("created", now) * 1000),
                     "briefing": {"by": b["by"], "at": b["at"], "chars": len(b["text"])} if b and b["text"].strip() else None,
                     "players": [{
@@ -922,9 +921,74 @@ HUB = Hub()
 ADMIN = Admin()
 BANS = Bans(BANS_FILE)
 LIMITS = RateLimiter()
-_missing_tiles = set()
+_missing_tiles = set()  # (upstream address, z, x, y) the upstream said it doesn't have
 _tile_fetches = threading.BoundedSemaphore(MAX_TILE_FETCHES)
 _tile_cache_lock = threading.Lock()  # Windows readers and replacements must not overlap
+_maps_lock = threading.Lock()
+_maps_cache = {"key": None, "maps": {}}
+
+
+def load_maps():
+    """{map id: its map.json} for every static/data/maps/<id>/map.json, in their "order" (then by title).
+
+    map.json says what the 2D and 3D views need to know about a map (title, size in metres, the 500 m grid, where the 3D
+    camera starts...), as reforger-map-tools' `rmt.py fieldmap` writes it; "upstream" ({url, cache}) is for the
+    server alone. The files are read again when one is added, removed or changed."""
+    found = []
+    try:
+        names = sorted(os.listdir(MAPS_DIR))
+    except OSError:
+        names = []
+    for name in names:
+        if MAP_ID_RE.match(name):
+            try:
+                found.append((name, os.stat(os.path.join(MAPS_DIR, name, "map.json")).st_mtime_ns))
+            except OSError:
+                pass
+    key = tuple(found)
+    with _maps_lock:
+        if key == _maps_cache["key"]:
+            return _maps_cache["maps"]
+    maps = []
+    for name, _ in found:
+        try:
+            with open(os.path.join(MAPS_DIR, name, "map.json"), encoding="utf8") as f:
+                info = json.load(f)
+            if not isinstance(info, dict) or not isinstance(info.get("world"), (int, float)):
+                raise ValueError("no world size")
+        except (OSError, ValueError) as e:
+            print(f"maps: {name}/map.json skipped ({e})", file=sys.stderr)
+            continue
+        info["id"] = name
+        if not isinstance(info.get("title"), str) or not info["title"]:
+            info["title"] = name.title()
+        order = info.get("order")
+        maps.append((order if isinstance(order, (int, float)) else float("inf"), info["title"].lower(), info))
+    maps.sort(key=lambda m: m[:2])
+    result = {m[2]["id"]: m[2] for m in maps}
+    with _maps_lock:
+        _maps_cache.update(key=key, maps=result)
+    return result
+
+
+def default_map():
+    """The first map in the list: what a room opens on when nobody picked one."""
+    return next(iter(load_maps()), None)
+
+
+def public_maps():
+    """The map list as the 2D and 3D views read it (/api/maps, /3d/maps.json): each map.json without the server's own
+    settings, plus its tile address, whether it has a plant list (Measured line of sight) and its reference file of
+    bases and caches (static/data/<id>.json) when there is one."""
+    out = {}
+    for map_id, info in load_maps().items():
+        entry = {k: v for k, v in info.items() if k != "upstream"}
+        entry["tiles"] = f"/maptiles/{map_id}/{{z}}/{{x}}/{{y}}.jpg"
+        entry["hasPlants"] = os.path.isfile(os.path.join(MAPS_DIR, map_id, "foliage.json"))
+        if "poi" not in entry and os.path.isfile(os.path.join(STATIC, "data", f"{map_id}.json")):
+            entry["poi"] = f"/data/{map_id}.json"
+        out[map_id] = entry
+    return {"default": next(iter(out), None), "maps": out}
 
 # Sent with every response. The page runs only its own scripts (no inline ones), talks only to this server,
 # and can't be framed by another site.
@@ -1077,12 +1141,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/3d":  # the 3D view's own files are relative to its folder, so it needs the slash
             q = f"?{url.query}" if url.query else ""
             return self.send_redirect("/3d/" + q)
-        m = re.match(r"^/tiles/([0-5])/(\d{1,3})/(\d{1,3})\.jpg$", path)
-        if m:
-            if self.limited("tile"):
+        if path in ("/api/maps", "/3d/maps.json"):  # the 3D view reads the same list as maps.json beside its page
+            if self.limited("static"):
                 return
-            return self.tile(*m.groups())
-        m = re.match(r"^/maptiles/(kolguyev|arland)/([0-5])/(\d{1,3})/(\d{1,3})\.jpg$", path)
+            return self.send_json(200, public_maps())
+        m = re.match(r"^/maptiles/([a-z0-9][a-z0-9_-]{0,31})/([0-5])/(\d{1,3})/(\d{1,3})\.jpg$", path)
         if m:
             if self.limited("tile"):
                 return
@@ -1180,19 +1243,29 @@ class Handler(BaseHTTPRequestHandler):
         self.send_file(full, ctype, cache, gz)
 
     def map_tile(self, map_id, z, x, y):
-        # Kolguyev and Arland tiles are baked files; a tile that isn't there is open sea.
-        path = os.path.join(STATIC, "data", "maps", map_id, "tiles", str(int(z)), str(int(x)), f"{int(y)}.jpg")
-        if not os.path.isfile(path):
-            return self.send_bytes(404, b"", "image/jpeg", "public, max-age=604800")
-        self.send_file(path, "image/jpeg", "public, max-age=604800")
+        # A map's tiles are baked files (static/data/maps/<map>/tiles/). One that isn't there is open sea, unless the
+        # map's map.json names an upstream to fetch it from (Everon until its own tiles are installed).
+        info = load_maps().get(map_id)
+        if not info:
+            return self.send_bytes(404, b"", "image/jpeg")
+        path = os.path.join(MAPS_DIR, map_id, "tiles", str(int(z)), str(int(x)), f"{int(y)}.jpg")
+        if os.path.isfile(path):
+            return self.send_file(path, "image/jpeg", "public, max-age=604800")
+        upstream = info.get("upstream")
+        if isinstance(upstream, dict) and isinstance(upstream.get("url"), str):
+            cache = os.path.normpath(os.path.join(ROOT, str(upstream.get("cache") or os.path.join("tile_cache", map_id))))
+            if cache.startswith(ROOT + os.sep):
+                return self.upstream_tile(upstream["url"], cache, z, x, y)
+        self.send_bytes(404, b"", "image/jpeg", "public, max-age=604800")
 
-    def tile(self, z, x, y):
+    def upstream_tile(self, url, cache, z, x, y):
+        """A tile from another site, kept in the folder `cache` (z/x/y.jpg) after the first fetch."""
         n = 2 ** (7 - int(z))  # tiles per side at this zoom
         if int(x) >= n or int(y) >= n:
             return self.send_bytes(404, b"", "image/jpeg")
         z, x, y = str(int(z)), str(int(x)), str(int(y))  # one spelling per tile ("007" is "7")
-        key = (z, x, y)
-        path = os.path.join(TILE_CACHE, z, x, f"{y}.jpg")
+        key = (url, z, x, y)
+        path = os.path.join(cache, z, x, f"{y}.jpg")
         cached = None
         with _tile_cache_lock:
             if os.path.isfile(path):
@@ -1202,7 +1275,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_bytes(200, cached, "image/jpeg", "public, max-age=604800")
         if key in _missing_tiles:
             return self.send_bytes(404, b"", "image/jpeg")
-        req = urllib.request.Request(TILE_UPSTREAM.format(z=z, x=x, y=y),
+        req = urllib.request.Request(url.format(z=z, x=x, y=y),
                                      headers={"User-Agent": "EveronFieldMap/1.0 (personal tile cache)"})
         if not _tile_fetches.acquire(timeout=20):
             return self.send_bytes(503, b"", "image/jpeg")

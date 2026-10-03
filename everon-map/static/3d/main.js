@@ -9,7 +9,7 @@
 (async () => {
   'use strict';
 
-  // The map (maps.json beside this page, written by reforger-map-tools' `rmt.py fieldmap`): ?map=<name> picks one. Its
+  // The map (maps.json beside this page: the server's list of data/maps/<name>/map.json): ?map=<name> picks one. Its
   // size, chunk grid, light-grid size and the metres per terrain step (0.01 for most, 0.02 where the hills are too high
   // for centimetres) come from there. Everything else is the field map's own data for that map (/data/maps/<name>/:
   // los/, light/, plants/, foliage/, places.json, roads.json), plus the shaped trees (trees/) only this view draws.
