@@ -17,6 +17,7 @@
     foliage: `data/maps/${id}/foliage/foliage_profiles.json`, plants: m.hasPlants ? `data/maps/${id}/foliage.json` : null,
     plantsDir: `data/maps/${id}/plants`, relief: m.hasRelief ? `data/maps/${id}/relief/{z}/{x}/{y}.jpg?v=${+m.hasRelief}` : null,
     mesh: !!m.hasMeshFoliage,
+    lightCols: m.lightCols,
   });
   let MAPS = {}, DEFAULT_MAP = null;
   // until the list arrives: an empty 12.8 km map with no tiles
@@ -224,12 +225,12 @@
   //          trunks, bushes and low branches (0-255), share covered by crowns seen from above (0-255).
   // BUILDINGS building height (m) where buildings fill at least 40% of the cell.
   // FOLIAGE  per height band above the ground (LIGHT_BANDS), the cell's average foliage k (how strongly leaves block
-  //          sight, per metre, 0-255 = 0-LIGHT_K_MAX), from every measured plant.
+  //          sight, per metre, 0-255 = 0-0.5), from every measured plant.
   // CLUTTER  per height band, the share of the cell filled by buildings, walls, rocks and poles (0-255).
   let FOREST = null; // Uint8Array of packed bits
   let CANOPY = null, BUILDINGS = null, FOLIAGE = null, CLUTTER = null, FOLIAGE_MAX = null, CLUTTER_MAX = null; // max over bands
-  let meshLight = null, meshLightPending = null;
-  const LIGHT_BANDS = [0, 1, 2, 4, 7, 12, 20, 45], LIGHT_K_MAX = 0.5;
+  let meshLight = null, meshLightPending = null, meshLightError = false;
+  const LIGHT_BANDS = [0, 1, 2, 4, 7, 12, 20, 45];
   const cellOf = ([x, z]) => (x < 0 || z < 0 || x >= WORLD || z >= WORLD ? -1 : Math.floor(z / HCELL) * HN + Math.floor(x / HCELL));
   const canopyTop = p => { const k = cellOf(p); return CANOPY && k >= 0 ? CANOPY[k] : 0; };
   const buildingTop = p => { const k = cellOf(p); return BUILDINGS && k >= 0 ? BUILDINGS[k] : 0; };
@@ -2925,26 +2926,10 @@
     state.emplHeight = Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 0;
     updateEmplDraft();
   });
-  // Trees, bushes and clutter thin the view rather than cutting it off. Each 10 m cell holds, per height band above the
-  // ground, the average of every plant's measured leaves there (FOLIAGE, the same plants and see-through the retired
-  // Visual model used one by one) and the share of it filled by walls, rocks and small buildings (CLUTTER). A sight line
-  // crossing a cell at some height meets FOLIAGE_K (FOLIAGE_LOW_K below LOW_TOP) x that k plus CLUTTER_K x that share
-  // per metre; what it keeps is T = exp(-sum): at least SEE_CLEAR counts as seen, SEE_TREES..SEE_CLEAR as seen through
-  // trees, less as hidden. The rates and the two thresholds were fitted to the Visual model's results at 200 spots
-  // across the island for the best F1 score over hidden, clear
-  // and through-trees ground.
-  // Averaging leaves over 10 m hides gaps and trunks, so they're weaker than Visual's measured rates and the
-  // thresholds differ.
-  // Buildings (where they fill a 10 m cell) block like the ground, and neither they nor clutter count right beside
-  // the eye (it's standing there). The mortar calculator never uses this; it reads the bare terrain.
-  const FOLIAGE_K = 0.55, FOLIAGE_LOW_K = 0.62, CLUTTER_K = 0.7, SEE_CLEAR = 0.7, SEE_TREES = 0.23, BUILDING_NEAR = 10;
-  const LIGHT_MIN_TAU = 0.01;
-  const LOW_TOP = 4; // bands up to this height (m) use FOLIAGE_LOW_K: undergrowth and trunks, not crowns
-  const BAND_AT = new Uint8Array(LIGHT_BANDS[LIGHT_BANDS.length - 1]); // band for each whole metre of height
-  for (let b = 0; b < LIGHT_BANDS.length - 1; b++) BAND_AT.fill(b, LIGHT_BANDS[b], LIGHT_BANDS[b + 1]);
-  const TAU_CLEAR = -Math.log(SEE_CLEAR), TAU_TREES = -Math.log(SEE_TREES);
+  // Light uses the shared coarse solver. Its Mesh grid and original photo preset are checked against
+  // detailed queries by calibrate_light.cjs; geometry and room markings stay the same in both presets.
   const LOS_HIDDEN = 1, LOS_CLEAR = 2, LOS_TREES = 3;
-  const LOS_RANK = [0, 1, 3, 2]; // when samples disagree about a cell: clear beats through trees beats hidden
+  const LOS_RANK = [0, 1, 3, 2];
   const losCache = new Map();
   const ground = p => Math.max(heightAt(p), 0); // the sea surface blocks nothing
   function fieldOfFireLos(xz, dir, arc, range, cache = true, eyeH = GUN_EYE) {
@@ -2953,81 +2938,18 @@
   // Overwatch: from where around xz can a crouched observer see a standing soldier at xz? Sight lines work both
   // ways, so this is the same march run outward from the objective with the two heights swapped.
   const overwatchLos = (xz, range) => losGrid(xz, 0, 360, range, true, TARGET_H, POST_KIND.f.eye, true);
-  // Rays are cast across the arc and marched outward in 5 m steps. For a target at distance r with sight-line slope t
-  // (target height minus eye height, over r) the ground and buildings hide it if any nearer one has a steeper slope
-  // from the eye (a running maximum). Otherwise the trees it passes add up along the line: every wooded sample before
-  // the target (and half of the target's own) thins it at the height the line crosses there, until it's hidden.
-  // reverse: marching out from the target (overwatch), the heights swapped; sight lines work both ways.
-  // elev: [lowest, highest] angle in degrees a gun can aim (null = any).
   function lightLos(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
     if (!HEIGHT || range < 1) return null;
-    const mesh = state.losMode === 'mesh' && meshLight;
+    const wantsMesh = MAP.mesh && (state.losMode === 'mesh' || state.losMode === 'light' && state.lightModel === 'mesh');
+    const mesh = wantsMesh && meshLight;
+    const strength = mesh ? state.losStrength : 1;
     const foliage = mesh ? mesh.foliage : FOLIAGE, foliageMax = mesh ? mesh.max : FOLIAGE_MAX;
-    const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}|${!!foliage}|${!!mesh}`;
+    const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}|${!!foliage}|${!!mesh}|${strength}`;
     if (cache && losCache.has(key)) return losCache.get(key);
-    const pts = arc >= 360 ? [[xz[0] - range, xz[1] - range], [xz[0] + range, xz[1] + range]] : sectorLatLngs(xz, dir, arc, range).map(toXZ);
-    // The box is snapped to the 10 m grid so results from different spots line up cell for cell.
-    const minX = Math.floor(Math.min(...pts.map(p => p[0])) / LOS_CELL) * LOS_CELL, maxX = Math.max(...pts.map(p => p[0]));
-    const minZ = Math.min(...pts.map(p => p[1])), maxZ = Math.ceil(Math.max(...pts.map(p => p[1])) / LOS_CELL) * LOS_CELL;
-    const W = Math.max(1, Math.ceil((maxX - minX) / LOS_CELL)), H = Math.max(1, Math.ceil((maxZ - minZ) / LOS_CELL));
-    const cells = new Uint8Array(W * H); // 0 outside the arc, else LOS_HIDDEN / LOS_CLEAR / LOS_TREES
-    const eye = ground(xz) + eyeH, step = LOS_CELL / 2;
-    const rays = Math.ceil(arc * Math.PI / 180 * range / (LOS_CELL * 0.7)) + 1;
-    const [lo, hi] = elev ? elev.map(d => Math.tan(d * Math.PI / 180)) : [-Infinity, Infinity];
-    const maxN = Math.ceil(range / step) + 1, NN = HN * HN;
-    const hs = new Float64Array(maxN), blk = new Float64Array(maxN); // ground; ground plus any building
-    const NBANDS = LIGHT_BANDS.length - 1;
-    const mus = new Float64Array(maxN * NBANDS); // per sample and band: what a metre of sight line meets there
-    const wooded = new Int32Array(maxN); // indices of the samples with plants or clutter, in order
-    const cUnit = CLUTTER_K / 255, bandTop = BAND_AT.length;
-    const fUnit = LIGHT_BANDS.slice(1).map(top => (top <= LOW_TOP ? FOLIAGE_LOW_K : FOLIAGE_K) * LIGHT_K_MAX / 255), fMax = Math.max(...fUnit);
-    for (let i = 0; i <= rays; i++) {
-      const b = (dir - arc / 2 + arc * i / rays) * Math.PI / 180, sx = Math.sin(b), sz = Math.cos(b);
-      let n = 0, m = 0;
-      for (let r = step; r <= range; r += step) {
-        const x = xz[0] + r * sx, z = xz[1] + r * sz;
-        if (x < 0 || z < 0 || x > WORLD || z > WORLD) break;
-        const k = cellOf([x, z]);
-        hs[n] = ground([x, z]);
-        blk[n] = hs[n] + (BUILDINGS && k >= 0 && r > BUILDING_NEAR ? BUILDINGS[k] : 0);
-        // cells whose plants and clutter could thin a sight line by more than LIGHT_MIN_TAU (skipping stray twigs)
-        if (foliage && CLUTTER && k >= 0 && (foliageMax[k] * fMax + CLUTTER_MAX[k] * cUnit) * step > LIGHT_MIN_TAU) {
-          const near = r <= BUILDING_NEAR; // no clutter where the eye stands
-          for (let b = 0; b < NBANDS; b++) mus[n * NBANDS + b] = foliage[b * NN + k] * fUnit[b] + (near ? 0 : CLUTTER[b * NN + k] * cUnit);
-          wooded[m++] = n;
-        }
-        n++;
-      }
-      let maxTerrain = -Infinity; // steepest slope from the eye to any nearer ground or building
-      for (let j = 0; j < n; j++) {
-        const r = (j + 1) * step;
-        const t = (hs[j] + targetH - eye) / r;
-        let v;
-        if (t < maxTerrain || t < lo || t > hi) v = LOS_HIDDEN;
-        else {
-          const len = step * Math.sqrt(1 + t * t); // metres of sight line per sample
-          let tau = 0;
-          for (let q = 0; q < m && tau <= TAU_TREES; q++) {
-            const w = wooded[q];
-            if (w > j) break;
-            const y = eye + t * (w + 1) * step - hs[w]; // the sight line's height above the ground there
-            if (y < 0 || y >= bandTop) continue;
-            tau += mus[w * NBANDS + BAND_AT[Math.floor(y)]] * len * (w === j ? 0.5 : 1);
-          }
-          v = tau > TAU_TREES ? LOS_HIDDEN : tau > TAU_CLEAR ? LOS_TREES : LOS_CLEAR;
-        }
-        maxTerrain = Math.max(maxTerrain, (blk[j] - eye) / r);
-        const x = xz[0] + r * sx, z = xz[1] + r * sz;
-        const cx = Math.floor((x - minX) / LOS_CELL), cz = Math.floor((maxZ - z) / LOS_CELL);
-        if (cx < 0 || cx >= W || cz < 0 || cz >= H) continue;
-        const k = cz * W + cx;
-        if (LOS_RANK[v] > LOS_RANK[cells[k]]) cells[k] = v;
-      }
-    }
-    let clear = 0, trees = 0, total = 0;
-    for (const v of cells) if (v) { total++; if (v === LOS_CLEAR) clear++; else if (v === LOS_TREES) trees++; }
-    const res = { cells, W, H, minX, maxZ, cell: LOS_CELL, pct: total ? Math.round(clear / total * 100) : 100, treePct: total ? Math.round(trees / total * 100) : 0,
-      bounds: L.latLngBounds(toLL([minX, maxZ - H * LOS_CELL]), toLL([minX + W * LOS_CELL, maxZ])) };
+    const res = LightLos.compute({ xz, dir, arc, range, eyeH, targetH, reverse, elev, strength },
+      { world: WORLD, cols: HN, height: HEIGHT, buildings: BUILDINGS, foliage, foliageMax, clutter: CLUTTER, clutterMax: CLUTTER_MAX },
+      mesh ? LightLos.mesh : LightLos.legacy);
+    res.bounds = L.latLngBounds(toLL([res.minX, res.maxZ - res.H * res.cell]), toLL([res.minX + res.W * res.cell, res.maxZ]));
     if (cache) {
       if (losCache.size > 60) losCache.clear();
       losCache.set(key, res);
@@ -3041,6 +2963,11 @@
   // still being aimed (cache = false) stay light so they keep up with the mouse.
   const FULL_CELL = 2.5; // metres per cell of a full result's shading
   const LOS_MODE_KEY = 'everon-map-los-detail';
+  const LIGHT_MODEL_KEY = 'everon-map-light-model';
+  state.lightModel = (() => {
+    try { if (localStorage.getItem(LIGHT_MODEL_KEY) === 'legacy') return 'legacy'; } catch { /* storage unavailable */ }
+    return 'mesh';
+  })();
   const fullCache = new Map(), fullWanted = new Map(); // key -> result, key -> request id
   let losWorker = null, fullSeq = 0, fullRedraw = 0, fullError = null;
   const fullFailures = new Map();
@@ -3134,11 +3061,19 @@
       if (b.dataset.losMode === 'mesh') b.title = b.disabled ? 'Mesh foliage is unavailable for this map or browser' : '0.5 m objects with foliage from game meshes and leaf textures';
     });
     const measured = state.losMode !== 'light';
-    $('#los-strength').classList.toggle('hidden', !measured);
+    const lightMesh = !measured && state.lightModel === 'mesh' && MAP.mesh;
+    $('#light-model-row').classList.toggle('hidden', measured);
+    $('#light-model').value = state.lightModel;
+    $('#light-model option[value="mesh"]').disabled = !MAP.mesh;
+    $('#los-strength').classList.toggle('hidden', !measured && !lightMesh);
     const label = state.losMode === 'mesh' ? 'Mesh' : 'Measured';
     $('#los-note').textContent = measured && fullError ? `${label} could not load, so the coarse preview is shown.`
       : measured && fullWanted.size ? 'Working it out… Coarse preview until ready.'
-      : state.losMode === 'mesh' ? 'Game meshes and leaf textures · same terrain and objects as Measured.' : '';
+      : state.losMode === 'mesh' ? 'Game meshes and leaf textures · same terrain and objects as Measured.'
+      : lightMesh && meshLightError ? 'Mesh grid could not load; Original Light is shown. Select Mesh grid to retry.'
+      : lightMesh && !meshLight ? 'Loading Mesh foliage… Original Light preview until ready.'
+      : lightMesh ? '10 m mesh foliage · checked against detailed Mesh.'
+      : !measured ? 'Original 10 m photo foliage.' : '';
   }
   $('#los-detail').addEventListener('click', e => {
     const b = e.target.closest('[data-los-mode]');
@@ -3147,10 +3082,16 @@
     // Old queued results must not delay or report errors for the newly selected dataset.
     for (const id of fullWanted.values()) losWorker?.postMessage({ cancel: id });
     fullWanted.clear(); fullError = null;
-    if (state.losMode === 'mesh') loadMeshLight();
+    if (state.losMode === 'mesh' || state.losMode === 'light' && state.lightModel === 'mesh') loadMeshLight();
     try { localStorage.setItem(LOS_MODE_KEY, state.losMode); } catch { /* storage unavailable */ }
     renderLosDetail();
     redrawLos();
+  });
+  $('#light-model').addEventListener('change', e => {
+    state.lightModel = e.target.value;
+    try { localStorage.setItem(LIGHT_MODEL_KEY, state.lightModel); } catch { /* storage unavailable */ }
+    if (state.lightModel === 'mesh') loadMeshLight();
+    renderLosDetail(); redrawLos();
   });
   const strengthRange = $('#los-strength-range');
   strengthRange.value = state.losStrength;
@@ -6472,6 +6413,7 @@
       return false;
     }
     startedMap = def.id;
+    HN = def.lightCols || HN;
     if (MAP !== def || !tileLayer) { MAP = def; showMapBase(); }
     state.losMode = savedLosMode();
     renderLosDetail();
@@ -6515,6 +6457,7 @@
   }
   function loadMeshLight() {
     if (!MAP.mesh || meshLight || meshLightPending) return;
+    meshLightError = false;
     meshLightPending = fetch(`${MAP.dir}/foliage-mesh/light/foliage.bin.gz?v=24903726`).then(r => {
         if (!r.ok) throw new Error(`mesh foliage: ${r.status}`);
         return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
@@ -6522,11 +6465,12 @@
         const foliage = new Uint8Array(buf), nn = HN * HN, max = new Uint8Array(nn);
         if (foliage.length !== nn * (LIGHT_BANDS.length - 1)) throw new Error('Mesh foliage grid dimensions do not match this map.');
         for (let i = 0; i < foliage.length; i++) if (foliage[i] > max[i % nn]) max[i % nn] = foliage[i];
-        meshLight = { foliage, max }; losCache.clear(); redrawLos();
-      }).catch(err => console.error('Mesh preview foliage:', err)).finally(() => { meshLightPending = null; });
+        meshLight = { foliage, max }; losCache.clear(); redrawLos(); renderLosDetail();
+      }).catch(err => { meshLightError = true; console.error('Mesh preview foliage:', err); renderLosDetail(); })
+      .finally(() => { meshLightPending = null; });
   }
   function loadLight(def) {
-    if (state.losMode === 'mesh') loadMeshLight();
+    if (state.losMode === 'mesh' || state.losMode === 'light' && state.lightModel === 'mesh') loadMeshLight();
     // Trees and buildings: line of sight worked out before they arrived is redone with them.
     Promise.all(['forest', 'canopy', 'buildings', 'foliage', 'clutter'].map(lightBin))
       .then(([forest, canopy, buildings, foliage, clutter]) => {

@@ -1,0 +1,32 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+module.exports = function testLight() {
+  const ctx = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, 'static/light-los.js'), 'utf8') + '\nglobalThis.api=LightLos;', ctx);
+  const los = ctx.api, N = 12, nn = N*N;
+  const foliage = new Uint8Array(nn*7), clutter = new Uint8Array(nn*7);
+  foliage.fill(35,0,nn*3);
+  const data = {world:120,cols:N,height:new Int16Array(nn),buildings:new Uint8Array(nn),foliage,
+    foliageMax:new Uint8Array(nn).fill(35),clutter,clutterMax:new Uint8Array(nn)};
+  const req = {xz:[15,55],dir:90,arc:90,range:90,eyeH:1.6,targetH:1,strength:1};
+  const trees = los.compute(req,data,los.legacy);
+  assert.ok(trees.cells.includes(3)); assert.ok(trees.cells.includes(1));
+  const none = los.compute({...req,strength:0},data);
+  assert.equal(none.pct,100); assert.equal(none.treePct,0);
+  const aim = los.compute({...req,elev:[30,60],strength:0},data);
+  assert.ok(Array.from(aim.cells).filter(Boolean).every(v=>v===1));
+  for(let r=0;r<N;r++) data.buildings[r*N+4]=6;
+  const wall = los.compute({...req,arc:0,range:90,strength:0},data);
+  assert.equal(wall.cells[wall.W-1],1,'opaque building must shadow distant ground');
+  const tunings=[los.legacy,{...los.mesh,low:.8,crown:1.1}];
+  const batch=los.computeMany(req,data,tunings);
+  tunings.forEach((t,i)=>assert.deepEqual(Array.from(batch[i].cells),Array.from(los.compute(req,data,t).cells)));
+  assert.throws(()=>los.computeMany(req,data,[los.legacy,{...los.mesh,step:2.5}]),/same step/);
+  const border=los.compute({...req,xz:[115,115],dir:0,arc:60,range:200},data);
+  assert.ok(Number.isFinite(border.pct)); assert.ok(Array.from(border.cells).every(v=>v>=0&&v<=3));
+  assert.equal(los.compute(req,{...data,height:null}),null);
+  console.log('Light LOS foliage strength, opaque shadows, aim limits, batching and map-edge checks passed.');
+};
+if(require.main===module)module.exports();

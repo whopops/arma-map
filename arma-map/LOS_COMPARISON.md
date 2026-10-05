@@ -46,12 +46,13 @@ already-cached shared object tiles, so load timings are not cold-download compar
   the current terrain tile instead of constructing and looking up its name at every half metre.
 - Tactical map result keys include dataset and strength. Base and 3D keys include dataset. Stale queued tactical
   requests are cancelled when switching. Route/flight summaries and marking-list percentages refresh with results.
-- The original Light option retains photo foliage. Mesh's responsive preview uses the supplied mesh light grid,
+- Light now defaults to the mesh grid and offers Original photos as a secondary preset. Mesh's responsive preview uses the supplied mesh light grid,
   sharing existing terrain, buildings and clutter. The UI identifies the preview while detailed work is pending.
 
 The mesh light grid also contains an upstream aggregation correction: blocked plant cross-section is spread
 over a cell instead of the old slab extinction approximation. Its thinner coarse foliage is therefore not solely
-evidence that meshes have fewer leaves. This change is confined to Mesh previews; it does not change Light.
+evidence that meshes have fewer leaves. Light's Mesh grid preset also uses this correction;
+Original photos retains the prior dataset. See [LIGHT_CALIBRATION.md](LIGHT_CALIBRATION.md) for the later Light comparison.
 
 No new engine checks were run. The supplier documents comparisons with still-air photographs and limitations
 from wind, LOD, video settings and lens. Prefer in-game checks of the particular position when choosing between

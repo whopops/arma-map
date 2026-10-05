@@ -69,6 +69,13 @@ verdicts and coverage update without console errors. Reload to check persistence
 both detailed modes. In Base planning select a base, switch the foliage selector and verify dead ground redraws.
 Open 3D with the same room and verify Measured/Mesh overlays while retaining read-only observer behavior.
 
+In Light, check that **Light model** offers **Mesh grid** (default) and **Original photos**. Switch between them
+on the same range card and verify coverage redraws. Mesh grid exposes Foliage strength; Original photos hides it.
+Change strength, reload to check both selections persist, then select full Mesh to check worker results still arrive.
+Repeat on Arland to cover its different grid dimensions. Check the console for load/dimension errors.
+Run `node arma-map/calibrate_light.cjs arma-map/LIGHT_CALIBRATION.json` for the offline 54-query calibration
+and held-out comparison (this can take several minutes). `test_client.cjs` includes synthetic Light checks.
+
 `node test_client.cjs` includes `test_regressions.cjs`: a 100-tile query retains its eye tile through computation,
 cache trimming runs afterward, a failed tile can be retried, and a copied boundary crown is counted once per ray.
 Requests exceeding the active tile budget fail explicitly. A fake worker verifies recovery after a transient

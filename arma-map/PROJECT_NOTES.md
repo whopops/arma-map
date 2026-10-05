@@ -160,8 +160,15 @@ The banner comments name the sections. Use function names to navigate; line numb
     `selectConfig` switches foliage caches before each queued request, retaining both datasets for comparisons.
     Plant identities are computed when loading tiles, and ray marches reuse the current terrain tile.
   - `/api/maps` exposes `hasMeshFoliage` from the packaged files. Measured remains the desktop default.
-    Tactical map coarse Mesh previews use the new light foliage grid; the Light option keeps its original data.
+    Tactical map coarse Mesh previews and Light's default preset use the new light foliage grid.
+    Light's secondary selector retains original photo foliage; its local storage key is `everon-map-light-model`.
     `compare_los.cjs` runs actual-worker queries and checks photo/mesh/photo switches without network or rooms.
+- **`light-los.js`**: shared coarse LOS solver used by `app.js`, `test_light.cjs` and `calibrate_light.cjs`.
+  Mesh and original photo presets share 10 m terrain/object grids and 5 m ray steps. Mesh foliage follows
+  Foliage strength, including cache invalidation; original photos retains its previous fixed rates.
+  The calibration runner uses actual local data on all three maps and coarsens detailed Mesh to the same
+  best-visible 10 m cell rule. It fits on training/development scenes and rejects fits that lose held-out macro F1.
+  See `LIGHT_CALIBRATION.md/json` for results, timing and limits. Generated grids are consumed unchanged.
 - **`sky.js`**: sun and moon for the game clock.
 
 ## Rooms, sync and browser storage

@@ -341,4 +341,5 @@ function testBaseConstruction() {
   console.log(`Base construction: ${items.length} catalog objects and legacy MG compatibility passed`);
 }
 testBaseConstruction();
+if (!process.argv.includes('--construction-items')) require('./test_light.cjs')();
 if (!process.argv.includes('--construction-items')) require('./test_regressions.cjs')().catch(err => { console.error(err); process.exitCode = 1; });
