@@ -80,6 +80,10 @@ and held-out comparison (this can take several minutes). `test_client.cjs` inclu
 cache trimming runs afterward, a failed tile can be retried, and a copied boundary crown is counted once per ray.
 Requests exceeding the active tile budget fail explicitly. A fake worker verifies recovery after a transient
 query error; low-charge ring fixtures check an ascending hillside intersection.
+The LOS fixture also compares the optimization guards against an unskipped reference at tile boundaries,
+near the eye, across foliage strengths and sector widths, including obstructions beyond already-clear cells.
+`node arma-map/benchmark_los.cjs <baseline-commit> arma-map/LOS_SPEED.json` compares actual packaged queries
+with a Git version of the worker. Use the baseline commit recorded in `LOS_SPEED.json` when repeating it.
 
 The automated server/client suites cover storage limits, malformed saves, restored-owner rejoining, upload
 failures, rate-limit exhaustion, session changes, delayed SSE acknowledgements, imports and mortar compatibility.

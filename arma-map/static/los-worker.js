@@ -231,8 +231,8 @@ async function loadArea(minX, minZ, maxX, maxZ) {
 const tileAt = (tx, tz) => tiles.get(`${tx}_${tz}`) || null;
 
 // Ground height (m) at a point: terrain is every 1 m, joined in straight lines like the engine's.
-function groundAt(x, z, loaded) {
-  const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE), t = loaded === undefined ? tileAt(tx, tz) : loaded;
+function groundAt(x, z, loaded, tx = Math.floor(x / TILE), tz = Math.floor(z / TILE)) {
+  const t = loaded === undefined ? tileAt(tx, tz) : loaded;
   if (!t) {
     if (tileSet.has(`${tx}_${tz}`)) throw new Error('Required terrain tile is not loaded.');
     return 0;
@@ -294,7 +294,7 @@ function compute(req) {
     const b = (dir - arc / 2 + arc * i / rays) * Math.PI / 180, sx = Math.sin(b), sz = Math.cos(b);
     bit.fill(0);
     seenPlants.clear();
-    let maxSolid = -Infinity, curT = null, curP = null, ctx = -1, ctz = -1;
+    let maxSolid = -Infinity, curT = null, curP = null, ctx = -1, ctz = -1, plantBucket = -1;
     for (let r = STEP; r <= range; r += STEP) {
       const x = xz[0] + r * sx, z = xz[1] + r * sz;
       if (x < 0 || z < 0 || x >= WORLD_M || z >= WORLD_M) break;
@@ -302,37 +302,47 @@ function compute(req) {
       if (tx !== ctx || tz !== ctz) {
         curT = tileAt(tx, tz);
         curP = plantTiles.get(`${tx}_${tz}`) || null;
+        plantBucket = -1;
         ctx = tx; ctz = tz;
       }
-      const g = groundAt(x, z, curT);
+      const g = groundAt(x, z, curT, tx, tz);
       // the target here
-      const t = (g + targetH - eye) / r;
-      let v;
-      if (t < maxSolid || t < lo || t > hi) v = HIDDEN;
-      else {
-        const seen = Math.exp(-bitSum(binOf(t)));
-        v = seen >= SEE_CLEAR ? CLEAR : seen >= SEE_MIN ? TREES : HIDDEN;
-      }
       const cx = Math.floor((x - minX) / cell), cz = Math.floor((maxZ - z) / cell);
       if (cx >= 0 && cx < W && cz >= 0 && cz < H) {
         const k = cz * W + cx;
-        if (RANK[v] > RANK[cells[k]]) cells[k] = v;
+        // CLEAR is the highest-ranked result: another target sample cannot improve this output cell.
+        // Keep marching its terrain and plants below, since they still affect targets farther out.
+        if (cells[k] !== CLEAR) {
+          const t = (g + targetH - eye) / r;
+          let v;
+          if (t < maxSolid || t < lo || t > hi) v = HIDDEN;
+          else {
+            const seen = Math.exp(-bitSum(binOf(t)));
+            v = seen >= SEE_CLEAR ? CLEAR : seen >= SEE_MIN ? TREES : HIDDEN;
+          }
+          if (RANK[v] > RANK[cells[k]]) cells[k] = v;
+        }
       }
       // what stands here, for everything further out
       maxSolid = Math.max(maxSolid, (g - eye) / r);
       if (curP && r > NEAR) { // each plant near this spot, once per sight line
         const lx = x - tx * TILE, lz = z - tz * TILE, P = curP;
         const bk = Math.min(NB - 1, Math.floor(lz / BUCKET)) * NB + Math.min(NB - 1, Math.floor(lx / BUCKET));
-        for (let q = P.start[bk]; q < P.start[bk + 1]; q++) {
-          const i = P.items[q], gid = P.ids ? P.ids[i] : plantId(tx, tz, P, i);
-          if (seenPlants.has(gid)) continue;
-          seenPlants.add(gid);
-          const pf = profiles[P.kind[i]];
-          if (!pf) continue;
-          const s = P.scale[i], dx = tx * TILE + P.x[i] - xz[0], dz = tz * TILE + P.z[i] - xz[1];
-          const along = dx * sx + dz * sz, perp = Math.abs(dx * sz - dz * sx); // metres out along the line, and off to the side
-          if (along < NEAR || perp >= pf.reach * s) continue;
-          addProfile(pf, s, P.base[i] - eye, along, perp, strength);
+        // A straight ray encounters the same candidates throughout this bucket. Process them at its first
+        // eligible step, preserving the original ordering; all later steps would only hit seenPlants.
+        if (bk !== plantBucket) {
+          plantBucket = bk;
+          for (let q = P.start[bk]; q < P.start[bk + 1]; q++) {
+            const i = P.items[q], gid = P.ids ? P.ids[i] : plantId(tx, tz, P, i);
+            if (seenPlants.has(gid)) continue;
+            seenPlants.add(gid);
+            const pf = profiles[P.kind[i]];
+            if (!pf) continue;
+            const s = P.scale[i], dx = tx * TILE + P.x[i] - xz[0], dz = tz * TILE + P.z[i] - xz[1];
+            const along = dx * sx + dz * sz, perp = Math.abs(dx * sz - dz * sx); // metres out along the line, and off to the side
+            if (along < NEAR || perp >= pf.reach * s) continue;
+            addProfile(pf, s, P.base[i] - eye, along, perp, strength);
+          }
         }
       }
       if (!curT) continue;

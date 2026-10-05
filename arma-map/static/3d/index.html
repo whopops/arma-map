@@ -37,7 +37,7 @@
     <label class="check" title="What range cards, MG nests, sectors, AA guns and marked enemies can see, worked out the field map's way (Measured): tinted seen, yellow through trees, dark hidden"><input id="los" type="checkbox" checked> Line of sight</label>
     <label>Foliage <select id="los-model"><option value="profiles">Measured (photos)</option><option value="mesh">Mesh (game models)</option></select></label>
     <label class="check"><input id="trees" type="checkbox" checked> Trees and bushes</label>
-    <label class="check" title="Every tree and bush as its kind's measured shape: 10 layers, darker where the leaves block more. Off: the game's raw 0.5 m scan, as boxes"><input id="measured" type="checkbox" checked> Measured tree shapes</label>
+    <label title="Models: low-poly trees and bushes fitted to the game's own models (leaf clumps where its leaves are, its trunk). Measured layers: each kind's measured shape, 10 layers, darker where the leaves block more. Boxes: the game's raw 0.5 m scan">Tree shapes <select id="shape"><option value="models">Models</option><option value="measured">Measured layers</option><option value="boxes">Boxes</option></select></label>
     <label class="check" title="The measured shapes see-through: each layer blocks as much of the view as the game's plant did in the photos"><input id="see" type="checkbox"> Measured opacity</label>
     <form id="room-form" class="room" autocomplete="off" title="Join your field map room to see its fortifications here">
       <div class="row">

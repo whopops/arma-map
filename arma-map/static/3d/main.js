@@ -170,6 +170,48 @@
     ${LIGHT}
     void main() { o = vec4(shade(vCol * 1.25, normalize(vN), vW), 1.0); }`;
 
+  // tree models (trees/models.json and models.bin.gz, made by reforger-map-tools' rmtlib/tree_models.py): a few
+  // low-poly clumps and a trunk per species, fitted to the game's own mesh. One instance per tree from the trees/
+  // tiles; every instance runs as many vertices as the biggest species has at this detail, and a species with fewer
+  // gives its spare ones a zero position, so those triangles vanish. Vertices: uVerts (x, y, z cm at scale 1, part:
+  // 0 trunk, 1+ a crown clump); per species uModel (near first, count, far first, count) and (height, -, -, -).
+  const MODEL_VS = `#version 300 es
+    layout(location=1) in vec3 aP;                        // base: x cm, y 2 cm, z cm
+    layout(location=2) in vec4 aI;                        // species, yaw (360/256 degrees), height (0.25 m), crown radius
+    layout(location=3) in vec2 aVar;
+    uniform mat4 uVP; uniform vec3 uOff; uniform int uFar;
+    uniform highp isampler2D uVerts; uniform highp sampler2D uModel; uniform highp sampler2D uCol;
+    out vec3 vW, vCol;
+    float h1(float n) { return fract(sin(n * 12.9898) * 43758.5453); }
+    void main() {
+      int sp = int(aI.x + 0.5);
+      vec4 m = texelFetch(uModel, ivec2(0, sp), 0);
+      int first = int(uFar == 1 ? m.z : m.x), count = int(uFar == 1 ? m.w : m.y);
+      vW = vec3(0.0); vCol = vec3(0.0);
+      if (gl_VertexID >= count) { gl_Position = vec4(0.0); return; }
+      int i = first + gl_VertexID;
+      ivec4 q = texelFetch(uVerts, ivec2(i & 1023, i >> 10), 0);
+      float h = max(texelFetch(uModel, ivec2(1, sp), 0).x, 0.1), v = aVar.x / 255.0;
+      float s = aI.z * 0.25 / h, a = aI.y / 256.0 * 6.2831853, c = cos(a), sn = sin(a);
+      vec3 l = vec3(q.xyz) * 0.01 * s;
+      l = vec3(l.x * c - l.z * sn, l.y - 0.15, l.x * sn + l.z * c);
+      vec3 tc = texelFetch(uCol, ivec2(0, sp), 0).rgb, cc = texelFetch(uCol, ivec2(1, sp), 0).rgb;
+      vCol = q.w == 0 ? tc : cc * (0.82 + 0.3 * h1(float(q.w) * 3.7 + v * 17.0));
+      vec3 w = vec3(aP.x * 0.01, aP.y * 0.02, aP.z * 0.01) + l + uOff;
+      vW = w;
+      gl_Position = uVP * vec4(w.x, w.y, -w.z, 1.0);
+    }`;
+  const MODEL_FS = `#version 300 es
+    precision highp float;
+    in vec3 vW, vCol; out vec4 o;
+    ${LIGHT}
+    void main() {
+      vec3 n = normalize(cross(dFdx(vW), dFdy(vW)));
+      n.z = -n.z;                                         // derivatives are in game axes except z, flipped for the GPU
+      if (dot(n, vW) > 0.0) n = -n;                       // faceted, facing the camera
+      o = vec4(shade(vCol * 1.2, normalize(n + vec3(0.0, 0.3, 0.0)), vW), 1.0);
+    }`;
+
   // measured tree shapes (the map's plants/ and foliage.json, as the field map has them): per plant a stepped lathe of 21 rings, two per tenth
   // of its height (bottom and top of that layer at the layer's measured half-width) and a point on top. Ring heights,
   // radii and how densely each layer blocks sight come from the uShape texture (one row per kind); flat-shaded.
@@ -288,6 +330,7 @@
   const boxProg = program(BOX_VS, BOX_FS);
   const skyProg = program(SKY_VS, SKY_FS);
   const treeProg = program(TREE_VS, TREE_FS);
+  const modelProg = program(MODEL_VS, MODEL_FS);
   const plantProg = program(PLANT_VS, PLANT_FS);
   const roadProg = program(ROAD_VS, ROAD_FS);
   const propProg = program(PROP_VS, PROP_FS);
@@ -351,9 +394,12 @@
     roads: store.get('e3d-roads', '1') === '1',
     marks: store.get('e3d-marks', '1') === '1',     // the room's markings
     los: store.get('e3d-los', '1') === '1',         // ...and their line of sight
-    smooth: false,                                    // smoothed crowns are gone: trees are their measured shapes, or the 0.5 m scan as boxes
-    measured: store.get('e3d-measured', '1') === '1', // trees as their kind's measured 10-layer shape (data/plants)
-    seeThrough: store.get('e3d-see', '0') === '1',     // ...drawn as see-through as they were measured
+    // how trees are drawn: 'models' (low-poly models fitted to the game's meshes, from data/trees), 'measured' (each
+    // kind's measured 10-layer shape, from data/plants) or 'boxes' (the game's raw 0.5 m scan). Set by applyShape().
+    shape: store.get('e3d-shape', store.get('e3d-measured', '1') === '0' ? 'boxes' : 'models'),
+    smooth: false,                                    // the trees/ tiles are built (models); else trees are boxes in the scan
+    measured: false,
+    seeThrough: store.get('e3d-see', '0') === '1',     // ...the measured shapes drawn as see-through as they were measured
   };
   const cam = { x: MAP.start[0], z: MAP.start[1], y: NaN, yaw: 40, pitch: -14, walk: false, speed: 40 };
   (() => { // a position saved in the address (#x,z,y,yaw,pitch,walk) wins
@@ -537,6 +583,30 @@
       return t;
     };
     treeTex = { prof: tex(gl.RG, gl.RG32F, gl.FLOAT, 7, prof), col: tex(gl.RGBA, gl.RGBA8, gl.UNSIGNED_BYTE, 2, col) };
+  }
+
+  // Tree models (see MODEL_VS): every species' vertices in one integer texture, 1024 wide, and its ranges and height in
+  // another. In species.json's order; a species without a model draws nothing (its count is 0).
+  const MODEL_FORMAT = 1;          // must match FORMAT in reforger-map-tools' rmtlib/tree_models.py
+  let modelInfo = null;            // { verts, table, near, far } once trees/models.json has loaded
+  function makeTreeModels(doc, raw) {
+    const n = doc.verts, rows = Math.max(1, Math.ceil(n / 1024)), v = new Int16Array(rows * 1024 * 4);
+    v.set(new Int16Array(raw, 0, n * 4));
+    const table = new Float32Array(doc.models.length * 8);
+    doc.models.forEach((m, i) => table.set([m.near[0], m.near[1], m.far[0], m.far[1], m.h, 0, 0, 0], i * 8));
+    const tex = (ifmt, fmt, type, w, h, data) => {
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, ifmt, w, h, 0, fmt, type, data);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      return t;
+    };
+    modelInfo = {
+      verts: tex(gl.RGBA16I, gl.RGBA_INTEGER, gl.SHORT, 1024, rows, v),
+      table: tex(gl.RGBA32F, gl.RGBA, gl.FLOAT, 2, doc.models.length, table),
+      near: doc.near, far: doc.far,
+    };
   }
 
   // Measured tree shapes: a stepped lathe (see PLANT_VS), 12 sides; its rings come from each kind's row of uShape.
@@ -1132,8 +1202,30 @@
       gl.activeTexture(gl.TEXTURE0);
     }
 
-    // trees and bushes
-    if (treeTex && settings.trees && !measured) {
+    // trees and bushes as their models
+    if (treeTex && modelInfo && settings.trees && settings.smooth && !measured) {
+      common(modelProg);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, modelInfo.verts);
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, modelInfo.table);
+      gl.activeTexture(gl.TEXTURE3);
+      gl.bindTexture(gl.TEXTURE_2D, treeTex.col);
+      gl.uniform1i(modelProg.u.uVerts, 1);
+      gl.uniform1i(modelProg.u.uModel, 2);
+      gl.uniform1i(modelProg.u.uCol, 3);
+      for (const rec of vis) {
+        if (!rec.trVao) continue;
+        const far = rec.trMesh.S !== treeMesh[0].S;        // the tile's coarser detail: the far models
+        const n = far ? modelInfo.far : modelInfo.near;
+        gl.uniform3f(modelProg.u.uOff, rec.tx * TILE - cam.x, -cam.y, rec.tz * TILE - cam.z);
+        gl.uniform1i(modelProg.u.uFar, far ? 1 : 0);
+        gl.bindVertexArray(rec.trVao);
+        gl.drawArraysInstanced(gl.TRIANGLES, 0, n, rec.trCount);
+        drawn += rec.trCount;
+      }
+      gl.activeTexture(gl.TEXTURE0);
+    } else if (treeTex && settings.trees && !measured) {
       common(treeProg);
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, treeTex.prof);
@@ -1360,17 +1452,28 @@
     if (!settings.trees && !farBare && HEIGHT) buildFar(true);
     e.target.blur();
   });
-  $('#measured').checked = settings.measured;
-  $('#measured').addEventListener('change', e => {
-    settings.measured = e.target.checked; store.set('e3d-measured', e.target.checked ? '1' : '0');
-    if (settings.measured && !plantInfo) $('#hud-load').textContent = 'No measured shapes for this map';
-    updateTiles();
+  // the tree shape picked, as far as this map has the data for it (models, else measured, else boxes)
+  function applyShape() {
+    const want = settings.shape;
+    const shape = want === 'models' && !modelInfo ? (plantInfo ? 'measured' : 'boxes')
+      : want === 'measured' && !plantInfo ? 'boxes' : want;
+    if (shape !== want && HEIGHT) $('#hud-load').textContent = `No ${want === 'models' ? 'tree models' : 'measured shapes'} for this map`;
+    settings.measured = shape === 'measured';
+    settings.smooth = shape === 'models';
+    $('#shape').value = want;
+    if (HEIGHT) updateTiles();
+  }
+  $('#shape').value = settings.shape;
+  $('#shape').addEventListener('change', e => {
+    settings.shape = e.target.value; store.set('e3d-shape', e.target.value);
+    applyShape();
     e.target.blur();
   });
   $('#see').checked = settings.seeThrough;
   $('#see').addEventListener('change', e => {
     settings.seeThrough = e.target.checked; store.set('e3d-see', e.target.checked ? '1' : '0');
-    if (settings.seeThrough && !settings.measured) $('#measured').click();   // it's a way of drawing the measured shapes
+    // it's a way of drawing the measured shapes
+    if (settings.seeThrough && settings.shape !== 'measured') { settings.shape = 'measured'; store.set('e3d-shape', 'measured'); applyShape(); }
     e.target.blur();
   });
   $('#names').addEventListener('change', e => { settings.names = e.target.checked; store.set('e3d-names', e.target.checked ? '1' : '0'); e.target.blur(); });
@@ -1430,6 +1533,14 @@
         const t = await fetch(`${DIR}trees/species.json`, { cache: 'no-cache' }).then(r => r.json());
         if (t.format !== TREE_FORMAT) throw new Error(`tree table format ${t.format}, this page reads ${TREE_FORMAT}`);
         makeTreeTextures(t.species);
+        // the models (an extra on top of the table): the same species, in the same order
+        try {
+          const md = await fetch(`${DIR}trees/models.json`, { cache: 'no-cache' }).then(r => (r.ok ? r.json() : null));
+          if (md && md.format === MODEL_FORMAT && md.models.length === t.species.length) {
+            makeTreeModels(md, await fetchGz(`${DIR}trees/models.bin.gz?v=${md.version}`));
+          }
+        }
+        catch (err) { console.warn('No tree models', err); }
       }
       catch (err) { console.warn('No tree shapes', err); }
       // measured shapes (the toggle): also an extra
@@ -1438,6 +1549,7 @@
         if (r.ok) makePlantShapes(await r.json());
       }
       catch (err) { console.warn('No measured tree shapes', err); }
+      applyShape();
       HEIGHT = new Int16Array(h); CANOPY = new Uint8Array(c); BLD = new Uint8Array(b);
       land = new Set(idx.tiles);
       buildFar(false);

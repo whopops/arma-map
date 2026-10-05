@@ -315,6 +315,8 @@ use these coarse grids to keep up with the mouse. Terrain/object tiles are reuse
 plant lists, profiles and result caches stay separate. Mesh light foliage also includes the upstream cross-section
 aggregation fix, so its coarse preview can be less dense for reasons beyond the change in plant measurements.
 See [LOS_COMPARISON.md](LOS_COMPARISON.md) for a reproducible comparison and its limitations.
+The detailed solver avoids redundant lookups and target reclassification while retaining its sampling resolution;
+see [LOS_SPEED.md](LOS_SPEED.md) for the measured speed change and cell-for-cell checks.
 See [LIGHT_CALIBRATION.md](LIGHT_CALIBRATION.md) for Light's comparison against detailed Mesh. A coefficient sweep
 was rejected because it performed worse on held-out locations; the mesh grid keeps the existing coarse rates.
 If the mesh grid is loading or unavailable, the map shows an original-photo preview with a status note.

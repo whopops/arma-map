@@ -159,6 +159,10 @@ The banner comments name the sections. Use function names to navigate; line numb
   - `model: 'mesh'` selects `maps/<id>/foliage-mesh/` profiles and plant tiles; object/terrain tiles stay shared.
     `selectConfig` switches foliage caches before each queued request, retaining both datasets for comparisons.
     Plant identities are computed when loading tiles, and ray marches reuse the current terrain tile.
+    The detailed solver visits plant candidates only on entering a different 4 m lookup bucket and reuses
+    known tile coordinates for terrain interpolation. It skips target reclassification once an output cell
+    is clear, while continuing all terrain/plant obstruction updates for farther targets.
+    `benchmark_los.cjs` checks identical output cells against a Git baseline; see `LOS_SPEED.md/json`.
   - `/api/maps` exposes `hasMeshFoliage` from the packaged files. Measured remains the desktop default.
     Tactical map coarse Mesh previews and Light's default preset use the new light foliage grid.
     Light's secondary selector retains original photo foliage; its local storage key is `everon-map-light-model`.

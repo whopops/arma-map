@@ -1,0 +1,478 @@
+{
+  "baseline": "4952e3c6132a3bcf77d257579f4741fcc728cf53",
+  "metric": "Compute only; loaded local data, identical output cells required; alternating execution order",
+  "summary": [
+    {
+      "range": 200,
+      "queries": 12,
+      "beforeMs": 368.4119666666681,
+      "afterMs": 321.5848499999992,
+      "speedup": 1.1456135656473525
+    },
+    {
+      "range": 600,
+      "queries": 12,
+      "beforeMs": 3410.3055333333323,
+      "afterMs": 3161.963833333335,
+      "speedup": 1.0785403354023173
+    }
+  ],
+  "scenes": [
+    {
+      "map": "everon",
+      "kind": "town",
+      "model": "profiles",
+      "xz": [
+        3845,
+        8445
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 239.1137,
+      "afterMs": 213.11419999999998,
+      "cells": 6400
+    },
+    {
+      "map": "everon",
+      "kind": "town",
+      "model": "mesh",
+      "xz": [
+        3845,
+        8445
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 233.49049999999988,
+      "afterMs": 215.3569,
+      "cells": 6400
+    },
+    {
+      "map": "everon",
+      "kind": "town",
+      "model": "profiles",
+      "xz": [
+        3845,
+        8445
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 2669.0949,
+      "afterMs": 2961.7088999999996,
+      "cells": 57600
+    },
+    {
+      "map": "everon",
+      "kind": "town",
+      "model": "mesh",
+      "xz": [
+        3845,
+        8445
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 3655.1996,
+      "afterMs": 3125.6579,
+      "cells": 57600
+    },
+    {
+      "map": "everon",
+      "kind": "forest",
+      "model": "profiles",
+      "xz": [
+        3885,
+        8965
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 327.01929999999993,
+      "afterMs": 307.60249999999905,
+      "cells": 6400
+    },
+    {
+      "map": "everon",
+      "kind": "forest",
+      "model": "mesh",
+      "xz": [
+        3885,
+        8965
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 336.54529999999977,
+      "afterMs": 310.08580000000075,
+      "cells": 6400
+    },
+    {
+      "map": "everon",
+      "kind": "forest",
+      "model": "profiles",
+      "xz": [
+        3885,
+        8965
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 2949.761300000002,
+      "afterMs": 2511.5948000000026,
+      "cells": 57600
+    },
+    {
+      "map": "everon",
+      "kind": "forest",
+      "model": "mesh",
+      "xz": [
+        3885,
+        8965
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 3009.2646999999997,
+      "afterMs": 2986.9464000000007,
+      "cells": 57600
+    },
+    {
+      "map": "arland",
+      "kind": "town",
+      "model": "profiles",
+      "xz": [
+        1005,
+        2885
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 415.2437000000027,
+      "afterMs": 318.0599999999977,
+      "cells": 6400
+    },
+    {
+      "map": "arland",
+      "kind": "town",
+      "model": "mesh",
+      "xz": [
+        1005,
+        2885
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 327.77160000000003,
+      "afterMs": 244.89329999999973,
+      "cells": 6400
+    },
+    {
+      "map": "arland",
+      "kind": "town",
+      "model": "profiles",
+      "xz": [
+        1005,
+        2885
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 3115.6309,
+      "afterMs": 3102.6962999999996,
+      "cells": 57600
+    },
+    {
+      "map": "arland",
+      "kind": "town",
+      "model": "mesh",
+      "xz": [
+        1005,
+        2885
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 3226.011599999998,
+      "afterMs": 2900.6604000000007,
+      "cells": 57600
+    },
+    {
+      "map": "arland",
+      "kind": "forest",
+      "model": "profiles",
+      "xz": [
+        845,
+        2365
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 383.049500000001,
+      "afterMs": 365.2256000000052,
+      "cells": 6400
+    },
+    {
+      "map": "arland",
+      "kind": "forest",
+      "model": "mesh",
+      "xz": [
+        845,
+        2365
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 450.64160000000265,
+      "afterMs": 344.7186999999976,
+      "cells": 6400
+    },
+    {
+      "map": "arland",
+      "kind": "forest",
+      "model": "profiles",
+      "xz": [
+        845,
+        2365
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 3582.075300000004,
+      "afterMs": 3251.705600000001,
+      "cells": 57600
+    },
+    {
+      "map": "arland",
+      "kind": "forest",
+      "model": "mesh",
+      "xz": [
+        845,
+        2365
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 3624.5256999999983,
+      "afterMs": 3254.969600000004,
+      "cells": 57600
+    },
+    {
+      "map": "kolguyev",
+      "kind": "town",
+      "model": "profiles",
+      "xz": [
+        3445,
+        7805
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 506.6347999999998,
+      "afterMs": 443.87199999999575,
+      "cells": 6400
+    },
+    {
+      "map": "kolguyev",
+      "kind": "town",
+      "model": "mesh",
+      "xz": [
+        3445,
+        7805
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 514.4182999999975,
+      "afterMs": 464.1480999999985,
+      "cells": 6400
+    },
+    {
+      "map": "kolguyev",
+      "kind": "town",
+      "model": "profiles",
+      "xz": [
+        3445,
+        7805
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 4153.089099999997,
+      "afterMs": 3949.100600000005,
+      "cells": 57600
+    },
+    {
+      "map": "kolguyev",
+      "kind": "town",
+      "model": "mesh",
+      "xz": [
+        3445,
+        7805
+      ],
+      "dir": 135,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 4822.686399999991,
+      "afterMs": 4449.582299999995,
+      "cells": 57600
+    },
+    {
+      "map": "kolguyev",
+      "kind": "forest",
+      "model": "profiles",
+      "xz": [
+        2485,
+        8045
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 328.6017000000138,
+      "afterMs": 305.6622999999963,
+      "cells": 6400
+    },
+    {
+      "map": "kolguyev",
+      "kind": "forest",
+      "model": "mesh",
+      "xz": [
+        2485,
+        8045
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 200,
+      "eyeH": 0.6,
+      "targetH": 1,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 358.41359999999986,
+      "afterMs": 326.27880000000005,
+      "cells": 6400
+    },
+    {
+      "map": "kolguyev",
+      "kind": "forest",
+      "model": "profiles",
+      "xz": [
+        2485,
+        8045
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 3069.1840000000084,
+      "afterMs": 2706.745900000009,
+      "cells": 57600
+    },
+    {
+      "map": "kolguyev",
+      "kind": "forest",
+      "model": "mesh",
+      "xz": [
+        2485,
+        8045
+      ],
+      "dir": 315,
+      "arc": 90,
+      "range": 600,
+      "eyeH": 2,
+      "targetH": 1.6,
+      "cell": 2.5,
+      "strength": 1,
+      "beforeMs": 3047.1428999999916,
+      "afterMs": 2742.1973,
+      "cells": 57600
+    }
+  ]
+}

@@ -58,7 +58,7 @@ async function losFixtures() {
       if (url.includes('retry') && fail) { fail = false; return new Response('', { status: 503 }); }
       return new Response(tile);
     } });
-  vm.runInContext(source('los-worker.js') + `
+  const fixtureCode = `
     globalThis.fixture = {
       configure() {
         CFG = {size: 6000, losDir: 'tiles'}; index = {version: 1};
@@ -72,6 +72,7 @@ async function losFixtures() {
         CFG = {size: 1000}; UNIT = 1; tiles.clear(); plantTiles.clear();
         tileSet = new Set(['0_0','1_0']);
         const ground = {ter:new Uint16Array(TN*TN),top:new Uint8Array(SN*SN),kind:new Uint8Array(SN*SN)};
+        for (let r=0;r<SN;r++) {ground.kind[r*SN+20]=1; ground.top[r*SN+20]=40;}
         tiles.set('0_0',ground); tiles.set('1_0',ground);
         profiles = [{reach:20,nS:40,half:new Float32Array(40).fill(20),bands:[{d:25,cover:new Float32Array(40).fill(.2)}]}];
         const plant = x => ({x:[x],z:[250],base:[0],kind:[0],scale:[1],
@@ -79,10 +80,15 @@ async function losFixtures() {
         plantTiles.set('0_0',plant(500)); plantTiles.set('1_0',plant(0));
         let calls = 0; const original = addProfile;
         addProfile = (...args) => {calls++; original(...args);};
-        compute({xz:[480,250],dir:90,arc:0,range:40,eyeH:1,targetH:1,cell:2.5});
-        addProfile = original; return calls;
+        const first=compute({xz:[480,250],dir:90,arc:0,range:40,eyeH:1,targetH:1,cell:2.5});
+        const once=calls;
+        const results=[first];
+        for(const xz of [[499,250],[500,250],[510,250]]) for(const strength of [0,.5,1.5]) for(const arc of [0,45,360])
+          results.push(compute({xz,dir:90,arc,range:80,eyeH:2,targetH:1,cell:2.5,strength,elev:[-10,45]}));
+        addProfile = original; return {calls:once,results:results.map(r=>Array.from(r.cells))};
       }
-    };`, ctx);
+    };`;
+  vm.runInContext(source('los-worker.js') + fixtureCode, ctx);
   const f = ctx.fixture; f.configure();
   await assert.rejects(f.loadTile('retry'), /503/);
   await f.loadTile('retry'); // rejected pending promise was released
@@ -90,7 +96,14 @@ async function losFixtures() {
   assert.equal(f.size(), 100); assert.equal(f.groundAt(250, 250), 12.34);
   assert.ok(f.finish() <= 90);
   await assert.rejects(f.large(), /tile budget/);
-  assert.equal(f.foliage(), 2, 'one boundary crown should be counted once in each of the two identical rays');
+  const optimized=f.foliage();
+  assert.equal(optimized.calls, 2, 'one boundary crown should be counted once in each of the two identical rays');
+  const reference=vm.createContext({});
+  // Undo the two skip guards in a reference worker; later targets must still see intervening obstructions.
+  vm.runInContext(source('los-worker.js').replace('if (bk !== plantBucket)', 'if (true)')
+    .replace('if (cells[k] !== CLEAR)', 'if (true)') + fixtureCode,reference);
+  assert.deepEqual(JSON.parse(JSON.stringify(optimized)),JSON.parse(JSON.stringify(reference.fixture.foliage())),
+    'LOS skips changed near-eye, tile-boundary, foliage-strength or far-obstruction results');
 }
 
 function ringSlope() {
