@@ -483,9 +483,18 @@
   }
   const workerCfg = () => {
     const dir = `/data/maps/${S.map}`;
-    return { size: WORLD, losDir: `${dir}/los`, profiles: { json: `${dir}/foliage/foliage_profiles.json`, plants: `${dir}/foliage.json`, dir: `${dir}/plants` } };
+    const foliageDir = losModel === 'mesh' ? `${dir}/foliage-mesh` : dir;
+    return { size: WORLD, losDir: `${dir}/los`, profiles: { json: `${foliageDir}/foliage/foliage_profiles.json`, plants: `${foliageDir}/foliage.json`, dir: `${foliageDir}/plants` } };
   };
-  const reqKey = r => `${S.map}|${r.xz}|${r.dir}|${r.arc}|${r.range}|${r.eyeH}|${r.targetH}`;
+  let losModel = 'profiles';
+  try { if (localStorage.getItem('everon-map-los-detail') === 'mesh') losModel = 'mesh'; } catch { /* storage unavailable */ }
+  $('#los-model').value = losModel;
+  $('#los-model').addEventListener('change', e => {
+    losModel = e.target.value; losFailed = false;
+    try { localStorage.setItem('everon-map-los-detail', losModel); } catch { /* storage unavailable */ }
+    requestLos();
+  });
+  const reqKey = r => `${S.map}|${losModel}|${r.xz}|${r.dir}|${r.arc}|${r.range}|${r.eyeH}|${r.targetH}`;
   // The runs the current plan needs, each { xz, dir, arc, range, eyeH, targetH }
   function deadRuns(b) {
     const out = [], R = S.reach;
@@ -526,7 +535,7 @@
       if (losCache.has(key) || [...losWanted.values()].some(x => x.key === key)) continue;
       const id = ++reqSeq;
       losWanted.set(id, { key, gen: losGen });
-      w.postMessage({ id, ...r, reverse: false, elev: null, cell: CELL, model: 'profiles', strength: 1, cfg: workerCfg() });
+      w.postMessage({ id, ...r, reverse: false, elev: null, cell: CELL, model: losModel, strength: 1, cfg: workerCfg() });
     }
     drawShading();
   }
@@ -655,6 +664,8 @@
   async function setMap(id) {
     const gen = ++loadGen;
     S.map = id;
+    $('#los-model option[value="mesh"]').disabled = !MAPS[id].hasMeshFoliage;
+    if (losModel === 'mesh' && !MAPS[id].hasMeshFoliage) { losModel = 'profiles'; $('#los-model').value = losModel; }
     $('#map-pick').value = id;
     HEIGHT = null; BASES = []; S.sel = null; cancelDraft();
     losCache.clear(); losFailed = false; $('#los-note').textContent = '';

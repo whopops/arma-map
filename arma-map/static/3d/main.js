@@ -806,9 +806,16 @@
     return !!((FOREST[k >> 3] >> (7 - (k & 7))) & 1);
   };
   // line of sight, worked out in the background (los.js); each answer redraws the markings
-  const sight = Los({
-    size: WORLD, losDir: `${DIR}los`,
-    profiles: { json: `${DIR}foliage/foliage_profiles.json`, plants: `${DIR}foliage.json`, dir: `${DIR}plants` },
+  let losModel = MAP.hasMeshFoliage && store.get('everon-map-los-detail', 'profiles') === 'mesh' ? 'mesh' : 'profiles';
+  $('#los-model').value = losModel;
+  $('#los-model option[value="mesh"]').disabled = !MAP.hasMeshFoliage;
+  $('#los-model').addEventListener('change', e => {
+    losModel = e.target.value; store.set('everon-map-los-detail', losModel); propsDirty = true;
+  });
+  const sight = Los(() => {
+    const foliageDir = losModel === 'mesh' ? `${DIR}foliage-mesh/` : DIR;
+    return { size: WORLD, losDir: `${DIR}los`, model: losModel,
+      profiles: { json: `${foliageDir}foliage/foliage_profiles.json`, plants: `${foliageDir}foliage.json`, dir: `${foliageDir}plants` } };
   }, () => { propsDirty = true; });
   const marksEnv = () => ({ ground: groundAt, field: fieldSpots, tables: mortarTables, los: settings.los ? sight.grid : null, forest: inForest, world: WORLD });
   const markings = Room(CFG.rooms || '/api', {

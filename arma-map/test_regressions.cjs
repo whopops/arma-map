@@ -122,6 +122,20 @@ function losRecovery() {
   assert.equal(worker.requests.length, 3);
   worker.onmessage({ data: { id: worker.requests[2].id, cells: [2] } });
   assert.equal(los.error, null); assert.equal(los.grid(...args).cells[0], 2);
+  // Shared 3D adapter must key results by dataset and send the newly selected config.
+  let model = 'profiles';
+  const selectable = ctx.create(() => ({ model, profiles: { json: `${model}/profiles.json` } }), () => {});
+  selectable.grid(...args);
+  worker.onmessage({ data: { id: worker.requests[0].id, cells: [2] } });
+  model = 'mesh';
+  assert.equal(selectable.grid(...args), null);
+  assert.equal(worker.requests[1].model, 'mesh');
+  assert.equal(worker.requests[1].cfg.profiles.json, 'mesh/profiles.json');
+  worker.onmessage({ data: { id: worker.requests[1].id, cells: [1] } });
+  assert.equal(selectable.grid(...args).cells[0], 1);
+  model = 'profiles';
+  assert.equal(selectable.grid(...args).cells[0], 2);
+  assert.equal(worker.requests.length, 2, 'switching back should reuse its own cached result');
 }
 
 async function run() {

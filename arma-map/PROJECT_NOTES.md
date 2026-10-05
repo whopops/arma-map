@@ -156,6 +156,12 @@ The banner comments name the sections. Use function names to navigate; line numb
     a Python copy of the site solver, and `test_sitesolver.py` checks it.
 - **`los-worker.js`**: the Measured line of sight (rays over 0.5 m object tiles plus tree profiles). The field map,
   the base page and `3d/los.js` all use it.
+  - `model: 'mesh'` selects `maps/<id>/foliage-mesh/` profiles and plant tiles; object/terrain tiles stay shared.
+    `selectConfig` switches foliage caches before each queued request, retaining both datasets for comparisons.
+    Plant identities are computed when loading tiles, and ray marches reuse the current terrain tile.
+  - `/api/maps` exposes `hasMeshFoliage` from the packaged files. Measured remains the desktop default.
+    Tactical map coarse Mesh previews use the new light foliage grid; the Light option keeps its original data.
+    `compare_los.cjs` runs actual-worker queries and checks photo/mesh/photo switches without network or rooms.
 - **`sky.js`**: sun and moon for the game clock.
 
 ## Rooms, sync and browser storage

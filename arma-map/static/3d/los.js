@@ -39,7 +39,9 @@ const Los = (() => {
     // elev: [lowest, highest] angle a gun can aim, in degrees.
     function grid(xz, dir, arc, range, eyeH, targetH, reverse = false, elev = null) {
       if (!(range >= 1)) return null;
-      const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}`;
+      const config = typeof cfg === 'function' ? cfg() : cfg;
+      const model = config.model || 'profiles';
+      const key = `${model}|${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}`;
       const hit = cache.get(key);
       if (hit) { cache.delete(key); cache.set(key, hit); return hit; }
       if ((failures.get(key) || 0) > Date.now()) return null;
@@ -47,7 +49,7 @@ const Los = (() => {
         if (!worker) start();
         const id = ++seq;
         wanted.set(key, id);
-        worker.postMessage({ id, xz, dir, arc, range, eyeH, targetH, reverse, elev, cell: CELL, model: 'profiles', strength: 1, cfg });
+        worker.postMessage({ id, xz, dir, arc, range, eyeH, targetH, reverse, elev, cell: CELL, model, strength: 1, cfg: config });
       }
       return null;
     }

@@ -59,6 +59,16 @@ Commands here assume the application directory `arma-map/`; from the repository 
 
 ## Measured LOS regression fixtures
 
+For the alternative foliage dataset, run `node arma-map/compare_los.cjs` from the repository root. It compares
+matching photo/mesh profile slices and identical worker queries on all three maps, then switches back to ensure
+the photo result is unchanged and cached files are reused. Optional argument: path for a JSON report.
+
+In a disposable localhost room, place an elevation profile and a friendly range card. In Map settings switch
+Measured → Mesh → Light → Mesh; wait for detailed work to finish and verify the radio state, shading, profile
+verdicts and coverage update without console errors. Reload to check persistence. Change Foliage strength in
+both detailed modes. In Base planning select a base, switch the foliage selector and verify dead ground redraws.
+Open 3D with the same room and verify Measured/Mesh overlays while retaining read-only observer behavior.
+
 `node test_client.cjs` includes `test_regressions.cjs`: a 100-tile query retains its eye tile through computation,
 cache trimming runs afterward, a failed tile can be retried, and a copied boundary crown is counted once per ray.
 Requests exceeding the active tile budget fail explicitly. A fake worker verifies recovery after a transient

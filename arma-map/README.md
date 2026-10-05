@@ -258,8 +258,10 @@ correct fire.
 - **Resources**: supply stashes, infinite supply points, vehicle spawns, refuel and repair points (Everon only), and
   fuel stations (every map, from the game's map symbols). A layer a map has no data for is not listed.
 - **Base map and line of sight** (in **Map settings**): Satellite or Relief, where a map has relief; line of sight
-  Measured (0.5 m, the default on computers) or Light (10 m, the default on phones). **Foliage strength** tunes how
-  much leaves block in Measured.
+  Measured (0.5 m, the default on computers), Light (10 m, the default on phones), or **Mesh** (0.5 m objects,
+  foliage from game models). **Foliage strength** tunes how much leaves block in Measured and Mesh. Switch models
+  to compare the same markings, profiles, coverage, overwatch and route exposure. Base planning and 3D also offer
+  Measured/Mesh foliage selectors; the choice is remembered in this browser and carried into the next view.
   Relief uses a muted earth-tone highlight curve so high ground stays readable without bright white summits.
 
 ### Other
@@ -300,9 +302,20 @@ by `reforger-map-tools` (its `export` and `bake`).
   sides at ranges up to 300 m (`reforger-map-tools`' `foliage` job). It probably overstates foliage a little; lower
   Foliage strength if trees block less in game.
 - **Light**: every tree averaged into 10 m squares at seven heights. Agrees with the detailed model on 91% of ground.
+- **Mesh**: the same terrain, buildings, walls and rocks as Measured, with individual plants measured from the game's
+  meshes and alpha-tested leaf textures (library build 24903726). The profiles use the same distance bands and
+  0.25 m foliage slices. No extra strength multiplier is applied. This is an alternative foliage estimate;
+  the object data's 95% agreement does not establish foliage accuracy.
 
-Measured loads the sector's terrain and counts each boundary plant once. Required tiles stay available throughout
-the calculation; up to 225 tiles may be used for one query, then the cache returns to 90. Larger queries explicitly
+Both detailed models run in the shared background worker and shade 2.5 m output cells. While Mesh is calculating,
+its preview uses its own 10 m foliage grid once loaded; Light retains the original photo grid. Drafts being aimed
+use these coarse grids to keep up with the mouse. Terrain/object tiles are reused across dataset switches;
+plant lists, profiles and result caches stay separate. Mesh light foliage also includes the upstream cross-section
+aggregation fix, so its coarse preview can be less dense for reasons beyond the change in plant measurements.
+See [LOS_COMPARISON.md](LOS_COMPARISON.md) for a reproducible comparison and its limitations.
+
+Measured and Mesh load the sector's terrain and count each boundary plant once. Required tiles stay available throughout
+the calculation; up to 225 tiles may be used for one query, then each tile cache returns to 90. Larger queries explicitly
 fall back instead of silently treating missing terrain as sea level. Temporary load failures retry after five seconds;
 the field map shows Light while waiting. The 3D view omits an unavailable measured overlay until it can retry.
 

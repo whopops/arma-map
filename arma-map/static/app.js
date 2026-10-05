@@ -16,6 +16,7 @@
     id, name: m.title || id, size: m.world, dir: `data/maps/${id}`, tiles: m.tiles, poi: m.poi || null,
     foliage: `data/maps/${id}/foliage/foliage_profiles.json`, plants: m.hasPlants ? `data/maps/${id}/foliage.json` : null,
     plantsDir: `data/maps/${id}/plants`, relief: m.hasRelief ? `data/maps/${id}/relief/{z}/{x}/{y}.jpg?v=${+m.hasRelief}` : null,
+    mesh: !!m.hasMeshFoliage,
   });
   let MAPS = {}, DEFAULT_MAP = null;
   // until the list arrives: an empty 12.8 km map with no tiles
@@ -227,6 +228,7 @@
   // CLUTTER  per height band, the share of the cell filled by buildings, walls, rocks and poles (0-255).
   let FOREST = null; // Uint8Array of packed bits
   let CANOPY = null, BUILDINGS = null, FOLIAGE = null, CLUTTER = null, FOLIAGE_MAX = null, CLUTTER_MAX = null; // max over bands
+  let meshLight = null, meshLightPending = null;
   const LIGHT_BANDS = [0, 1, 2, 4, 7, 12, 20, 45], LIGHT_K_MAX = 0.5;
   const cellOf = ([x, z]) => (x < 0 || z < 0 || x >= WORLD || z >= WORLD ? -1 : Math.floor(z / HCELL) * HN + Math.floor(x / HCELL));
   const canopyTop = p => { const k = cellOf(p); return CANOPY && k >= 0 ? CANOPY[k] : 0; };
@@ -2959,7 +2961,9 @@
   // elev: [lowest, highest] angle in degrees a gun can aim (null = any).
   function lightLos(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
     if (!HEIGHT || range < 1) return null;
-    const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}|${!!FOLIAGE}`;
+    const mesh = state.losMode === 'mesh' && meshLight;
+    const foliage = mesh ? mesh.foliage : FOLIAGE, foliageMax = mesh ? mesh.max : FOLIAGE_MAX;
+    const key = `${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}|${!!foliage}|${!!mesh}`;
     if (cache && losCache.has(key)) return losCache.get(key);
     const pts = arc >= 360 ? [[xz[0] - range, xz[1] - range], [xz[0] + range, xz[1] + range]] : sectorLatLngs(xz, dir, arc, range).map(toXZ);
     // The box is snapped to the 10 m grid so results from different spots line up cell for cell.
@@ -2987,9 +2991,9 @@
         hs[n] = ground([x, z]);
         blk[n] = hs[n] + (BUILDINGS && k >= 0 && r > BUILDING_NEAR ? BUILDINGS[k] : 0);
         // cells whose plants and clutter could thin a sight line by more than LIGHT_MIN_TAU (skipping stray twigs)
-        if (FOLIAGE && k >= 0 && (FOLIAGE_MAX[k] * fMax + CLUTTER_MAX[k] * cUnit) * step > LIGHT_MIN_TAU) {
+        if (foliage && CLUTTER && k >= 0 && (foliageMax[k] * fMax + CLUTTER_MAX[k] * cUnit) * step > LIGHT_MIN_TAU) {
           const near = r <= BUILDING_NEAR; // no clutter where the eye stands
-          for (let b = 0; b < NBANDS; b++) mus[n * NBANDS + b] = FOLIAGE[b * NN + k] * fUnit[b] + (near ? 0 : CLUTTER[b * NN + k] * cUnit);
+          for (let b = 0; b < NBANDS; b++) mus[n * NBANDS + b] = foliage[b * NN + k] * fUnit[b] + (near ? 0 : CLUTTER[b * NN + k] * cUnit);
           wooded[m++] = n;
         }
         n++;
@@ -3044,7 +3048,7 @@
   // Measured needs a plant list for the map (MAP.plants), so on a map whose trees haven't been baked yet only Light is
   // offered. Measured is the default on computers, Light on phones and tablets. A retired mode ('full', 'visual') still
   // saved in someone's browser isn't available, so they get the default.
-  const modeAvailable = m => m === 'light' || (fullSupported() && m === 'profiles' && !!MAP.plants);
+  const modeAvailable = m => m === 'light' || (fullSupported() && (m === 'profiles' && !!MAP.plants || m === 'mesh' && MAP.mesh));
   function defaultLosMode() {
     const weak = (navigator.deviceMemory && navigator.deviceMemory < 4) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4)
       || matchMedia('(pointer: coarse)').matches; // phones and tablets
@@ -3065,10 +3069,12 @@
   // What the worker needs to find this map's files.
   const workerCfg = () => ({
     size: WORLD, losDir: mapLosDir(),
-    profiles: MAP.plants ? { json: MAP.foliage, plants: MAP.plants, dir: MAP.plantsDir } : null,
+    profiles: state.losMode === 'mesh' ? { json: `${MAP.dir}/foliage-mesh/foliage/foliage_profiles.json`,
+      plants: `${MAP.dir}/foliage-mesh/foliage.json`, dir: `${MAP.dir}/foliage-mesh/plants` }
+      : MAP.plants ? { json: MAP.foliage, plants: MAP.plants, dir: MAP.plantsDir } : null,
   });
   function losGrid(xz, dir, arc, range, cache, eyeH, targetH, reverse, elev = null) {
-    if (cache && state.losMode === 'profiles' && modeAvailable(state.losMode) && HEIGHT && range >= 1) {
+    if (cache && state.losMode !== 'light' && modeAvailable(state.losMode) && HEIGHT && range >= 1) {
       const model = state.losMode, strength = state.losStrength;
       const key = `${model}@${strength}|${xz}|${dir}|${arc}|${Math.round(range)}|${eyeH}|${targetH}|${reverse}|${elev}`;
       const hit = fullCache.get(key);
@@ -3086,8 +3092,8 @@
         if (!entry) return;
         fullWanted.delete(entry[0]);
         if (d.error) {
-          console.error('Measured line of sight:', d.error);
-          if (!fullError) { fullError = d.error; toast('Measured line of sight could not load; showing Light instead.', 6000); }
+          console.error('Detailed line of sight:', d.error);
+          if (!fullError) { fullError = d.error; toast('Detailed line of sight could not load; showing the coarse preview.', 6000); }
           fullFailures.set(entry[0], Date.now() + 5000);
           while (fullFailures.size > 40) fullFailures.delete(fullFailures.keys().next().value);
           setTimeout(redrawLos, 5100);
@@ -3110,9 +3116,11 @@
   }
   // Redraw everything that shows line of sight (range cards, MG nests, AA guns, overwatch, TRPs, route exposure).
   function redrawLos() {
+    routeCache.clear(); flightCache.clear();
     state.players.forEach(p => p.items.forEach(it => renderItem(p, it)));
     refreshCoverage(true);
     refreshThreats(true);
+    refreshLists();
   }
   function renderLosDetail() {
     const box = $('#los-detail');
@@ -3122,18 +3130,24 @@
       b.classList.toggle('sel', on);
       b.setAttribute('aria-checked', on);
       b.disabled = !modeAvailable(b.dataset.losMode);
-      if (b.disabled && b.dataset.losMode === 'profiles' && fullSupported()) b.title = 'Needs this map’s trees, which have not been baked';
+      if (b.dataset.losMode === 'profiles') b.title = b.disabled ? 'Needs browser worker support and this map’s plant data' : '0.5 m objects with foliage measured from in-game photographs';
+      if (b.dataset.losMode === 'mesh') b.title = b.disabled ? 'Mesh foliage is unavailable for this map or browser' : '0.5 m objects with foliage from game meshes and leaf textures';
     });
-    const measured = state.losMode === 'profiles';
+    const measured = state.losMode !== 'light';
     $('#los-strength').classList.toggle('hidden', !measured);
-    $('#los-note').textContent = measured && fullError ? 'Measured could not load, so Light is shown.'
-      : measured && fullWanted.size ? 'Working it out…'
-      : '';
+    const label = state.losMode === 'mesh' ? 'Mesh' : 'Measured';
+    $('#los-note').textContent = measured && fullError ? `${label} could not load, so the coarse preview is shown.`
+      : measured && fullWanted.size ? 'Working it out… Coarse preview until ready.'
+      : state.losMode === 'mesh' ? 'Game meshes and leaf textures · same terrain and objects as Measured.' : '';
   }
   $('#los-detail').addEventListener('click', e => {
     const b = e.target.closest('[data-los-mode]');
     if (!b || b.disabled || b.dataset.losMode === state.losMode) return;
     state.losMode = b.dataset.losMode;
+    // Old queued results must not delay or report errors for the newly selected dataset.
+    for (const id of fullWanted.values()) losWorker?.postMessage({ cancel: id });
+    fullWanted.clear(); fullError = null;
+    if (state.losMode === 'mesh') loadMeshLight();
     try { localStorage.setItem(LOS_MODE_KEY, state.losMode); } catch { /* storage unavailable */ }
     renderLosDetail();
     redrawLos();
@@ -6499,7 +6513,20 @@
       return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
     });
   }
+  function loadMeshLight() {
+    if (!MAP.mesh || meshLight || meshLightPending) return;
+    meshLightPending = fetch(`${MAP.dir}/foliage-mesh/light/foliage.bin.gz?v=24903726`).then(r => {
+        if (!r.ok) throw new Error(`mesh foliage: ${r.status}`);
+        return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+      }).then(buf => {
+        const foliage = new Uint8Array(buf), nn = HN * HN, max = new Uint8Array(nn);
+        if (foliage.length !== nn * (LIGHT_BANDS.length - 1)) throw new Error('Mesh foliage grid dimensions do not match this map.');
+        for (let i = 0; i < foliage.length; i++) if (foliage[i] > max[i % nn]) max[i % nn] = foliage[i];
+        meshLight = { foliage, max }; losCache.clear(); redrawLos();
+      }).catch(err => console.error('Mesh preview foliage:', err)).finally(() => { meshLightPending = null; });
+  }
   function loadLight(def) {
+    if (state.losMode === 'mesh') loadMeshLight();
     // Trees and buildings: line of sight worked out before they arrived is redone with them.
     Promise.all(['forest', 'canopy', 'buildings', 'foliage', 'clutter'].map(lightBin))
       .then(([forest, canopy, buildings, foliage, clutter]) => {

@@ -1258,6 +1258,8 @@ def public_maps():
         entry = {k: v for k, v in info.items() if k != "upstream"}
         entry["tiles"] = f"/maptiles/{map_id}/{{z}}/{{x}}/{{y}}.jpg"
         entry["hasPlants"] = os.path.isfile(os.path.join(MAPS_DIR, map_id, "foliage.json"))
+        entry["hasMeshFoliage"] = all(os.path.isfile(os.path.join(MAPS_DIR, map_id, "foliage-mesh", part))
+                                      for part in ("foliage.json", "foliage/foliage_profiles.json", "light/foliage.bin.gz"))
         if "poi" not in entry and os.path.isfile(os.path.join(STATIC, "data", f"{map_id}.json")):
             entry["poi"] = f"/data/{map_id}.json"
         out[map_id] = entry

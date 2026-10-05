@@ -1,0 +1,276 @@
+{
+  "gameBuild": "24903726",
+  "note": "Photo vs mesh agreement, not accuracy against engine sight lines. 200 m / 90 degree queries, eye 1.6 m, target 1 m, 2.5 m output.",
+  "maps": [
+    {
+      "map": "everon",
+      "kinds": 70,
+      "slices": 15941,
+      "coverMAE": 0.0386,
+      "coverDelta": 0.0114,
+      "correlation": 0.9258,
+      "queries": [
+        {
+          "xz": [
+            4560,
+            6880
+          ],
+          "bearing": 0,
+          "changedPct": 0,
+          "photo": {
+            "clearPct": 0,
+            "foliagePct": 0,
+            "loadMs": 128,
+            "computeMs": 338
+          },
+          "mesh": {
+            "clearPct": 0,
+            "foliagePct": 0,
+            "loadMs": 64,
+            "computeMs": 343
+          }
+        },
+        {
+          "xz": [
+            4710,
+            6980
+          ],
+          "bearing": 90,
+          "changedPct": 0.02,
+          "photo": {
+            "clearPct": 9,
+            "foliagePct": 0,
+            "loadMs": 0,
+            "computeMs": 294
+          },
+          "mesh": {
+            "clearPct": 9,
+            "foliagePct": 0,
+            "loadMs": 0,
+            "computeMs": 283
+          }
+        },
+        {
+          "xz": [
+            4460,
+            7030
+          ],
+          "bearing": 180,
+          "changedPct": 0.95,
+          "photo": {
+            "clearPct": 3,
+            "foliagePct": 3,
+            "loadMs": 0,
+            "computeMs": 302
+          },
+          "mesh": {
+            "clearPct": 3,
+            "foliagePct": 2,
+            "loadMs": 0,
+            "computeMs": 294
+          }
+        },
+        {
+          "xz": [
+            4900,
+            6592.04
+          ],
+          "bearing": 225,
+          "changedPct": 5.02,
+          "photo": {
+            "clearPct": 19,
+            "foliagePct": 8,
+            "loadMs": 74,
+            "computeMs": 440
+          },
+          "mesh": {
+            "clearPct": 17,
+            "foliagePct": 6,
+            "loadMs": 39,
+            "computeMs": 437
+          }
+        }
+      ]
+    },
+    {
+      "map": "arland",
+      "kinds": 67,
+      "slices": 14083,
+      "coverMAE": 0.0325,
+      "coverDelta": 0.0039,
+      "correlation": 0.9573,
+      "queries": [
+        {
+          "xz": [
+            2250,
+            2250
+          ],
+          "bearing": 0,
+          "changedPct": 0.72,
+          "photo": {
+            "clearPct": 13,
+            "foliagePct": 2,
+            "loadMs": 91,
+            "computeMs": 402
+          },
+          "mesh": {
+            "clearPct": 13,
+            "foliagePct": 2,
+            "loadMs": 55,
+            "computeMs": 410
+          }
+        },
+        {
+          "xz": [
+            2400,
+            2350
+          ],
+          "bearing": 90,
+          "changedPct": 0,
+          "photo": {
+            "clearPct": 0,
+            "foliagePct": 0,
+            "loadMs": 92,
+            "computeMs": 384
+          },
+          "mesh": {
+            "clearPct": 0,
+            "foliagePct": 0,
+            "loadMs": 35,
+            "computeMs": 387
+          }
+        },
+        {
+          "xz": [
+            2150,
+            2400
+          ],
+          "bearing": 180,
+          "changedPct": 0.04,
+          "photo": {
+            "clearPct": 4,
+            "foliagePct": 0,
+            "loadMs": 38,
+            "computeMs": 442
+          },
+          "mesh": {
+            "clearPct": 4,
+            "foliagePct": 0,
+            "loadMs": 24,
+            "computeMs": 451
+          }
+        },
+        {
+          "xz": [
+            2328.77,
+            2135.06
+          ],
+          "bearing": 225,
+          "changedPct": 2.05,
+          "photo": {
+            "clearPct": 9,
+            "foliagePct": 5,
+            "loadMs": 65,
+            "computeMs": 498
+          },
+          "mesh": {
+            "clearPct": 9,
+            "foliagePct": 4,
+            "loadMs": 33,
+            "computeMs": 505
+          }
+        }
+      ]
+    },
+    {
+      "map": "kolguyev",
+      "kinds": 114,
+      "slices": 23672,
+      "coverMAE": 0.0414,
+      "coverDelta": 0.0085,
+      "correlation": 0.933,
+      "queries": [
+        {
+          "xz": [
+            6750,
+            6250
+          ],
+          "bearing": 0,
+          "changedPct": 0.8,
+          "photo": {
+            "clearPct": 1,
+            "foliagePct": 4,
+            "loadMs": 125,
+            "computeMs": 427
+          },
+          "mesh": {
+            "clearPct": 1,
+            "foliagePct": 3,
+            "loadMs": 71,
+            "computeMs": 423
+          }
+        },
+        {
+          "xz": [
+            6900,
+            6350
+          ],
+          "bearing": 90,
+          "changedPct": 0.08,
+          "photo": {
+            "clearPct": 0,
+            "foliagePct": 0,
+            "loadMs": 75,
+            "computeMs": 387
+          },
+          "mesh": {
+            "clearPct": 0,
+            "foliagePct": 0,
+            "loadMs": 66,
+            "computeMs": 406
+          }
+        },
+        {
+          "xz": [
+            6650,
+            6400
+          ],
+          "bearing": 180,
+          "changedPct": 1.94,
+          "photo": {
+            "clearPct": 8,
+            "foliagePct": 6,
+            "loadMs": 50,
+            "computeMs": 627
+          },
+          "mesh": {
+            "clearPct": 9,
+            "foliagePct": 4,
+            "loadMs": 31,
+            "computeMs": 420
+          }
+        },
+        {
+          "xz": [
+            6879.84,
+            6375.08
+          ],
+          "bearing": 225,
+          "changedPct": 0.43,
+          "photo": {
+            "clearPct": 0,
+            "foliagePct": 1,
+            "loadMs": 0,
+            "computeMs": 513
+          },
+          "mesh": {
+            "clearPct": 0,
+            "foliagePct": 0,
+            "loadMs": 0,
+            "computeMs": 514
+          }
+        }
+      ]
+    }
+  ]
+}

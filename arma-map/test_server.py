@@ -462,6 +462,19 @@ class MapListTests(unittest.TestCase):
         self.add("two", world=100, order=0)
         self.assertEqual(list(server.load_maps()), ["two", "one"])
 
+    def test_mesh_foliage_is_only_offered_with_its_packaged_files(self):
+        directory = self.add("one", world=100) / "foliage-mesh"
+        directory.mkdir()
+        self.assertFalse(server.public_maps()["maps"]["one"]["hasMeshFoliage"])
+        for part in ("foliage.json", "foliage/foliage_profiles.json"):
+            target = directory / part
+            target.parent.mkdir(exist_ok=True)
+            target.write_text("{}")
+        self.assertFalse(server.public_maps()["maps"]["one"]["hasMeshFoliage"])
+        (directory / "light").mkdir()
+        (directory / "light/foliage.bin.gz").write_bytes(b"fixture")
+        self.assertTrue(server.public_maps()["maps"]["one"]["hasMeshFoliage"])
+
     def test_join_accepts_only_listed_maps(self):
         self.add("isle", world=100)
         hub = server.Hub()

@@ -39,7 +39,10 @@ const SLICE = 0.25, MAX_COVER = 0.98;
 // Where this map's data is, from the page with every request: {size, losDir, profiles: {json, plants, dir}}.
 let CFG = null, UNIT = 0.01;
 let index = null, tileSet = null, profiles = null, plantSrc = null;
-const plantTiles = new Map(), plantPending = new Map(); // name -> {x, z, base, kind, scale, start, items} | null
+let plantTiles = new Map();
+const plantPending = new Map();
+const foliageSets = new Map(); // retain both datasets when comparing; terrain/object tiles stay shared
+let foliageKey = null;
 const BUCKET = 4, NB = TILE / BUCKET;                     // plants are found through 4 m squares
 const tiles = new Map();      // name -> {ter, top, kind} | null (open sea); insertion order = age
 const pending = new Map();    // name -> Promise
@@ -71,9 +74,26 @@ async function loadProfiles() {
   if (!rl.ok) throw new Error(`plant list ${rl.status}`);
   const raw = await rp.json(), list = await rl.json();
   // baseUnit: metres per step of the ground height
-  profiles = list.prefabs.map(prefab => (raw[prefab] ? buildProfile(raw[prefab]) : null));
+  const built = list.prefabs.map(prefab => (raw[prefab] ? buildProfile(raw[prefab]) : null));
+  if (built.some(p => !p)) throw new Error('Foliage dataset is missing a plant profile.');
+  profiles = built;
   plantSrc = { margin: list.margin, tiles: new Set(list.tiles), dir: CFG.profiles.dir, unit: list.baseUnit || 0.01,
     reach: profiles.map(p => (p ? p.reach : 0)) };
+  foliageSets.set(foliageKey, { profiles, plantSrc, plantTiles });
+}
+
+function selectConfig(cfg) {
+  if (CFG && (CFG.losDir !== cfg.losDir || CFG.size !== cfg.size)) {
+    index = tileSet = null; tiles.clear(); foliageSets.clear(); foliageKey = null;
+  }
+  const key = JSON.stringify(cfg.profiles);
+  CFG = cfg;
+  if (key === foliageKey) return;
+  foliageKey = key;
+  const saved = foliageSets.get(key);
+  profiles = saved ? saved.profiles : null;
+  plantSrc = saved ? saved.plantSrc : null;
+  plantTiles = saved ? saved.plantTiles : new Map();
 }
 
 // One kind's slices as arrays: for each measured distance the cover of every 0.25 m slice, and the slice's half-width.
@@ -152,7 +172,10 @@ async function loadPlants(name) {
       for (let b = 0; b < NB * NB; b++) start[b + 1] += start[b];
       const items = new Uint32Array(start[NB * NB]), fillAt = start.slice(0, NB * NB);
       span.forEach(([c0, c1, r0, r1], i) => { for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) items[fillAt[r * NB + c]++] = i; });
+      // Boundary copies share an identity. Precompute it once instead of building strings at every ray step.
+      const [tx, tz] = name.split('_').map(Number);
       t = { x, z, base, kind, scale, start, items };
+      t.ids = Array.from({ length: n }, (_, i) => plantId(tx, tz, t, i));
     }
     plantTiles.set(key, t);
     trim(plantTiles);
@@ -208,8 +231,8 @@ async function loadArea(minX, minZ, maxX, maxZ) {
 const tileAt = (tx, tz) => tiles.get(`${tx}_${tz}`) || null;
 
 // Ground height (m) at a point: terrain is every 1 m, joined in straight lines like the engine's.
-function groundAt(x, z) {
-  const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE), t = tileAt(tx, tz);
+function groundAt(x, z, loaded) {
+  const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE), t = loaded === undefined ? tileAt(tx, tz) : loaded;
   if (!t) {
     if (tileSet.has(`${tx}_${tz}`)) throw new Error('Required terrain tile is not loaded.');
     return 0;
@@ -275,7 +298,13 @@ function compute(req) {
     for (let r = STEP; r <= range; r += STEP) {
       const x = xz[0] + r * sx, z = xz[1] + r * sz;
       if (x < 0 || z < 0 || x >= WORLD_M || z >= WORLD_M) break;
-      const g = groundAt(x, z);
+      const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE);
+      if (tx !== ctx || tz !== ctz) {
+        curT = tileAt(tx, tz);
+        curP = plantTiles.get(`${tx}_${tz}`) || null;
+        ctx = tx; ctz = tz;
+      }
+      const g = groundAt(x, z, curT);
       // the target here
       const t = (g + targetH - eye) / r;
       let v;
@@ -291,17 +320,11 @@ function compute(req) {
       }
       // what stands here, for everything further out
       maxSolid = Math.max(maxSolid, (g - eye) / r);
-      const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE);
-      if (tx !== ctx || tz !== ctz) {
-        curT = tileAt(tx, tz);
-        curP = plantTiles.get(`${tx}_${tz}`) || null;
-        ctx = tx; ctz = tz;
-      }
       if (curP && r > NEAR) { // each plant near this spot, once per sight line
         const lx = x - tx * TILE, lz = z - tz * TILE, P = curP;
         const bk = Math.min(NB - 1, Math.floor(lz / BUCKET)) * NB + Math.min(NB - 1, Math.floor(lx / BUCKET));
         for (let q = P.start[bk]; q < P.start[bk + 1]; q++) {
-          const i = P.items[q], gid = plantId(tx, tz, P, i);
+          const i = P.items[q], gid = P.ids ? P.ids[i] : plantId(tx, tz, P, i);
           if (seenPlants.has(gid)) continue;
           seenPlants.add(gid);
           const pf = profiles[P.kind[i]];
@@ -322,7 +345,7 @@ function compute(req) {
   }
   let clear = 0, trees = 0, total = 0;
   for (const v of cells) if (v) { total++; if (v === CLEAR) clear++; else if (v === TREES) trees++; }
-  return { model: 'profiles', cells, W, H, minX, maxZ, cell, pct: total ? Math.round(clear / total * 100) : 100, treePct: total ? Math.round(trees / total * 100) : 0 };
+  return { model: req.model || 'profiles', cells, W, H, minX, maxZ, cell, pct: total ? Math.round(clear / total * 100) : 100, treePct: total ? Math.round(trees / total * 100) : 0 };
 }
 
 // The bounding box of a sector (points on its arc and its tip).
@@ -350,7 +373,7 @@ async function pump() {
   while (queue.length) {
     const req = queue.pop();
     try {
-      if (!CFG) CFG = req.cfg; // a page only ever shows one map
+      selectConfig(req.cfg);
       await loadIndex();
       await loadProfiles();
       const points = sectorBox(req.xz, req.dir, req.arc, req.range);
