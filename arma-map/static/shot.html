@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shot Planner</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%23ffd43b' stroke-width='3'/><path d='M16 3v8M16 21v8M3 16h8M21 16h8' stroke='%23ffd43b' stroke-width='3'/></svg>">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/shot.css">
+  <link rel="stylesheet" href="/workspace.css">
+</head>
+<body data-workspace="shot">
+<div id="app">
+  <aside id="side">
+    <div class="top">
+      <nav class="pages" aria-label="Pages">
+        <a class="sel" href="/shot.html" aria-current="page">Shot planner</a>
+        <a id="to-mortar" href="/mortar.html" title="The mortar page, in the same room">Mortar</a>
+        <!-- Base design is off for now: <a id="to-base" href="/base.html" title="The base design page, in the same room">Base</a> -->
+        <a id="to-map" href="/" title="The full field map, in the same room">Full map</a>
+      </nav>
+    </div>
+
+    <section class="card" aria-label="Map">
+      <h2>Map</h2>
+      <div id="map-pick" class="maps" role="radiogroup" aria-label="Map"></div>
+      <div id="map-note" class="note hidden">Leave the room to plan on another map.</div>
+    </section>
+
+    <section class="card" aria-label="Room">
+      <h2>Room <span class="sub">(optional)</span></h2>
+      <form id="room-form" autocomplete="off">
+        <div class="two">
+          <label class="field"><span>Your name</span><input id="room-name" maxlength="20" placeholder="Name" aria-label="Your name"></label>
+          <label class="field"><span>Room code</span><input id="room-code" maxlength="32" placeholder="Room code" aria-label="Room code"></label>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <span id="room-status" class="note" style="margin:0 0 6px">Join to put your shot on the squad's map and pick targets they marked.</span>
+          <button id="room-invite" type="button" class="hidden" title="Copy a link your squad can open">Invite</button>
+          <button id="room-join" type="submit" class="primary">Join</button>
+        </div>
+      </form>
+      <form id="room-clock" class="room-clock hidden" autocomplete="off" title="The room's game clock: the same on the map and the mortar page">
+        <span class="room-clock-now">Game time <b id="room-clock-time">not set</b></span>
+        <input id="room-clock-in" inputmode="numeric" maxlength="5" placeholder="06:42" aria-label="Set the room's game time, hours and minutes">
+        <button type="submit">Set</button>
+      </form>
+    </section>
+
+    <section class="card" aria-label="Weapon">
+      <h2>Weapon</h2>
+      <select id="weapon" aria-label="Weapon"></select>
+      <div class="three" style="margin-top:8px">
+        <label class="field" id="f-sight"><span>Sight</span>
+          <select id="sight"><option value="iron">Iron sight</option><option value="pgo7">PGO-7 scope</option></select></label>
+        <label class="field" id="f-h1"><span>You</span>
+          <select id="h1"><option value="0.5">Prone</option><option value="1">Crouched</option><option value="1.6">Standing</option></select></label>
+        <label class="field" id="f-h2"><span>Target</span>
+          <select id="h2"><option value="0.5">Prone</option><option value="1">Vehicle hull</option><option value="1.6">Standing</option><option value="2.2">Vehicle top</option></select></label>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Where">
+      <h2>Where</h2>
+      <div class="mode" role="radiogroup" aria-label="How to give the target">
+        <button type="button" data-mode="map" role="radio">On the map</button>
+        <button type="button" data-mode="range" role="radio">Range only</button>
+      </div>
+      <div id="pos-map">
+        <div class="row">
+          <span class="dot you" aria-hidden="true"></span>
+          <label class="field"><span>You (grid)</span><input id="g-from" class="gridbox" inputmode="numeric" placeholder="0577 0607" autocomplete="off"></label>
+          <button type="button" data-pick="from" title="Then click the map">Pick</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <span class="dot tgt" aria-hidden="true"></span>
+          <label class="field"><span>Target (grid)</span><input id="g-to" class="gridbox" inputmode="numeric" placeholder="0605 0622" autocomplete="off"></label>
+          <button type="button" data-pick="to" title="Then click the map">Pick</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button type="button" id="use-me" class="hidden" title="Your My position marker from the full map">Use my position</button>
+          <button type="button" id="swap" title="Swap you and the target">Swap</button>
+          <button type="button" id="clear" class="ghost">Clear</button>
+        </div>
+        <div id="geo" class="note"></div>
+      </div>
+      <div id="pos-range" class="hidden">
+        <div class="two">
+          <label class="field"><span>Distance m</span><input id="r-dist" type="number" min="1" max="4000" step="1" value="300" inputmode="numeric"></label>
+          <label class="field"><span>Target higher by m</span><input id="r-dh" type="number" min="-500" max="500" step="1" value="0"></label>
+        </div>
+        <div class="note">Minus for a target below you.</div>
+      </div>
+      <label class="field" style="margin-top:10px"><span>Target direction °</span><input id="r-brg" type="number" min="0" max="359.9" step="0.1" value="0" inputmode="decimal"></label>
+      <div class="note">Compass degrees: 0° N · 90° E · 180° S · 270° W. Used to apply wind to your shot.</div>
+      <div id="shot-wind-components" class="note" role="status"></div>
+    </section>
+
+    <section class="card" aria-label="Wind">
+      <h2>Wind (as the in-game map shows it)</h2>
+      <div class="wind">
+        <label class="field"><span>Speed m/s</span><input id="w-s" type="number" min="0" max="40" step="0.5" value="0" inputmode="decimal"></label>
+        <label class="field"><span>Blowing from °</span><input id="w-d" type="number" min="0" max="359" step="5" value="0" inputmode="numeric"></label>
+        <svg id="wind-rose" viewBox="-30 -30 60 60" aria-hidden="true"></svg>
+      </div>
+      <div class="compass-btns" id="wind-quick"></div>
+    </section>
+
+    <section class="card" aria-label="The shot">
+      <h2>The shot</h2>
+      <div id="result"></div>
+    </section>
+
+    <section class="card hidden" id="shots-card" aria-label="Shots in the room">
+      <h2>Shots in the room</h2>
+      <div id="shots"></div>
+    </section>
+  </aside>
+
+  <main id="stage">
+    <div id="map"></div>
+    <div id="hud">
+      <div id="hint"></div>
+      <div id="aim" class="hidden"></div>
+    </div>
+    <div id="cursor"><span>Grid</span><b id="cursor-grid">— —</b></div>
+  </main>
+</div>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/room-events.js"></script>
+<script src="/3d/room.js"></script>
+<script src="/shot-core.js"></script>
+<script src="/plan-sync.js"></script>
+<script src="/shot.js"></script>
+<script src="/workspace.js"></script>
+</body>
+</html>

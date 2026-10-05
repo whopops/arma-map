@@ -1,0 +1,18 @@
+{
+ "title": "Arland",
+ "slug": "arland-a9806a",
+ "order": 3,
+ "world": 4096.0,
+ "tile": 500.0,
+ "cols": 9,
+ "rows": 9,
+ "lightCols": 450,
+ "lightCell": 10,
+ "unit": 0.01,
+ "start": [
+  2250.0,
+  2250.0
+ ],
+ "hasTrees": true,
+ "hasRelief": 1790997716
+}

@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arma Reforger Maps</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%23c8d96f' stroke-width='3'/><path d='M16 3v8M16 21v8M3 16h8M21 16h8' stroke='%23c8d96f' stroke-width='3'/></svg>">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="/workspace.css">
+</head>
+<body data-workspace="map">
+  <div id="map"></div>
+
+  <!-- Grid rulers along the map edges -->
+  <div id="ruler-x" class="ruler" aria-hidden="true"></div>
+  <div id="ruler-z" class="ruler" aria-hidden="true"></div>
+
+  <!-- Tool bar: Select plus one menu per group (Friendly, Enemy, Plan, Defend, Hazards), built by app.js -->
+  <div id="toolbar" class="panel" role="toolbar" aria-label="Map tools">
+    <button type="button" data-tool="pan" class="tool active" title="Select (Q): click anything for details, drag your own markings to move them">
+      <svg viewBox="0 0 24 24"><path d="M5 3l13 7-5.5 1.6L10 17z"/></svg><span class="name">Select</span><kbd>Q</kbd></button>
+    <div id="tool-menus"></div>
+  </div>
+  <div id="hint" class="hidden"></div>
+  <div id="arc-picker" class="picker hidden" role="radiogroup" aria-label="Field of fire width">
+    <span class="mp-label">MG nest · arc</span>
+    <button type="button" data-arc="30" role="radio">30°<kbd>1</kbd></button>
+    <button type="button" data-arc="60" role="radio" class="sel">60°<kbd>2</kbd></button>
+    <button type="button" data-arc="90" role="radio">90°<kbd>3</kbd></button>
+    <button type="button" data-arc="120" role="radio">120°<kbd>4</kbd></button>
+    <label class="mp-num" title="Height above the ground">Raised
+      <input id="empl-height" type="number" min="0" max="100" step="0.5" value="0" aria-label="Height above the ground in metres"> m</label>
+    <span class="mp-hint" id="arc-hint">Click to place the nest</span>
+  </div>
+  <!-- Options for the current tool (timeouts, reach, ambush type, number of sectors); filled in by app.js -->
+  <div id="opt-picker" class="picker hidden" role="radiogroup"></div>
+
+  <!-- Cursor + live readout -->
+  <div id="readout">
+    <div id="live" class="hidden"></div>
+    <div id="cursor" class="panel"><span class="cap">Grid</span><span id="cursor-grid">— —</span></div>
+  </div>
+
+  <!-- Right-hand column: the mortar panel at the top; zoom, game clock and the squad pop-out at the bottom; they share its height, so
+       they never overlap -->
+  <div id="right-dock">
+    <!-- Mortar: its own panel on the right, opened and closed from its tab (remembered in this browser) -->
+    <button type="button" id="mortar-tab" class="panel" aria-controls="mortar-panel" aria-expanded="false" title="Show the mortar panel">
+      <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4.5M12 17.5V22M2 12h4.5M17.5 12H22"/></svg><span>Mortar</span><span id="fire-count" class="count warn" title="Fire requests waiting"></span></button>
+    <aside id="mortar-panel" class="panel hidden" aria-label="Mortar">
+      <header><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4.5M12 17.5V22M2 12h4.5M17.5 12H22"/></svg><h2>Mortar</h2><span id="fire-count-head" class="count warn" title="Fire requests waiting"></span>
+        <button type="button" id="mortar-close" class="icon-btn" title="Hide the mortar panel" aria-label="Hide the mortar panel">⟩</button></header>
+      <div class="mp-body">
+            <div class="pair mortar-load">
+              <label class="field"><span>Weapon</span><select id="mortar-weapon"></select></label>
+              <label class="field"><span>Shell</span><select id="mortar-shell"></select></label>
+              <label class="field" title="The charge ring you fire with. Auto uses ring 3 for most targets, ring 0 or 1 close in (much tighter and quicker) and ring 4 past ring 3's reach."><span>Ring</span>
+                <select id="mortar-charge"><option value="">Auto</option><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+            </div>
+            <div class="trio" id="mortar-wind">
+              <label class="field" title="Read it off the in-game map (weather). Leave at 0 for no wind."><span>Wind m/s</span><input id="mortar-wind-s" type="number" min="0" max="40" step="1" value="0" inputmode="numeric"></label>
+              <label class="field" title="The direction the wind comes from, as the in-game map shows it"><span>Wind from °</span><input id="mortar-wind-d" type="number" min="0" max="360" step="5" value="0" inputmode="numeric"></label>
+              <label class="field" title="Background noise a shot has to rise above to be heard"><span>Noise</span>
+                <select id="mortar-noise"><option value="still">Still</option><option value="breeze">Breeze</option><option value="windy">Windy</option><option value="storm">Storm</option></select></label>
+            </div>
+            <label class="switch mortar-hear"><input type="checkbox" id="mortar-hear"><span>Show sound ranges (firing, impacts)</span></label>
+                        <div id="mortar-status"></div>
+            <ul id="mortar-targets"></ul>
+            <div class="row" id="mortar-actions">
+              <button id="mortar-move">Move mortar</button>
+              <button id="mortar-clear">Clear targets</button>
+            </div>
+            <div class="sub-block hidden" id="fire-requests">
+              <h3>Fire requests</h3>
+              <div id="fire-requests-from" class="fire-sub"></div>
+              <ul id="mortar-requests"></ul>
+            </div>
+      </div>
+    </aside>
+    <div class="dock-gap"></div>
+    <!-- Game clock readout above the squad pop-out; clicking it opens Map settings, where the time is set. The zoom buttons
+         go above it (app.js) -->
+    <div id="clock-wrap">
+      <button type="button" id="clock-tab" class="panel" aria-controls="map-settings" title="Game time, sun and moon">
+        <span id="clock-glyph" class="clock-glyph" aria-hidden="true"></span><span id="clock-time">Set time</span><span id="clock-sky" class="clock-sky"></span></button>
+    </div>
+    <!-- The mortar page (mortar.html): same tab, same room -->
+    <button type="button" id="open-mortar" class="panel" title="Switch to the mortar page: just the mortar, in this room (same tab)">
+      <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="1.5"/><path d="M12 2v4.5M12 17.5V22M2 12h4.5M17.5 12H22"/></svg><span>Mortar page</span></button>
+    <!-- The shot planner page (shot.html): same tab, same room -->
+    <button type="button" id="open-shot" class="panel" title="Switch to the shot planner: rockets, rifles and vehicle guns, in this room (same tab)">
+      <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19l9-9"/><path d="M12 10l3.5-3.5 3 1-1-3L21 3"/><circle cx="19" cy="17" r="2.5"/></svg><span>Shot planner</span></button>
+    <!-- The base design page (base.html): turned off for now. Uncomment to bring its button back.
+    <button type="button" id="open-base" class="panel" title="Switch to the base design page: a base's build zone, defences and dead ground, in this room (same tab)">
+      <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21V10l9-6 9 6v11z"/><path d="M9 21v-6h6v6"/></svg><span>Base design</span></button> -->
+    <!-- Squad pop-out: players and the briefing, at the bottom of the right-hand column -->
+    <button type="button" id="squad-tab" class="panel" aria-controls="squad-panel" aria-expanded="false" title="Players and briefing">
+      <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.4 3-5 6-5s5.4 1.6 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14c2.3.2 4 1.7 4.5 4.5"/></svg><span>Squad</span><span id="squad-tab-count" class="count"></span><span id="squad-tab-dot" class="acc-dot hidden" title="The briefing was updated"></span></button>
+    <aside id="squad-panel" class="panel hidden" aria-label="Players and briefing">
+      <header role="tablist">
+        <button type="button" class="sq-tab" role="tab" data-sq="players">Players <span id="player-count" class="count"></span></button>
+        <button type="button" class="sq-tab" role="tab" data-sq="contacts">Contacts <span id="contact-count" class="count"></span></button>
+        <button type="button" class="sq-tab" role="tab" data-sq="briefing">Briefing <span id="briefing-dot" class="acc-dot hidden" title="The briefing was updated"></span></button>
+        <button type="button" id="squad-close" class="icon-btn" title="Hide" aria-label="Hide players and briefing">⟩</button>
+      </header>
+      <div class="sq-body" data-sq-pane="players">
+          <ul id="players"></ul>
+          <label class="switch"><input type="checkbox" id="show-others" checked><span>Show other players' markings</span></label>
+      </div>
+      <div class="sq-body hidden" data-sq-pane="contacts">
+          <ul id="contact-log"></ul>
+      </div>
+      <div class="sq-body hidden" data-sq-pane="briefing">
+          <div id="briefing-view">
+            <div id="briefing-text" class="briefing-text"></div>
+            <div id="briefing-meta" class="briefing-meta"></div>
+            <div class="row"><button type="button" id="briefing-edit">Edit briefing</button></div>
+          </div>
+          <form id="briefing-form" class="hidden">
+            <textarea id="briefing-input" rows="10" maxlength="6000" placeholder="The plan, radio channels, rally points, who does what…" aria-label="Briefing"></textarea>
+            <div id="briefing-clash" class="fia-msg warn hidden"></div>
+            <div class="row">
+              <button type="button" id="briefing-template" title="Insert a standard briefing layout">Insert template</button>
+              <span class="spacer"></span>
+              <button type="button" id="briefing-cancel">Cancel</button>
+              <button type="submit" class="primary">Save</button>
+            </div>
+          </form>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Sidebar: who you are, search, then the sections -->
+  <aside id="sidebar" class="panel">
+    <header>
+      <div class="brand">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v6M12 16.5v6M1.5 12h6M16.5 12h6"/></svg>
+        <h1>Arma Reforger Maps</h1>
+      </div>
+      <div id="identity" class="hidden">
+        <span id="me-avatar" class="avatar"></span>
+        <div class="id-text">
+          <b id="me-name"></b>
+          <span class="id-room"><code id="room-code"></code><span id="room-map" class="room-map"></span></span>
+        </div>
+        <button type="button" id="room-keep" class="link-btn" aria-pressed="false" title="Keep this room's plan after everyone leaves">Keep</button>
+        <button type="button" id="room-copy" class="link-btn" title="Copy a link that fills in this room code">Invite</button>
+      </div>
+      <button type="button" id="palette-open" class="finder-btn" title="Find any tool, layer or action (Ctrl+K)" aria-label="Find a tool (Ctrl+K)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/><circle cx="17.5" cy="16.5" r="3"/><path d="M19.7 18.7L22 21"/></svg><kbd>Ctrl K</kbd></button>
+      <button id="collapse" class="icon-btn" title="Hide panel" aria-label="Toggle panel">⟨</button>
+    </header>
+
+    <div class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+      <input id="search" type="search" placeholder="Search places, bases, markings" autocomplete="off">
+    </div>
+    <ul id="results" class="hidden"></ul>
+
+    <!-- Map settings: the base picture, the line-of-sight model, wind, game time and the 3D view, folded away in one dropdown -->
+    <details id="map-settings" class="map-settings">
+      <summary>
+        <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        <span class="ms-title">Map settings</span><span id="settings-sum" class="ms-sum"></span>
+        <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      </summary>
+      <div class="ms-body">
+        <div id="base-map" class="los-detail hidden" role="radiogroup" aria-label="Base map">
+          <span class="ld-label">Base map</span>
+          <span class="ld-opts">
+            <button type="button" data-base="satellite" role="radio" title="Pictures taken in the game">Satellite</button>
+            <button type="button" data-base="relief" role="radio" title="Workbench's own shaded-relief map">Relief</button>
+          </span>
+        </div>
+        <div id="los-detail" class="los-detail" role="radiogroup" aria-label="Line-of-sight detail">
+          <span class="ld-label">Line of sight</span>
+          <span class="ld-opts">
+            <button type="button" data-los-mode="profiles" role="radio" title="0.5 m resolution, slow">Measured</button>
+            <button type="button" data-los-mode="light" role="radio" title="10 m resolution, fast">Light</button>
+          </span>
+          <div id="los-strength" class="ld-strength hidden">
+            <label for="los-strength-range" title="How much leaves block. 1.0 = measured; lower it if trees block less in game.">Foliage strength</label>
+            <input type="range" id="los-strength-range" min="0" max="1.5" step="0.05" value="1">
+            <output id="los-strength-out">1.0</output>
+          </div>
+          <div id="los-note" class="ld-note"></div>
+        </div>
+
+        <section class="ms-group" aria-label="Wind">
+          <h3>Wind</h3>
+          <div class="ms-wind">
+            <label class="field" title="Read it off the in-game map (weather). 0 for no wind."><span>Speed m/s</span><input id="wind-s" type="number" min="0" max="40" step="1" value="0" inputmode="numeric"></label>
+            <label class="field" title="The direction the wind comes from, as the in-game map shows it"><span>From °</span><input id="wind-d" type="number" min="0" max="359" step="5" value="0" inputmode="numeric"></label>
+            <svg id="wind-arrow" viewBox="-30 -30 60 60" aria-hidden="true"><circle r="27"/><text y="-16">N</text><g id="wind-g"><path d="M0 -16 L0 17 M-6 9 L0 17 L6 9"/></g></svg>
+          </div>
+          <div class="ld-note">The room's wind: everyone in it, on the map, mortar and shot planner pages, sees the same. Your mortar and new shot calculations use it.</div>
+        </section>
+
+        <section class="ms-group" id="clock-set" aria-label="Game time, sun and moon">
+          <h3>Game time</h3>
+          <div id="clock-read"></div>
+          <form id="clock-form" autocomplete="off">
+            <label class="field"><span>Watch time</span><input id="clock-in" inputmode="numeric" maxlength="5" placeholder="06:42" aria-label="Game time, hours and minutes"></label>
+            <label class="field"><span>Speed</span><select id="clock-rate" aria-label="Game time speed"></select></label>
+            <button type="submit" class="primary">Set</button>
+          </form>
+          <details id="clock-more">
+            <summary>Date and latitude</summary>
+            <div class="clock-date">
+              <label class="field"><span>Year</span><input id="clock-year" type="number" min="1900" max="2200" step="1"></label>
+              <label class="field"><span>Month</span><input id="clock-month" type="number" min="1" max="12" step="1"></label>
+              <label class="field"><span>Day</span><input id="clock-day" type="number" min="1" max="31" step="1"></label>
+              <label class="field"><span>Latitude °N</span><input id="clock-lat" type="number" min="-66" max="66" step="0.5"></label>
+            </div>
+          </details>
+        </section>
+
+        <!-- The 3D view of this map and room, in a new tab -->
+        <button type="button" id="open-3d" class="ms-3d" title="Fly or walk round this map in 3D, with this room's markings (opens a new tab)">
+          <svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m2 19 6-9 4 5 3-4 7 8H2z"/><circle cx="17" cy="6" r="2"/></svg><span>Open 3D view</span></button>
+      </div>
+    </details>
+
+    <!-- One scrolling column of sections, each opened and closed from its heading -->
+    <div id="panels">
+      <section class="acc" data-sec="markings">
+        <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-markings"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-10.5a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.2"/></svg><span class="acc-title">My markings</span><span id="mine-count" class="count"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
+        <div class="acc-body" id="sec-markings">
+          <ul id="mine"></ul>
+          <div class="row">
+            <button id="export">Export plan</button>
+            <button id="import">Import plan</button>
+          </div>
+          <input id="import-file" type="file" accept=".json,application/json" hidden>
+        </div>
+      </section>
+
+      <section class="acc" data-sec="fia">
+        <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-fia"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 9-8 9-8-9z"/></svg><span class="acc-title">FIA caches this game</span><span id="fia-count" class="count"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
+        <div class="acc-body" id="sec-fia">
+          <form id="fia-form" class="fia-form" autocomplete="off">
+            <textarea id="fia-input" rows="1" placeholder="Grid, e.g. 089 028, or paste a list" aria-label="FIA cache coordinates (one or more)"></textarea>
+            <button type="submit" class="primary">Add</button>
+          </form>
+          <div id="fia-msg" class="fia-msg">A grid, or paste a list.</div>
+          <ul id="fia-list"></ul>
+          <div id="fia-layers" class="fia-layers"></div>
+        </div>
+      </section>
+
+      <section class="acc" data-sec="layers">
+        <h2><button type="button" class="acc-head" aria-expanded="true" aria-controls="sec-layers"><svg class="acc-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/></svg><span class="acc-title">Map layers</span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></h2>
+        <div class="acc-body" id="sec-layers">
+          <div id="layers"></div>
+          <label class="switch"><input type="checkbox" id="show-grid" checked><span>Grid lines</span></label>
+        </div>
+      </section>
+
+      <footer>
+        Map data, terrain and ballistics measured from the game.
+        May lag game updates.
+      </footer>
+    </div>
+  </aside>
+
+  <!-- Username prompt -->
+  <div id="join" class="modal">
+    <form id="join-form" class="panel">
+      <div class="brand big">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v6M12 16.5v6M1.5 12h6M16.5 12h6"/></svg>
+        <h1>Arma Reforger Maps</h1>
+      </div>
+      <p>Pick a name and your squad's room code. Markings are shared with the room and vanish when you close the tab.</p>
+      <label class="field"><span>Username</span><input id="join-name" maxlength="20" placeholder="e.g. Viper 2-1" autocomplete="off" required></label>
+      <div class="field"><span>Room code · everyone in your squad uses the same one</span>
+        <div class="room-row">
+          <input id="join-room" maxlength="32" placeholder="e.g. viper-squad" autocomplete="off" spellcheck="false" required aria-label="Room code">
+          <button type="button" id="join-new-room" title="Make up a new random room code">New code</button>
+        </div>
+      </div>
+      <label class="field"><span>Map · set by whoever opens the room</span>
+        <select id="join-map" aria-label="Map"></select>
+      </label>
+      <div id="join-error" class="error" role="alert"></div>
+      <button type="submit" class="primary">Enter map</button>
+    </form>
+  </div>
+
+  <!-- Marking editor -->
+  <div id="editor" class="modal hidden">
+    <form id="editor-form" class="panel">
+      <h2 id="editor-title">Marker</h2>
+      <label class="field"><span>Label</span><input id="ed-label" maxlength="60"></label>
+      <label class="field"><span>Note</span><textarea id="ed-note" maxlength="500" rows="3" placeholder="Optional"></textarea></label>
+      <label class="field" id="ed-icon-row"><span>Type</span>
+        <select id="ed-icon">
+          <option value="dot">● Point</option>
+          <option value="objective">★ Objective</option>
+          <option value="rally">⚑ Rally point</option>
+          <option value="danger">! Danger</option>
+        </select>
+      </label>
+      <div id="ed-contact" class="ed-extra hidden">
+        <label class="field"><span>What</span>
+          <select id="ed-what"><option value="">Unknown</option><option>Infantry</option><option>Vehicle</option><option>Armour</option><option>Helicopter</option><option>Sniper</option><option>Artillery / mortar</option></select></label>
+        <div class="pair">
+          <label class="field"><span>How many</span>
+            <select id="ed-size"><option value="">Unknown</option><option>1</option><option>2–3</option><option>4–6</option><option>7–12</option><option>12+</option></select></label>
+          <label class="field"><span>Doing</span>
+            <select id="ed-activity"><option value="">Unknown</option><option>Moving</option><option>Static</option><option>Dug in</option><option>Patrolling</option><option>Attacking</option><option>Withdrawing</option></select></label>
+        </div>
+        <div class="pair">
+          <label class="field"><span>Heading</span>
+            <select id="ed-heading"><option value="">Not moving / unknown</option><option value="0">North</option><option value="45">North-east</option><option value="90">East</option><option value="135">South-east</option><option value="180">South</option><option value="225">South-west</option><option value="270">West</option><option value="315">North-west</option></select></label>
+          <label class="field"><span>Carrying</span><input id="ed-kit" maxlength="60" placeholder="e.g. RPG, MG, BTR"></label>
+        </div>
+      </div>
+      <label class="field hidden" id="ed-ttl-row"><span>Times out</span>
+        <select id="ed-ttl"><option value="0">Never</option><option value="5">5 min from now</option><option value="15">15 min from now</option><option value="30">30 min from now</option><option value="60">1 hour from now</option></select></label>
+      <label class="field hidden" id="ed-height-row"><span>Raised above the ground (m) · e.g. on a roof or tower</span>
+        <input id="ed-height" type="number" min="0" max="100" step="0.5"></label>
+      <div id="ed-air" class="ed-extra hidden"></div>
+      <div id="ed-sectors" class="field ed-extra hidden"><span>Who covers each sector</span><div id="ed-sector-rows"></div></div>
+      <div class="field" id="ed-color-row"><span>Colour</span><div class="colors" id="ed-colors"></div></div>
+      <div class="row end">
+        <button type="button" id="ed-delete" class="danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" id="ed-cancel">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Tool finder (Ctrl+K) -->
+  <div id="palette" class="modal hidden">
+    <div class="panel palette-box" role="dialog" aria-label="Find a tool">
+      <div class="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+        <input id="palette-input" placeholder="Find a tool, layer or action…" autocomplete="off" spellcheck="false" aria-label="Find a tool" aria-controls="palette-list">
+      </div>
+      <ul id="palette-list" role="listbox"></ul>
+      <div class="palette-foot"><kbd>↑</kbd><kbd>↓</kbd> choose · <kbd>Enter</kbd> use · <kbd>Esc</kbd> close</div>
+    </div>
+  </div>
+
+  <div id="toast" class="hidden" role="status"></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="sky.js"></script>
+  <script src="shot-core.js"></script>
+<script src="/construction.js"></script>
+  <script src="/3d/mortar.js"></script>
+  <script src="/plan-sync.js"></script>
+  <script src="/room-events.js"></script>
+  <script src="app.js"></script>
+<script src="/workspace.js"></script>
+</body>
+</html>

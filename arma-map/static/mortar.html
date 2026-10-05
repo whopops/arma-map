@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mortar</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%23c8d96f' stroke-width='3'/><path d='M16 3v8M16 21v8M3 16h8M21 16h8' stroke='%23c8d96f' stroke-width='3'/></svg>">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/mortar.css">
+  <link rel="stylesheet" href="/workspace.css">
+</head>
+<body data-workspace="mortar">
+<div id="app">
+  <aside id="side">
+    <div class="top">
+      <nav class="pages" aria-label="Pages">
+        <a id="to-shot" href="/shot.html" title="The shot planner, in the same room">Shot planner</a>
+        <a class="sel" href="/mortar.html" aria-current="page">Mortar</a>
+        <!-- Base design is off for now: <a id="to-base" href="/base.html" title="The base design page, in the same room">Base</a> -->
+        <a id="to-map" href="/" title="The full field map, in the same room">Full map</a>
+      </nav>
+      <label class="sp" aria-label="Map"><select id="map-pick"></select></label>
+    </div>
+
+    <section class="card room-card" aria-label="Room">
+      <h2>Room <span class="sub">(optional)</span></h2>
+      <form id="room-form" autocomplete="off">
+        <div class="two">
+          <label class="field"><span>Your name</span><input id="room-name" maxlength="20" placeholder="Name" aria-label="Your name"></label>
+          <label class="field"><span>Room code</span><input id="room-code" maxlength="32" placeholder="Room code" aria-label="Room code"></label>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <span id="room-status" class="note" style="margin:0 0 6px">Join to share your mortar and see the squad's requests.</span>
+          <button id="room-invite" type="button" class="hidden" title="Copy a link your squad can open">Invite</button>
+          <button id="room-join" type="submit" class="primary">Join</button>
+        </div>
+      </form>
+      <form id="room-clock" class="room-clock hidden" autocomplete="off" title="The room's game clock: the same on the map and the shot planner">
+        <span class="room-clock-now">Game time <b id="room-clock-time">not set</b></span>
+        <input id="room-clock-in" inputmode="numeric" maxlength="5" placeholder="06:42" aria-label="Set the room's game time, hours and minutes">
+        <button type="submit">Set</button>
+      </form>
+    </section>
+
+    <section class="card gun-card" aria-label="Your mortar">
+      <h2>Gun setup</h2>
+      <div class="three">
+        <label class="field"><span>Weapon</span><select id="weapon"></select></label>
+        <label class="field"><span>Shell</span><select id="shell"></select></label>
+        <label class="field" title="Which charge ring to fire. Auto picks the best one for each target."><span>Ring</span>
+          <select id="charge"><option value="">Auto</option><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option></select></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label class="field"><span>Where it is (grid)</span>
+          <input id="gun-grid" class="gridbox" inputmode="numeric" autocomplete="off" placeholder="123 456" aria-label="Mortar grid"></label>
+        <button id="gun-set" class="primary">Set</button>
+      </div>
+      <div id="gun-note" class="note">Type a grid, or click the map.</div>
+    </section>
+
+    <section class="card wind-card" aria-label="Wind">
+      <h2>Weather / in-game wind</h2>
+      <div class="wind">
+        <label class="field"><span>Speed m/s</span><input id="wind-s" type="number" min="0" max="40" step="1" value="0" inputmode="numeric"></label>
+        <label class="field"><span>Blowing from °</span><input id="wind-d" type="number" min="0" max="359" step="5" value="0" inputmode="numeric"></label>
+        <svg id="wind-arrow" viewBox="-30 -30 60 60" aria-hidden="true">
+          <circle r="27" fill="none" stroke="#35414c"/><text y="-17" text-anchor="middle" font-size="9" fill="#6c7a86" font-family="monospace">N</text>
+          <g id="wind-g"><path d="M0 -16 L0 17 M-6 9 L0 17 L6 9" stroke="#74c0fc" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
+        </svg>
+      </div>
+      <div class="compass-btns" id="wind-quick"></div>
+    </section>
+
+  </aside>
+
+
+  <main id="mission-workspace" aria-label="Fire control workbench">
+    <div class="workspace-heading"><div><span class="eyebrow">INDIRECT FIRE / CREW WORKBENCH</span><h1>Mortar <span id="mission-count" class="workspace-tag">0 targets</span></h1></div><button id="toggle-map" type="button" aria-pressed="false">Hide reference map</button></div>
+    <div class="mission-entry"><label class="field"><span>New target grid / 6 or 8 digits</span><input id="tgt-grid" class="gridbox" inputmode="numeric" autocomplete="off" placeholder="e.g. 060 070" aria-label="Target grid"></label><button id="tgt-add" class="primary">Add target</button></div>
+    <div id="tgt-note" class="note" role="status">Enter a grid, then select a target to work the mission.</div>
+    <div id="targets"></div>
+    <div class="row" id="tgt-actions"><button id="fit">Fit reference map</button><button id="tgt-clear" class="ghost">Clear all targets</button></div>
+    <div class="mission-requests">
+      <section class="card hidden" id="team-card" aria-label="Team mortars">
+        <h2>Other mortars in the room</h2>
+        <div id="team"></div>
+      </section>
+    </div>
+  </main>
+  <aside id="stage" aria-label="Reference map and fire requests">
+    <div class="reference-map">
+    <div class="reference-title">REFERENCE MAP</div>
+    <div id="map"></div>
+    <div id="hud">
+      <div class="mode" id="mode" style="display:grid;width:min(100%,320px)">
+        <button id="mode-gun" type="button">Set mortar</button>
+        <button id="mode-tgt" type="button">Add targets</button>
+      </div>
+      <div id="hint"></div>
+      <div id="aim" class="hidden"></div>
+      <div id="toast" class="hidden" role="status"></div>
+    </div>
+    <div id="cursor"><span>Grid</span><b id="cursor-grid">— —</b></div>
+    </div>
+    <div class="request-inbox">
+    <section class="card hidden" id="req-card" aria-label="Fire requests">
+      <h2>Fire requests <span id="req-count" class="badge"></span></h2>
+      <div id="req-from" class="note" style="margin:-2px 0 8px"></div>
+      <div id="requests"></div>
+    </section>
+    <div class="note room-help">Join a squad room to receive live fire requests and follow another crew’s gun.</div>
+    </div>
+  </aside>
+</div>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/room-events.js"></script>
+<script src="/3d/room.js"></script>
+<script src="/3d/mortar.js"></script>
+<script src="/plan-sync.js"></script>
+<script src="/mortar.js"></script>
+<script src="/workspace.js"></script>
+</body>
+</html>

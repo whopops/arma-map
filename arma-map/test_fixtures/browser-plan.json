@@ -1,0 +1,1 @@
+{"items": [{"id": "smoke-mortar", "type": "mortar", "xz": [6400, 6400], "weapon": "M252", "shell": "HE M821", "targets": [[6400, 6900]], "label": "Review mortar"}, {"id": "smoke-marker", "type": "marker", "xz": [6400, 6900], "label": "Review target"}]}

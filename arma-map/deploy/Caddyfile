@@ -1,0 +1,21 @@
+# Keep the Python service bound to 127.0.0.1:8765 and start it with --behind-proxy.
+# Merge this site's block into the existing Caddyfile; leave other domains intact.
+7xr.nl {
+    header {
+        >Strict-Transport-Security "max-age=31536000"
+        >Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+        >X-Content-Type-Options "nosniff"
+        >X-Frame-Options "DENY"
+        >Referrer-Policy "no-referrer"
+        >Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+    # The packaged landing page uses an external script, compatible with script-src 'self'.
+    @home path /
+    rewrite @home /landing/index.html
+    reverse_proxy 127.0.0.1:8765 {
+        flush_interval -1
+        # Override client-supplied forwarding headers at the public edge.
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}

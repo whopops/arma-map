@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Arma Reforger Maps Admin</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%23c8d96f' stroke-width='3'/><path d='M16 3v8M16 21v8M3 16h8M21 16h8' stroke='%23c8d96f' stroke-width='3'/></svg>">
+  <link rel="stylesheet" href="app.css">
+  <style>
+    html, body { overflow: auto; height: auto; min-height: 100%; }
+    main { max-width: 1080px; margin: 0 auto; padding: 28px 16px 60px; }
+    .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+    .top h1 { font-size: 19px; margin: 0; }
+    .top .badge { font: 700 10.5px var(--font); letter-spacing: .1em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent); border-radius: 5px; padding: 2px 7px; }
+    .top .sp { flex: 1; }
+    .brand-ico { width: 24px; height: 24px; color: var(--accent); stroke-width: 2; }
+    #login { max-width: 360px; margin: 12vh auto 0; padding: 22px; display: flex; flex-direction: column; gap: 14px; background: var(--panel-solid); }
+    #login h1 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 9px; }
+    #login p { margin: 0; color: var(--muted); line-height: 1.5; font-size: 13px; }
+    .error { color: var(--danger); font-size: 13px; min-height: 1em; }
+    .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
+    .summary > div { background: var(--panel-solid); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+    .summary .k { display: block; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+    .summary .v { font: 700 24px var(--mono); }
+    .status { font-size: 12.5px; color: var(--faint); }
+    .status.bad { color: var(--danger); }
+    .rooms { display: flex; flex-direction: column; gap: 14px; }
+    .room { background: var(--panel-solid); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+    .room header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+    .room .code { font: 700 16px var(--mono); }
+    .room .meta { font-size: 12.5px; color: var(--muted); }
+    .room .meta b { color: var(--text); font-weight: 600; }
+    .room .empty-row { color: var(--muted); font-style: italic; }
+    .room .kept { font: 600 11px var(--font); color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; font: 700 10.5px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 8px 16px; }
+    td { padding: 7px 16px; border-top: 1px solid var(--line); }
+    td.num { font-family: var(--mono); }
+    .who { display: flex; align-items: center; gap: 9px; font-weight: 600; }
+    .avatar { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #0d1115; flex: none; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #51cf66; box-shadow: 0 0 0 3px rgba(81, 207, 102, .18); }
+    .dot.away { background: #ffc53d; box-shadow: 0 0 0 3px rgba(255, 197, 61, .18); }
+    .ip { font: 12.5px var(--mono); color: var(--muted); white-space: nowrap; }
+    .ip .me { font: 600 10.5px var(--font); color: var(--accent); margin-left: 5px; }
+    .acts { display: flex; gap: 5px; justify-content: flex-end; flex-wrap: wrap; }
+    .acts button, .room header button { padding: 3px 9px; font-size: 12px; }
+    .room header .sp { flex: 1; }
+    th:last-child { text-align: right; }
+    h2 { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 28px 0 10px; }
+    .bans { background: var(--panel-solid); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+    .bans td:first-child { font-family: var(--mono); }
+    .perm { color: var(--danger); font-weight: 600; }
+    .note { font-size: 12.5px; color: var(--faint); margin-top: 8px; line-height: 1.5; }
+    #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel-solid); border: 1px solid var(--line-strong);
+      border-radius: 999px; padding: 8px 16px; box-shadow: var(--shadow); font-size: 13.5px; z-index: 10; }
+    .empty { text-align: center; color: var(--muted); padding: 40px 16px; background: var(--panel-solid); border: 1px dashed var(--line-strong); border-radius: var(--radius); }
+    @media (max-width: 600px) {
+      .summary { grid-template-columns: 1fr 1fr; }
+      th:nth-child(4), td:nth-child(4), th:nth-child(5), td:nth-child(5) { display: none; }
+      th, td { padding-left: 10px; padding-right: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <form id="login" class="panel" autocomplete="off">
+    <h1><svg class="brand-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v6M12 16.5v6M1.5 12h6M16.5 12h6"/></svg>Arma Reforger Maps admin</h1>
+    <p>Enter the admin password. It's set when the server starts (<code>--admin-password</code> or <code>EVERON_ADMIN_PASSWORD</code>); if neither was set, the server window shows a random one.</p>
+    <label class="field"><span>Password</span><input id="password" type="password" autocomplete="current-password" required></label>
+    <div id="login-error" class="error" role="alert"></div>
+    <button type="submit" class="primary">Sign in</button>
+  </form>
+
+  <main id="dash" class="hidden">
+    <div class="top">
+      <svg class="brand-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v6M12 16.5v6M1.5 12h6M16.5 12h6"/></svg>
+      <h1>Arma Reforger Maps</h1><span class="badge">Admin</span>
+      <span class="sp"></span>
+      <span id="status" class="status"></span>
+      <a href="/" target="_blank" rel="noopener">Open the map</a>
+      <button type="button" id="signout">Sign out</button>
+    </div>
+    <div class="summary">
+      <div><span class="k">Active rooms</span><span class="v" id="n-rooms">0</span></div>
+      <div><span class="k">Players</span><span class="v" id="n-players">0</span></div>
+      <div><span class="k">Markings</span><span class="v" id="n-marks">0</span></div>
+    </div>
+    <div id="rooms" class="rooms"></div>
+    <h2>Banned addresses</h2>
+    <div id="bans"></div>
+    <p class="note">Bans block an IP address, so everyone connecting from it is removed and can't join again until the ban
+      ends. People on the same network (a shared house or a school) share an address. Bans are kept in <code>bans.json</code>
+      next to the server and survive a restart.</p>
+  </main>
+  <div id="toast" class="hidden" role="status"></div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+tile_cache/
+compressed_cache/
+__pycache__/
+bans.json
+bans.json.part
+rooms.json
+rooms.json.part

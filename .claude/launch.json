@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "arma-map",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "arma-map/server.py",
+        "--port",
+        "8765"
+      ],
+      "port": 8765
+    }
+  ]
+}

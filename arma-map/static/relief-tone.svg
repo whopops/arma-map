@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <filter id="terrain" color-interpolation-filters="sRGB">
+    <!-- Preserve shadows/midtones; roll bright summits into a subdued earth tone. -->
+    <feComponentTransfer>
+      <feFuncR type="table" tableValues="0 0.25 0.5 0.67 0.78"/>
+      <feFuncG type="table" tableValues="0 0.25 0.5 0.65 0.74"/>
+      <feFuncB type="table" tableValues="0 0.25 0.5 0.61 0.68"/>
+    </feComponentTransfer>
+  </filter>
+</svg>

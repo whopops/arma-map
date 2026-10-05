@@ -1,0 +1,161 @@
+{
+  "provenance": "Field-map solver before consolidation, commit 1284d72d684862eeb2520de3d00c19bf5db3ca50; compatibility fixtures, not independent game measurements.",
+  "cases": [
+    {
+      "weapon": "M252",
+      "shell": "HE M821",
+      "from": [
+        6400,
+        6400
+      ],
+      "to": [
+        6400,
+        6900
+      ],
+      "height": 0,
+      "roof": 0,
+      "wind": null,
+      "charge": 1,
+      "expected": {
+        "ring": 1,
+        "elev": 1319.579484727648,
+        "azMil": 0,
+        "tof": 19.325877421159614,
+        "long": 33,
+        "side": 16
+      }
+    },
+    {
+      "weapon": "M252",
+      "shell": "HE M821",
+      "from": [
+        6400,
+        6400
+      ],
+      "to": [
+        6400,
+        6900
+      ],
+      "height": 100,
+      "roof": 15,
+      "wind": {
+        "s": 8,
+        "d": 90
+      },
+      "charge": 1,
+      "expected": {
+        "ring": 1,
+        "elev": 1296.7023213704424,
+        "azMil": 16.645707361606583,
+        "tof": 17.85455203788255,
+        "long": 36,
+        "side": 15
+      }
+    },
+    {
+      "weapon": "M252",
+      "shell": "HE M821",
+      "from": [
+        6400,
+        6400
+      ],
+      "to": [
+        6400,
+        6900
+      ],
+      "height": -100,
+      "roof": 0,
+      "wind": {
+        "s": 8,
+        "d": 180
+      },
+      "charge": 1,
+      "expected": {
+        "ring": 1,
+        "elev": 1341.302744547526,
+        "azMil": 0,
+        "tof": 20.479530713788996,
+        "long": 33,
+        "side": 18
+      }
+    },
+    {
+      "weapon": "2B14",
+      "shell": "HE O-832DU",
+      "from": [
+        6400,
+        6400
+      ],
+      "to": [
+        6400,
+        6900
+      ],
+      "height": 0,
+      "roof": 0,
+      "wind": null,
+      "charge": 1,
+      "expected": {
+        "ring": 1,
+        "elev": 1214.5516872406,
+        "azMil": 0,
+        "tof": 18.7114454474465,
+        "long": 29,
+        "side": 11
+      }
+    },
+    {
+      "weapon": "2B14",
+      "shell": "HE O-832DU",
+      "from": [
+        6400,
+        6400
+      ],
+      "to": [
+        6400,
+        6900
+      ],
+      "height": 100,
+      "roof": 15,
+      "wind": {
+        "s": 8,
+        "d": 90
+      },
+      "charge": 1,
+      "expected": {
+        "ring": 1,
+        "elev": 1189.0024344126384,
+        "azMil": 24.30465788926358,
+        "tof": 17.13033951300326,
+        "long": 30,
+        "side": 10
+      }
+    },
+    {
+      "weapon": "2B14",
+      "shell": "HE O-832DU",
+      "from": [
+        6400,
+        6400
+      ],
+      "to": [
+        6400,
+        6900
+      ],
+      "height": -100,
+      "roof": 0,
+      "wind": {
+        "s": 8,
+        "d": 180
+      },
+      "charge": 1,
+      "expected": {
+        "ring": 1,
+        "elev": 1241.9601281483967,
+        "azMil": 0,
+        "tof": 19.968522912261943,
+        "long": 28,
+        "side": 12
+      }
+    }
+  ]
+}

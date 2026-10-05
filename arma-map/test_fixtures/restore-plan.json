@@ -1,0 +1,22 @@
+{
+  "items": [
+    {
+      "id": "backup-one",
+      "type": "marker",
+      "xz": [
+        6400,
+        6400
+      ],
+      "label": "Backup first"
+    },
+    {
+      "id": "backup-two",
+      "type": "marker",
+      "xz": [
+        6400,
+        6900
+      ],
+      "label": "Backup second"
+    }
+  ]
+}

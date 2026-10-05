@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Base Design</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M4 28V12l12-8 12 8v16z' fill='none' stroke='%23c8b27c' stroke-width='3' stroke-linejoin='round'/><path d='M11 28v-8h10v8' fill='none' stroke='%23c8b27c' stroke-width='3'/></svg>">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/mortar.css">
+  <link rel="stylesheet" href="/base.css">
+  <link rel="stylesheet" href="/workspace.css">
+</head>
+<body data-workspace="base">
+<div id="app">
+  <aside id="side">
+    <div class="top">
+      <nav class="pages" aria-label="Pages">
+        <a id="to-shot" href="/shot.html" title="The shot planner, in the same room">Shot planner</a>
+        <a id="to-mortar" href="/mortar.html" title="The mortar page, in the same room">Mortar</a>
+        <a class="sel" href="/base.html" aria-current="page">Base</a>
+        <a id="to-map" href="/" title="The full field map, in the same room">Full map</a>
+      </nav>
+      <label class="sp" aria-label="Map"><select id="map-pick"></select></label>
+    </div>
+
+    <section class="card" aria-label="Room">
+      <h2>Room <span class="sub">(optional)</span></h2>
+      <form id="room-form" autocomplete="off">
+        <div class="two">
+          <label class="field"><span>Your name</span><input id="room-name" maxlength="20" placeholder="Name" aria-label="Your name"></label>
+          <label class="field"><span>Room code</span><input id="room-code" maxlength="32" placeholder="Room code" aria-label="Room code"></label>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <span id="room-status" class="note" style="margin:0 0 6px">Join to put your objects on the squad's map.</span>
+          <button id="room-invite" type="button" class="hidden" title="Copy a link your squad can open">Invite</button>
+          <button id="room-join" type="submit" class="primary">Join</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card" aria-label="Base">
+      <h2>Base</h2>
+      <div class="row">
+        <label class="field"><span>Pick a base</span><select id="base-pick"></select></label>
+        <button id="base-zoom" title="Zoom to the build zone">Zoom</button>
+      </div>
+      <div id="base-note" class="note">Or click a base on the map.</div>
+      <div class="zones" id="zones">
+        <label><input type="checkbox" data-zone="cap" checked><span class="sw" style="--c:#ffd43b"></span>Cap zone 50 m</label>
+        <label><input type="checkbox" data-zone="build" checked><span class="sw" style="--c:#74c0fc"></span>Build zone 100 m</label>
+        <label><input type="checkbox" data-zone="radio"><span class="sw" style="--c:#e599f7"></span><span id="radio-label">Radio range</span></label>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Construction">
+      <h2>Construction</h2>
+      <p class="note">One of each object type. Click to place; weapon emplacements take a second click to aim.</p>
+      <div id="tools"></div>
+      <div id="tool-opts" class="tool-opts"></div>
+      <div id="items" style="margin-top:10px"></div>
+      <div class="row hidden" id="items-actions" style="margin-top:8px">
+        <button id="items-clear" class="ghost">Remove all my objects here</button>
+      </div>
+    </section>
+
+    <section class="card" aria-label="What can be seen">
+      <h2>What can be seen</h2>
+      <label class="check"><input type="checkbox" id="show-dead"> <b>Dead ground</b>: ground none of your positions can see</label>
+      <label class="check"><input type="checkbox" id="show-enemy"> <b>Enemy view</b>: where an enemy can see into the base</label>
+      <div class="row" style="margin-top:8px">
+        <label class="field"><span>Out to</span>
+          <select id="reach"><option value="200">200 m</option><option value="400">400 m</option><option value="600">600 m</option><option value="800">800 m</option></select></label>
+        <button id="approaches" title="Zoom out to show this whole area">Show it all</button>
+      </div>
+      <div id="los-note" class="note"></div>
+      <div class="legend" id="los-legend">
+        <span><i style="--c:rgba(60,10,110,.75)"></i>Dead ground</span>
+        <span><i style="--c:rgba(255,200,60,.45)"></i>Seen only through trees</span>
+        <span><i style="--c:rgba(255,70,70,.65)"></i>Enemy sees the base</span>
+      </div>
+    </section>
+  </aside>
+
+  <main id="stage">
+    <div id="map"></div>
+    <div id="hud">
+      <div id="hint"></div>
+      <div id="toast" class="hidden" role="status"></div>
+    </div>
+    <div id="cursor"><span>Grid</span><b id="cursor-grid">— —</b></div>
+  </main>
+</div>
+<script src="/vendor/leaflet/leaflet.js"></script>
+<script src="/room-events.js"></script>
+<script src="/3d/room.js"></script>
+<script src="/construction.js"></script>
+<script src="/plan-sync.js"></script>
+<script src="/base-items.js"></script>
+<script src="/base.js"></script>
+<script src="/workspace.js"></script>
+</body>
+</html>
