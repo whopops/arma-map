@@ -24,6 +24,10 @@
 // bands are summed in a Fenwick tree over slope, so each step costs a couple of log-time updates, and e^(-sum) is the
 // share of the target left visible: at least SEE_CLEAR counts as clear, at least SEE_MIN as seen through foliage,
 // less as hidden.
+// Exact early-out: each tile keeps the highest terrain post per 5 m block. Before marching a ray, a suffix bound over
+// 5 m chunks gives the highest target slope (ground + target height) possible from each chunk on. Once the solid
+// horizon is strictly above that bound, every remaining target would be hidden whatever is found further out, so the
+// ray only marks its untouched cells hidden and stops. Output cells are identical to marching every ray to its end.
 'use strict';
 
 const TILE = 500, TN = 501, SN = 1000, SC = 0.5, Q = 0.25;
@@ -197,6 +201,7 @@ async function loadTile(name) {
       const o = TN * TN * 2;
       t = { ter: new Uint16Array(buf, 0, TN * TN), top: new Uint8Array(buf, o, SN * SN),
         kind: new Uint8Array(buf, o + 2 * SN * SN, SN * SN) }; // (the underside plane between them isn't needed)
+      heightBlocks(t);
     }
     tiles.set(name, t);
     trim(tiles);
@@ -229,6 +234,48 @@ async function loadArea(minX, minZ, maxX, maxZ) {
   if (failure) throw failure;
 }
 const tileAt = (tx, tz) => tiles.get(`${tx}_${tz}`) || null;
+
+// The highest terrain post in each HB x HB metre block of a tile. Bilinear ground inside a block never exceeds the
+// posts at its corners and edges, so this bounds every groundAt there (a block's posts run to its far edge, inclusive).
+const HB = 5, HN = TILE / HB, CHUNK = 10; // CHUNK: ray samples per horizon bound
+function heightBlocks(t) {
+  if (t.hmax) return t.hmax;
+  const T = t.ter, rows = new Uint16Array(TN * HN), out = new Uint16Array(HN * HN);
+  for (let r = 0; r < TN; r++) {
+    for (let bc = 0; bc < HN; bc++) {
+      let m = 0;
+      for (let c = bc * HB; c <= bc * HB + HB; c++) if (T[r * TN + c] > m) m = T[r * TN + c];
+      rows[r * HN + bc] = m;
+    }
+  }
+  for (let br = 0; br < HN; br++) {
+    for (let bc = 0; bc < HN; bc++) {
+      let m = 0;
+      for (let r = br * HB; r <= br * HB + HB; r++) if (rows[r * HN + bc] > m) m = rows[r * HN + bc];
+      out[br * HN + bc] = m;
+    }
+  }
+  return (t.hmax = out);
+}
+// The highest ground (m) of every global HB-block in [bx0..bx1] x [bz0..bz1], row by row: 0 for open sea and outside
+// the map (as groundAt), Infinity where a tile should exist but is not loaded, so the march still reaches it and fails
+// as before.
+function heightGrid(bx0, bz0, bx1, bz1) {
+  const w = bx1 - bx0 + 1, h = bz1 - bz0 + 1, v = new Float64Array(w * h);
+  for (let tz = Math.floor(bz0 / HN); tz <= Math.floor(bz1 / HN); tz++) {
+    for (let tx = Math.floor(bx0 / HN); tx <= Math.floor(bx1 / HN); tx++) {
+      const t = tileAt(tx, tz), missing = !t && tileSet.has(`${tx}_${tz}`);
+      if (!t && !missing) continue;
+      const B = t && heightBlocks(t), ox = tx * HN, oz = tz * HN;
+      for (let z = Math.max(bz0, oz); z <= Math.min(bz1, oz + HN - 1); z++) {
+        for (let x = Math.max(bx0, ox); x <= Math.min(bx1, ox + HN - 1); x++) {
+          v[(z - bz0) * w + x - bx0] = missing ? Infinity : B[(z - oz) * HN + x - ox] * UNIT;
+        }
+      }
+    }
+  }
+  return { bx0, bz0, bx1, bz1, w, v };
+}
 
 // Ground height (m) at a point: terrain is every 1 m, joined in straight lines like the engine's.
 function groundAt(x, z, loaded, tx = Math.floor(x / TILE), tz = Math.floor(z / TILE)) {
@@ -290,12 +337,24 @@ function compute(req) {
   const eye = groundAt(xz[0], xz[1]) + eyeH;
   const rays = Math.ceil(arc * Math.PI / 180 * range / (cell * 0.7)) + 1;
   const [lo, hi] = elev ? elev.map(d => Math.tan(d * Math.PI / 180)) : [-Infinity, Infinity];
+  // the 0.5 m samples a ray can take, in chunks of CHUNK for the solid-horizon early-out; heights of the area's blocks
+  const samples = Math.floor(range / STEP), chunks = Math.ceil(samples / CHUNK), ahead = new Float64Array(chunks + 1);
+  const hg = heightGrid(Math.floor((minX - HB) / HB), Math.floor((minZ - HB) / HB), Math.floor((maxX + HB) / HB),
+    Math.floor((maxZ + HB) / HB));
   for (let i = 0; i <= rays; i++) {
     const b = (dir - arc / 2 + arc * i / rays) * Math.PI / 180, sx = Math.sin(b), sz = Math.cos(b);
     bit.fill(0);
     seenPlants.clear();
-    let maxSolid = -Infinity, curT = null, curP = null, ctx = -1, ctz = -1, plantBucket = -1;
+    rayHorizon(ahead, chunks, samples, hg, xz, sx, sz, targetH - eye);
+    let maxSolid = -Infinity, curT = null, curP = null, ctx = -1, ctz = -1, plantBucket = -1, hiddenFrom = 0;
+    let chunk = 0, checkAt = STEP;
     for (let r = STEP; r <= range; r += STEP) {
+      // Every target left is strictly below the solid horizon (a target exactly on it is not hidden): nothing on the
+      // rest of this ray can change a cell, and plants found from here on would only thin those hidden targets.
+      if (r >= checkAt) { // first sample of a chunk
+        if (ahead[chunk++] < maxSolid) { hiddenFrom = r; break; }
+        checkAt += CHUNK * STEP;
+      }
       const x = xz[0] + r * sx, z = xz[1] + r * sz;
       if (x < 0 || z < 0 || x >= WORLD_M || z >= WORLD_M) break;
       const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE);
@@ -352,10 +411,40 @@ function compute(req) {
       if (!kind || kind === 4 || kind === 3 || kind === 5) continue;
       maxSolid = Math.max(maxSolid, (g + curT.top[k] * Q - eye) / r);
     }
+    // The skipped samples would still have marked untouched cells hidden; do just that for the rest of the ray.
+    if (hiddenFrom) markHidden(cells, W, H, minX, maxZ, cell, xz, sx, sz, hiddenFrom, range, WORLD_M);
   }
   let clear = 0, trees = 0, total = 0;
   for (const v of cells) if (v) { total++; if (v === CLEAR) clear++; else if (v === TREES) trees++; }
   return { model: req.model || 'profiles', cells, W, H, minX, maxZ, cell, pct: total ? Math.round(clear / total * 100) : 100, treePct: total ? Math.round(trees / total * 100) : 0 };
+}
+
+// ahead[c]: no target from chunk c of CHUNK samples onwards can have a higher slope than this. Each chunk takes the
+// highest ground in the blocks around its samples, over its nearest (or, below the eye, farthest) distance.
+function rayHorizon(ahead, chunks, samples, hg, xz, sx, sz, lift) {
+  ahead[chunks] = -Infinity;
+  for (let c = chunks - 1; c >= 0; c--) {
+    const ra = (c * CHUNK + 1) * STEP, rb = Math.min((c + 1) * CHUNK, samples) * STEP;
+    const xa = xz[0] + ra * sx, xb = xz[0] + rb * sx, za = xz[1] + ra * sz, zb = xz[1] + rb * sz;
+    const bx0 = Math.floor((Math.min(xa, xb) - 1e-6) / HB), bz0 = Math.floor((Math.min(za, zb) - 1e-6) / HB);
+    const bx1 = Math.floor((Math.max(xa, xb) + 1e-6) / HB), bz1 = Math.floor((Math.max(za, zb) + 1e-6) / HB);
+    let top = Infinity; // (outside the grid: no bound)
+    if (bx0 >= hg.bx0 && bz0 >= hg.bz0 && bx1 <= hg.bx1 && bz1 <= hg.bz1) {
+      top = 0;
+      for (let bz = bz0; bz <= bz1; bz++) for (let bx = bx0; bx <= bx1; bx++) top = Math.max(top, hg.v[(bz - hg.bz0) * hg.w + bx - hg.bx0]);
+    }
+    top += 1e-4 + lift;
+    ahead[c] = Math.max(ahead[c + 1], top / (top >= 0 ? ra : rb));
+  }
+}
+
+function markHidden(cells, W, H, minX, maxZ, cell, xz, sx, sz, from, range, WORLD_M) {
+  for (let r = from; r <= range; r += STEP) {
+    const x = xz[0] + r * sx, z = xz[1] + r * sz;
+    if (x < 0 || z < 0 || x >= WORLD_M || z >= WORLD_M) break;
+    const cx = Math.floor((x - minX) / cell), cz = Math.floor((maxZ - z) / cell);
+    if (cx >= 0 && cx < W && cz >= 0 && cz < H && !cells[cz * W + cx]) cells[cz * W + cx] = HIDDEN;
+  }
 }
 
 // The bounding box of a sector (points on its arc and its tip).

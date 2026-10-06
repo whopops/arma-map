@@ -161,7 +161,9 @@ The banner comments name the sections. Use function names to navigate; line numb
     Plant identities are computed when loading tiles, and ray marches reuse the current terrain tile.
     The detailed solver visits plant candidates only on entering a different 4 m lookup bucket and reuses
     known tile coordinates for terrain interpolation. It skips target reclassification once an output cell
-    is clear, while continuing all terrain/plant obstruction updates for farther targets.
+    is clear, while continuing all terrain/plant obstruction updates for farther targets. It also stops a ray once
+    its solid horizon is strictly above the highest target slope still possible on it (per-tile 5 m terrain-maximum
+    blocks, bounded per 5 m chunk of the ray), marking the remaining untouched cells hidden; cells stay identical.
     `benchmark_los.cjs` checks identical output cells against a Git baseline; see `LOS_SPEED.md/json`.
   - `/api/maps` exposes `hasMeshFoliage` from the packaged files. Measured remains the desktop default.
     Tactical map coarse Mesh previews and Light's default preset use the new light foliage grid.

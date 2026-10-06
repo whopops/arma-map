@@ -281,9 +281,11 @@ join a room by name and code. **2D map** (top left) goes back to the map in the 
 
 - **Moving**: click the view to look around (Esc lets go). W A S D move, Space / C up and down, Shift faster, the
   wheel sets the flying speed. F switches between walking and flying, M opens the big map, H hides the help.
-- **What it draws**: the game's own 1 m terrain and 0.5 m buildings, walls and rocks, every tree and bush as its
-  measured shape, roads and paths, and place names. Settings on the right: detail, how far out objects are drawn, the
-  sun, and which layers show. Turning off **Measured tree shapes** shows the game's raw 0.5 m tree scan as boxes.
+- **What it draws**: the game's own 1 m terrain and 0.5 m buildings, walls and rocks, every tree and bush, roads and
+  paths, and place names. Settings on the right: detail, how far out objects are drawn, the sun, and which layers
+  show. **Tree shapes** picks how plants look: **Models** (low-poly models fitted to the game's own tree models: leaf
+  clumps where its leaves are and its trunk, each tree at its own height and turn; `trees/models.json`), **Measured
+  layers** (each kind's measured 10-layer shape) or **Boxes** (the game's raw 0.5 m scan).
 - It needs WebGL 2 (current Chrome, Edge or Firefox) and is best on a computer.
 - The 3D view uses a read-only observer session. It does not claim your player name or consume one of the room's
   60 player/saved-owner slots, so several 3D tabs can watch together. Rooms allow 20 viewers separately; viewers

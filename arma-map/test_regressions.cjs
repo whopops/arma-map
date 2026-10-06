@@ -48,6 +48,7 @@ async function syncRaces() {
 }
 
 async function losFixtures() {
+  const CLEAR = 2, TREES = 3;
   const raw = new Uint8Array(501 * 501 * 2 + 3 * 1000 * 1000);
   new Uint16Array(raw.buffer, 0, 501 * 501).fill(1234);
   const tile = gzipSync(raw), requested = [];
@@ -86,6 +87,47 @@ async function losFixtures() {
         for(const xz of [[499,250],[500,250],[510,250]]) for(const strength of [0,.5,1.5]) for(const arc of [0,45,360])
           results.push(compute({xz,dir:90,arc,range:80,eyeH:2,targetH:1,cell:2.5,strength,elev:[-10,45]}));
         addProfile = original; return {calls:once,results:results.map(r=>Array.from(r.cells))};
+      },
+      horizon() {
+        CFG = {size: 1000}; UNIT = 0.1; tiles.clear(); plantTiles.clear();
+        tileSet = new Set(['0_0','1_0']);
+        const tile = (tx, height, wall) => {
+          const t = {ter:new Uint16Array(TN*TN),top:new Uint8Array(SN*SN),kind:new Uint8Array(SN*SN)};
+          for (let r=0;r<TN;r++) for (let c=0;c<TN;c++) t.ter[r*TN+c] = Math.round(height(tx*TILE+c)/UNIT);
+          if (wall) for (let r=0;r<SN;r++) {t.kind[r*SN+wall.at/SC]=1; t.top[r*SN+wall.at/SC]=wall.top/Q;}
+          return t;
+        };
+        profiles = [{reach:20,nS:40,half:new Float32Array(40).fill(20),bands:[{d:25,cover:new Float32Array(40).fill(.2)}]}];
+        profiles = [{reach:3,nS:40,half:new Float32Array(40).fill(3),bands:[{d:25,cover:new Float32Array(40).fill(.5)}]}];
+        const plants = xs => { // each plant listed only in the 4 m squares its 3 m reach touches, as loadPlants does
+          const lists = Array.from({length:NB*NB},()=>[]);
+          xs.forEach((x,i)=>{ for (let r=Math.floor(247/BUCKET);r<=Math.floor(253/BUCKET);r++)
+            for (let c=Math.floor((x-3)/BUCKET);c<=Math.floor((x+3)/BUCKET);c++) lists[r*NB+c].push(i); });
+          const start = new Uint32Array(NB*NB+1);
+          lists.forEach((l,b)=>{start[b+1]=start[b]+l.length;});
+          return {x:xs,z:xs.map(()=>250),base:xs.map(()=>0),kind:xs.map(()=>0),scale:xs.map(()=>1),start,items:Uint32Array.from(lists.flat())};
+        };
+        let calls = 0; const original = addProfile;
+        addProfile = (...args) => {calls++; original(...args);};
+        const out = {};
+        // Uphill: beyond a 3 m wall at 50 m (horizon slope 0.02 from a 2 m eye), the ground climbs so every target
+        // clears that horizon by only 0.3 m. A height bound even slightly too low would hide them.
+        const climb = x => x < 200 ? 0 : 0.02 * (x - 100) + 0.8;
+        tiles.set('0_0',tile(0,climb,{at:150,top:3})); tiles.set('1_0',tile(1,climb));
+        out.uphill = [];
+        for (const strength of [.5,1]) for (const [arc,range] of [[0,950],[30,950],[360,300]]) for (const elev of [undefined,[-10,80]])
+          out.uphill.push(Array.from(compute({xz:[100,250],dir:90,arc,range,eyeH:2,targetH:1.5,cell:2.5,strength,elev}).cells));
+        const far = compute({xz:[100,250],dir:90,arc:0,range:950,eyeH:2,targetH:1.5,cell:2.5}); // range clipped at the map edge
+        out.farClear = [600,800,990].map(x => far.cells[Math.floor((x - far.minX) / far.cell)]);
+        // A tall near wall hides everything beyond it; the plant past it is irrelevant, the one before it still counts.
+        tiles.set('0_0',tile(0,()=>0,{at:130,top:20})); tiles.set('1_0',tile(1,()=>0));
+        plantTiles.set('0_0',plants([120,300])); plantTiles.set('1_0',null);
+        calls = 0; out.wall = [];
+        for (const strength of [.5,1]) for (const arc of [0,45,360]) for (const xz of [[100,250],[495,250]])
+          out.wall.push(Array.from(compute({xz,dir:90,arc,range:450,eyeH:2,targetH:1.5,cell:2.5,strength,elev:[-30,30]}).cells));
+        const line = compute({xz:[100,251],dir:90,arc:0,range:400,eyeH:2,targetH:1.5,cell:2.5});
+        out.wallCalls = calls; out.wallLine = Array.from(line.cells);
+        addProfile = original; return out;
       }
     };`;
   vm.runInContext(source('los-worker.js') + fixtureCode, ctx);
@@ -104,6 +146,17 @@ async function losFixtures() {
     .replace('if (cells[k] !== CLEAR)', 'if (true)') + fixtureCode,reference);
   assert.deepEqual(JSON.parse(JSON.stringify(optimized)),JSON.parse(JSON.stringify(reference.fixture.foliage())),
     'LOS skips changed near-eye, tile-boundary, foliage-strength or far-obstruction results');
+  // The solid-horizon early-out must reproduce a worker that marches every ray to its end.
+  const horizon = f.horizon();
+  assert.deepEqual(Array.from(horizon.farClear), [CLEAR, CLEAR, CLEAR], 'uphill ground beyond a low near horizon must stay visible');
+  const full = vm.createContext({});
+  assert.ok(source('los-worker.js').includes('if (ahead[chunk++] < maxSolid)'), 'reference cannot disable the horizon early-out');
+  vm.runInContext(source('los-worker.js').replace('if (ahead[chunk++] < maxSolid)', 'if (false)') + fixtureCode, full);
+  const marched = full.fixture.horizon();
+  for (const key of ['uphill', 'farClear', 'wall', 'wallLine'])
+    assert.deepEqual(JSON.parse(JSON.stringify(horizon[key])), JSON.parse(JSON.stringify(marched[key])), `horizon early-out changed ${key} cells`);
+  assert.ok(horizon.wallCalls > 0 && horizon.wallCalls < marched.wallCalls, 'plants past the wall should be skipped, the one before it kept');
+  assert.equal(horizon.wallLine[Math.floor((125 - 100) / 2.5)], TREES, 'the plant before the wall must still thin the line');
 }
 
 function ringSlope() {
