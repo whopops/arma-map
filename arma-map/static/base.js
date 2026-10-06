@@ -77,7 +77,7 @@
       S.owner = typeof v.owner === 'string' ? v.owner : ''; S.ownerSig = v.ownerSig || null;
       Object.assign(S, {
         map: v.map || null, arc: [30, 60, 90, 120, 180].includes(v.arc) ? v.arc : 60, postRange: [200, 400, 800].includes(v.postRange) ? v.postRange : 400,
-        sectorCount: [3, 4, 6, 8].includes(v.sectorCount) ? v.sectorCount : 4, reach: [200, 400, 600, 800].includes(v.reach) ? v.reach : 400,
+        sectorCount: [3, 4, 6, 8].includes(v.sectorCount) ? v.sectorCount : 4, reach: [200, 400, 600, 800, 1600, 2400].includes(v.reach) ? v.reach : 400,
         dead: v.dead !== false, enemy: !!v.enemy,
       });
       if (v.zones) for (const k of Object.keys(S.zones)) S.zones[k] = !!v.zones[k];
