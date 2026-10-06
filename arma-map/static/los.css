@@ -1,0 +1,29 @@
+body[data-workspace=los] #app { grid-template-columns:300px minmax(320px,1fr) 320px; }
+#side h1 { margin:4px 0 18px; font-size:26px; }
+#los-inspector { overflow:auto; border-left:1px solid var(--line); background:var(--panel-solid); padding:0 14px; }
+#los-inspector .workspace-heading { margin:0 -14px 16px; }
+#bases { margin-top:12px; display:grid; gap:8px; }
+.base-entry { border:1px solid var(--line-strong); border-left:4px solid var(--base-color); padding:8px; }
+.base-entry header { display:flex; gap:8px; align-items:center; }
+.base-entry header b { flex:1; }
+.base-entry button, .position-row button { padding:3px 6px; }
+.base-entry label { display:inline-flex; align-items:center; gap:4px; margin:7px 7px 0 0; font-size:12px; }
+.base-entry input[type=checkbox] { width:auto; }
+.base-id { color:var(--base-color); font:700 13px var(--mono); }
+.position-row { display:flex; gap:6px; align-items:center; margin:6px 0; font:12px var(--mono); }
+.position-row span { flex:1; }
+#overlay-controls { position:absolute; top:12px; left:12px; right:12px; z-index:500; display:flex; gap:12px; flex-wrap:wrap; pointer-events:none; }
+#overlay-controls label { display:flex; align-items:center; gap:8px; background:var(--panel-solid); padding:6px 10px; pointer-events:auto; }
+#overlay-controls select { width:auto; max-width:220px; }
+#shade-key { position:absolute; bottom:12px; left:12px; right:60px; z-index:500; padding:8px 12px; background:var(--panel-solid); font-size:12px; color:var(--muted); pointer-events:none; }
+.los-marker { background:var(--panel-solid); border:2px solid var(--base-color); color:var(--base-color); border-radius:4px; font:700 12px/24px var(--mono); text-align:center; }
+.los-marker.check-marker { border-radius:50%; color:white; border-color:white; }
+.verdict { padding:8px 0; border-bottom:1px solid var(--line); line-height:1.6; font-size:12px; }
+.verdict b { display:block; color:var(--base-color); }
+.verdict small { color:var(--muted); display:block; }
+.check-card { padding:10px; border:1px solid var(--line); margin:8px 0; }
+.check-card > button { width:100%; text-align:left; font-weight:700; }
+#status { min-height:32px; }
+#map.placing { cursor:crosshair; }
+@media(max-width:1100px) { body[data-workspace=los] #app { grid-template-columns:270px minmax(300px,1fr); } #los-inspector { grid-column:1/-1; max-height:300px; } body[data-workspace=los] #app { overflow:auto; grid-template-rows:minmax(500px,75dvh) auto; } }
+@media(max-width:640px) { body[data-workspace=los] #app { display:flex; flex-direction:column; overflow:auto; } body[data-workspace=los] #side { flex:none; overflow:visible; } #stage { flex:none; height:65dvh; min-height:380px; } #los-inspector { flex:none; max-height:none; overflow:visible; } }

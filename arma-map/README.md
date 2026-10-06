@@ -64,6 +64,32 @@ planning** in the same squad room. Each mode gives its working data the space it
   In map mode it follows the two positions; editing it rotates the target around your position at the same range.
 - **Base planning**: base and construction tools on the left, map in the center, defence list and visibility checks
   on the right. Base planning is available directly from the operations bar.
+- **Line of sight** (`/los` or `/los.html`): compare multiple bases with colored overlap stripes and a per-base
+  visibility inspector. This is local analysis saved in the current tab, independent of squad room markings.
+
+### Multi-base line of sight
+
+Add up to six Conflict bases, then enable **Dead ground** and **Enemy view** independently for each. Use
+**Shading** to compare friendly coverage, dead ground, enemy view or both; **Focus** isolates one base. Each base
+has a numbered color. Overlaps alternate those colors instead of mixing them; dark stripes indicate dead ground,
+bright shading indicates clear visibility, and dotted shading indicates visibility through foliage. Hover for the
+exact per-base and per-position verdicts, including places where an enemy can see a base but its positions cannot
+see a low target back.
+
+Choose **Place observers**, assign a base and click multiple locations. Drag the numbered positions to move them.
+They supplement that base's automatic samples for friendly coverage and enemy view. **Place check points** adds
+multiple persistent comparison locations; the right panel lists every base's result at each point. Remove a
+position with its × button; Escape ends placement. Up to 24 observers and 24 check points are supported.
+
+Both LOS and Base planning offer **5, 9 or 17 base samples**: the center plus equally spaced positions on a 40 m
+ring. In Base planning these are used for enemy view and for dead ground when no defence positions exist; placed
+defences retain their own heights and firing arcs. Enemy view also checks up to 24 placed defence positions
+inside the 100 m build zone. The dedicated page adds manual observation positions to its
+samples and offers 200–1200 m range per position. Friendly checks use the selected eye and target heights; enemy
+view uses 1.7 m at both ends, testing whether a standing enemy can see standing people at any sample/observer.
+These are sampled views, not continuous coverage of every point in the base. LOS cells are 2.5 m; unknown or
+failed calculations never count as hidden ground. Larger plans can take longer; completed views appear as they
+arrive. Local LOS plans survive reload in the same tab and are stored separately for each map.
 
 ### Base construction planner
 

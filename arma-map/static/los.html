@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Line of sight · Field Operations</title>
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/mortar.css"><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/los.css">
+</head>
+<body data-workspace="los">
+<div id="app">
+  <aside id="side">
+    <div class="eyebrow">TERRAIN / VISIBILITY</div><h1>Line of sight</h1>
+    <section class="card">
+      <label class="field"><span>Map</span><select id="map-pick" aria-label="Map"></select></label>
+      <p class="note">Compare up to six bases. This analysis stays in this tab and is saved per map; it does not publish squad markings.</p>
+      <div class="row"><select id="base-pick" aria-label="Base to add"></select><button id="add-base">Add base</button></div>
+      <div id="bases"></div>
+    </section>
+    <section class="card">
+      <h2>Calculation</h2>
+      <div class="two">
+        <label class="field"><span>Range per position</span><select id="reach"><option>200</option><option selected>400</option><option>600</option><option>800</option><option>1200</option></select></label>
+        <label class="field"><span>Base sample positions</span><select id="samples"><option value="5">5 · center + 4</option><option value="9" selected>9 · center + 8</option><option value="17">17 · center + 16</option></select></label>
+      </div>
+      <label class="field"><span>Foliage dataset</span><select id="model"><option value="profiles">Measured photos</option><option value="mesh">Game mesh</option></select></label>
+      <div class="two">
+        <label class="field"><span>Observer eye height (m)</span><input id="eye" type="number" min="0.2" max="30" step="0.1" value="1.6"></label>
+        <label class="field"><span>Target height (m)</span><input id="target" type="number" min="0.2" max="30" step="0.1" value="1"></label>
+      </div>
+      <p class="note">Dead ground uses your eye/target heights. Enemy view checks a standing enemy (1.7 m) against standing people at base samples and added positions. Samples surround the center at 40 m.</p>
+      <button id="retry">Recalculate / retry</button><p id="status" role="status" class="note"></p>
+    </section>
+    <section class="card">
+      <h2>Place positions</h2>
+      <label class="field"><span>Assign observation positions to</span><select id="owner"></select></label>
+      <div class="two"><button id="place-observer" aria-pressed="false">Place observers</button><button id="place-check" aria-pressed="false">Place check points</button></div>
+      <p id="hint" class="note">Add a base first. Drag placed positions to move them. Escape stops placement.</p>
+      <div id="positions"></div>
+      <button id="fit">Show all bases</button>
+    </section>
+  </aside>
+  <main id="stage"><div id="map"></div>
+    <div id="overlay-controls">
+      <label>Shading <select id="view"><option value="combined">Dead ground + enemy view</option><option value="coverage">Friendly coverage</option><option value="dead">Dead ground</option><option value="enemy">Enemy view</option></select></label>
+      <label>Focus <select id="focus"><option value="">All bases</option></select></label>
+    </div>
+    <div id="shade-key">Base colors identify ownership · alternating stripes identify overlaps.<br>Bright = visible · dotted = foliage · dark stripes = dead ground. Hover for exact ownership.</div>
+  </main>
+  <aside id="los-inspector">
+    <div class="workspace-heading"><div><span class="eyebrow">WHO CAN SEE WHAT</span><h1>Visibility checks</h1></div></div>
+    <section class="card"><h2 id="inspect-title">Hover over the map</h2><div id="inspect">Place check points to keep comparisons below.</div></section>
+    <section class="card"><h2>Check positions</h2><p class="note">Each point reports every base independently, including overlapping areas. Click a point to inspect its individual observers.</p><div id="checks"></div></section>
+  </aside>
+</div>
+<script src="/vendor/leaflet/leaflet.js"></script><script src="/los-analysis.js"></script><script src="/los.js"></script><script src="/workspace.js"></script>
+</body></html>

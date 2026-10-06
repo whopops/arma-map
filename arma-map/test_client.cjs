@@ -342,4 +342,5 @@ function testBaseConstruction() {
 }
 testBaseConstruction();
 if (!process.argv.includes('--construction-items')) require('./test_light.cjs')();
+if (!process.argv.includes('--construction-items')) require('./test_los_analysis.cjs')();
 if (!process.argv.includes('--construction-items')) require('./test_regressions.cjs')().catch(err => { console.error(err); process.exitCode = 1; });

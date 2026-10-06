@@ -1436,7 +1436,7 @@ class Handler(BaseHTTPRequestHandler):
             path = "/admin.html"
         if path == "/map":  # the field map's public address (Caddy sends /map here as /); the same page locally
             path = "/index.html"
-        if path in ("/mortar", "/shot"):  # the stand-alone pages (static/mortar.html, shot.html)
+        if path in ("/mortar", "/shot", "/los"):  # stand-alone workbench pages
             path += ".html"
         if path == "/3d":  # the 3D view's own files are relative to its folder, so it needs the slash
             q = f"?{url.query}" if url.query else ""

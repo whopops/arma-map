@@ -59,6 +59,20 @@ Commands here assume the application directory `arma-map/`; from the repository 
 
 ## Measured LOS regression fixtures
 
+### Multi-base workbench
+
+1. Open `/los.html` on the isolated server. On Arland add Airport Base and Arleville; increase range to 1200 m
+   for overlaps. Verify independent Dead ground / Enemy view toggles and numbered base colors.
+2. Place two observers assigned to different bases and several check points. Drag them; verify the inspector
+   and persistent checks report both bases independently, including clear, foliage, hidden and outside range.
+3. Switch combined / friendly coverage / dead ground / enemy view, then focus one base. Overlaps must have
+   ownership stripes; partial results must stay unknown rather than claim dead ground. Use Retry after failures.
+4. Change samples 5 → 17 and Measured → Mesh, then reload. The plan and settings must survive. Switch maps and
+   back; each map keeps its own plan, with no results or worker messages leaking from the previous map.
+5. Remove an observer and a base, reload and verify they stay removed. Check the narrow layout and console.
+6. In Base planning enable both views and change Base sample positions between 5, 9 and 17; verify redraw and
+   reload persistence. Placed defences must still determine dead ground when present.
+
 For the alternative foliage dataset, run `node arma-map/compare_los.cjs` from the repository root. It compares
 matching photo/mesh profile slices and identical worker queries on all three maps, then switches back to ensure
 the photo result is unchanged and cached files are reused. Optional argument: path for a JSON report.

@@ -68,6 +68,8 @@
       <label class="field"><span>Foliage dataset</span><select id="los-model"><option value="profiles">Measured (photos)</option><option value="mesh">Mesh (game models)</option></select></label>
       <label class="check"><input type="checkbox" id="show-dead"> <b>Dead ground</b>: ground none of your positions can see</label>
       <label class="check"><input type="checkbox" id="show-enemy"> <b>Enemy view</b>: where an enemy can see into the base</label>
+      <label class="field"><span>Base sample positions (enemy view and fallback dead ground)</span><select id="base-samples"><option value="5">5 · center + 4</option><option value="9">9 · center + 8</option><option value="17">17 · center + 16</option></select></label>
+      <p class="note">Samples cover the center and a 40 m ring. Place watch posts or weapon positions to check dead ground from your actual defences; enemy view also checks up to 24 defence positions inside the 100 m build zone. <a href="/los.html">Compare multiple bases and place custom LOS positions →</a></p>
       <div class="row" style="margin-top:8px">
         <label class="field"><span>Out to</span>
           <select id="reach"><option value="200">200 m</option><option value="400">400 m</option><option value="600">600 m</option><option value="800">800 m</option><option value="1600">1600 m</option><option value="2400">2400 m</option></select></label>

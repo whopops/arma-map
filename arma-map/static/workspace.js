@@ -4,7 +4,8 @@
   const mode = document.body.dataset.workspace;
   if (!mode) return;
   const views = [['map', '/', 'Tactical map', '01'], ['mortar', '/mortar.html', 'Mortar', '02'],
-    ['shot', '/shot.html', 'Shot planner', '03'], ['base', '/base.html', 'Base planning', '04']];
+    ['shot', '/shot.html', 'Shot planner', '03'], ['base', '/base.html', 'Base planning', '04'],
+    ['los', '/los.html', 'Line of sight', '05']];
   const header = document.createElement('header');
   header.className = 'workspace-bar';
   header.innerHTML = `<a class="workspace-brand" href="/" aria-label="Field Operations tactical map"><span class="workspace-symbol">⊕</span><span>FIELD<span class="brand-light"> / OPERATIONS</span></span></a>
@@ -147,7 +148,7 @@
   const app = document.getElementById('app');
   const wide = matchMedia('(min-width:1101px)');
   const left = document.getElementById(mode === 'map' ? 'sidebar' : 'side');
-  const right = mode === 'base' ? document.getElementById('base-inspector') : document.getElementById('stage');
+  const right = mode === 'base' ? document.getElementById('base-inspector') : mode === 'los' ? document.getElementById('los-inspector') : document.getElementById('stage');
   const reference = mode === 'mortar' ? document.querySelector('.reference-map') : null;
   const clamp = (n, min, max) => Math.max(min, Math.min(n, Math.max(min,max)));
   function applySizes() {

@@ -66,7 +66,7 @@
   // was last in, and `ownerSig`, what it was then: joining a room, the kept plan goes into it only if it was made for
   // that room and name, or outside any room, or changed since)
   const KEY = 'everon-base-page', KEEP_MS = 5 * 60e3;
-  const S = { map: null, tool: null, sel: null, arc: 60, postRange: 400, sectorCount: 4, reach: 400, dead: true, enemy: false,
+  const S = { map: null, tool: null, sel: null, arc: 60, postRange: 400, sectorCount: 4, reach: 400, samples: 9, dead: true, enemy: false,
     owner: '', ownerSig: null,
     zones: { cap: true, build: true, radio: false }, perMap: {} /* map id -> { base: name, items: [] } */ };
   (function restore() {
@@ -79,6 +79,7 @@
         map: v.map || null, arc: [30, 60, 90, 120, 180].includes(v.arc) ? v.arc : 60, postRange: [200, 400, 800].includes(v.postRange) ? v.postRange : 400,
         sectorCount: [3, 4, 6, 8].includes(v.sectorCount) ? v.sectorCount : 4, reach: [200, 400, 600, 800, 1600, 2400].includes(v.reach) ? v.reach : 400,
         dead: v.dead !== false, enemy: !!v.enemy,
+        samples: [5, 9, 17].includes(v.samples) ? v.samples : 9,
       });
       if (v.zones) for (const k of Object.keys(S.zones)) S.zones[k] = !!v.zones[k];
       for (const [id, m] of Object.entries(v.perMap || {})) {
@@ -93,7 +94,7 @@
     if (owner) { S.owner = owner; S.ownerSig = planSig(); }
     try {
       localStorage.setItem(KEY, JSON.stringify({ at: Date.now(), owner: S.owner, ownerSig: S.ownerSig, map: S.map, arc: S.arc,
-        postRange: S.postRange, sectorCount: S.sectorCount, reach: S.reach, dead: S.dead, enemy: S.enemy, zones: S.zones, perMap: S.perMap }));
+        postRange: S.postRange, sectorCount: S.sectorCount, reach: S.reach, samples: S.samples, dead: S.dead, enemy: S.enemy, zones: S.zones, perMap: S.perMap }));
     } catch (e) { /* not remembered */ }
   }
   setInterval(() => { // while the page is open the 5 minutes don't run
@@ -453,7 +454,7 @@
   // Dead ground: from every position (bunkers, MG nests within their field of fire, watch posts, checkpoints, sector
   // centres; yours and the squad's), looking for a crouched enemy (1 m) out to the chosen distance. Ground none of them
   // sees is shaded. With no positions yet, it's from the middle of the base.
-  // Enemy view: from the middle of the cap zone and four points 40 m out, which spots an enemy standing (1.7 m eye)
+  // Enemy view: from 5/9/17 cap-zone samples and placed defence positions in the build zone, which spots an enemy standing (1.7 m eye)
   // could see a man standing there from. Sight lines run both ways, so it's the same run with the heights swapped.
   const CELL = 2.5, HIDDEN = 1, CLEAR = 2, TREES = 3, RANK = [0, 1, 3, 2];
   let worker = null, workerMap = null, reqSeq = 0, losTimer = 0, losGen = 0, losFailed = false;
@@ -476,7 +477,8 @@
         return;
       }
       losCache.set(w.key, d);
-      while (losCache.size > 60) losCache.delete(losCache.keys().next().value);
+      // 17 base samples plus up to 24 placed enemy targets and 24 friendly positions must fit together.
+      while (losCache.size > 96) losCache.delete(losCache.keys().next().value);
       if (w.gen === losGen) drawShading();
     };
     return worker;
@@ -506,13 +508,22 @@
       else if ((t === 'bunker' || t === 'sandbag-position')) out.push({ xz: it.xz, dir: 0, arc: 360, range: R, eyeH: 1.2, targetH: 1 });
       else if (t === 'post' || t === 'checkpoint' || t === 'sectors') out.push({ xz: it.xz, dir: 0, arc: 360, range: R, eyeH: 1.6, targetH: 1 });
     }
-    // no positions yet: the middle of the base and four spots 40 m out (the middle alone is often inside a building)
+    // No positions yet: sample the middle and a configurable 40 m ring (the middle alone is often in a building).
     if (!out.length) for (const xz of aroundBase(b)) out.push({ xz, dir: 0, arc: 360, range: R + 40, eyeH: 1.6, targetH: 1, fallback: true });
     return out.slice(0, 24);
   }
-  const aroundBase = b => [b.xz, ...[0, 90, 180, 270].map(a => roundXZ([b.xz[0] + 40 * Math.sin(a * Math.PI / 180), b.xz[1] + 40 * Math.cos(a * Math.PI / 180)]))];
+  const aroundBase = b => [b.xz, ...Array.from({ length: S.samples - 1 }, (_, i) => {
+    const a = i * 2 * Math.PI / (S.samples - 1);
+    return roundXZ([b.xz[0] + 40 * Math.sin(a), b.xz[1] + 40 * Math.cos(a)]);
+  })].filter(p => p.every(v => v >= 0 && v < WORLD));
   function enemyRuns(b) {
-    return aroundBase(b).map(xz => ({ xz, dir: 0, arc: 360, range: S.reach + 40, eyeH: 1.7, targetH: 1.7 }));
+    const positions = [...cur().items, ...(inRoom() ? squadDefences().map(x => x.it) : [])]
+      .filter(it => it.xz && dist(it.xz, b.xz) <= 100 &&
+        (isGun(toolOf(it)) || ['bunker', 'sandbag-position', 'post', 'checkpoint', 'sectors'].includes(toolOf(it))))
+      .slice(0, 24).map(it => it.xz);
+    const points = [...aroundBase(b), ...positions];
+    return points.filter((p, i) => points.findIndex(q => q[0] === p[0] && q[1] === p[1]) === i)
+      .map(xz => ({ xz, dir: 0, arc: 360, range: S.reach + 100, eyeH: 1.7, targetH: 1.7 }));
   }
   function losSoon() {
     clearTimeout(losTimer);
@@ -545,8 +556,10 @@
     const b = base(), note = $('#los-note');
     if (!b || (!runs.dead.length && !runs.enemy.length)) { if (!losFailed) note.textContent = b ? '' : 'Pick a base to see its dead ground.'; return; }
     const R = S.reach, N = Math.ceil(2 * R / CELL), minX = b.xz[0] - R, maxZ = b.xz[1] + R;
-    const dead = runs.dead.map(r => losCache.get(reqKey(r))).filter(Boolean), enemy = runs.enemy.map(r => losCache.get(reqKey(r))).filter(Boolean);
-    const waiting = runs.dead.length - dead.length + runs.enemy.length - enemy.length;
+    const readyDead = runs.dead.map(r => losCache.get(reqKey(r))).filter(Boolean), enemy = runs.enemy.map(r => losCache.get(reqKey(r))).filter(Boolean);
+    // More sample positions take longer: never claim hidden ground from only a partial set of views.
+    const dead = readyDead.length === runs.dead.length ? readyDead : [];
+    const waiting = runs.dead.length - readyDead.length + runs.enemy.length - enemy.length;
     const canvas = document.createElement('canvas');
     canvas.width = N; canvas.height = N;
     const ctx = canvas.getContext('2d'), img = ctx.createImageData(N, N), px = img.data;
@@ -646,6 +659,8 @@
   });
   $('#show-dead').addEventListener('change', e => { S.dead = e.target.checked; save(); requestLos(); });
   $('#show-enemy').addEventListener('change', e => { S.enemy = e.target.checked; save(); requestLos(); });
+  $('#base-samples').value = String(S.samples);
+  $('#base-samples').addEventListener('change', e => { S.samples = Number(e.target.value); save(); requestLos(); });
   $('#reach').addEventListener('change', e => { S.reach = +e.target.value; save(); requestLos(); });
   function showSettings() {
     $('#show-dead').checked = S.dead; $('#show-enemy').checked = S.enemy; $('#reach').value = String(S.reach);

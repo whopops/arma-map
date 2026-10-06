@@ -9,7 +9,7 @@ A quick map of how the site works and where each piece lives. [README.md](README
 a **room** by name + room code and share markings live. The site has:
 
 - a field map with markings, line of sight, a mortar solver, a shot calculator, routes, sound and more
-- three stand-alone workbench pages: **Mortar**, **Shot planner** and **Base planning**
+- four stand-alone workbench pages: **Mortar**, **Shot planner**, **Base planning** and **Line of sight**
 - a WebGL **3D view** of the same terrain and markings
 - an **admin** page
 
@@ -92,13 +92,14 @@ helpers such as `esc`, `toLL`, grid parsing and glyph icons are still copied int
 | `mortar.html` | `mortar.js`, `mortar.css`, `3d/mortar.js` (global `Mortar`), `3d/room.js`, `workspace.js/css`, `plan-sync.js` | Gun + wind + target queue with ring, elevation, azimuth and time of flight; corrections; a reference map with place names and Conflict bases; room sharing (your gun becomes a `mortar` marking; it shows the room's mortars and fire requests) |
 | `shot.html` | `shot.js`, `shot.css`, `shot-core.js`, `3d/room.js`, `plan-sync.js` | The shot calculator on its own page: shooter and target markers (draggable), weapon, wind, solution; in a room it's a marking under your name |
 | `base.html` | `base.js`, `base.css`, `3d/los.js`, `los-worker.js`, `3d/room.js`, `base-items.js`, `plan-sync.js` | Pick a Conflict base, lay out defences and see dead ground; available from the shared operations bar |
+| `los.html` (`/los`) | `los.js`, `los.css`, `los-analysis.js`, `los-worker.js` | Local multi-base LOS comparison, custom observers, check points and ownership stripes; no room writes |
 | `3d/index.html` | `3d/main.js` (WebGL renderer, camera, minimap, HUD), `3d/worker.js` (mesh builder), `3d/marks.js` (markings in 3D), `3d/mortar.js`, `3d/los.js` (wraps `/los-worker.js`), `3d/room.js` | Fly or walk the terrain with the room's markings. Read-only observer sessions use separate capacity and do not claim player names |
 | `admin.html` | `admin.js` | Rooms and players, kick, ban, close a room |
 
 - **`construction.js`**: shared catalog of 26 vanilla construction roles, used by the base builder, tactical map
   and 3D markings. `CONSTRUCTION_CATALOG.md` maps every game registry family to its representative. New construction
   kinds must also be allowed in `server.py`; the client/server regression checks exercise actual builder payloads.
-- **`workspace.js` / `workspace.css`**: the shared top bar (Tactical map / Mortar / Shot planner / Base planning), a
+- **`workspace.js` / `workspace.css`**: the shared top bar (Tactical map / Mortar / Shot planner / Base planning / Line of sight), a
   status chip and layout toggles on every page with `<body data-workspace="...">`.
 - **`3d/room.js`**: a reusable room client, `Room(api, {onChange, onStatus, onSettings})`. It exposes
   `join`, `listen`, `leave`, `players`, `me`, `setWind`, `setClock`, `wind`, `clock` and `gameNow()`. Base, mortar, shot and 3D use it;
@@ -134,6 +135,13 @@ The banner comments name the sections. Use function names to navigate; line numb
   that tile layer, preserving darker terrain, satellite colors and planning overlay colors. Baked tiles remain generated data.
 
 ## Shared engines and factories
+
+- **LOS workbench**: `los-analysis.js` samples detailed worker results and combines each base's observers
+  independently. Pending/failed cells remain unknown unless an existing clear view proves visibility. `los.js`
+  keeps only current-plan worker results, cancels stale requests, resets workers on map changes and renders a
+  bounded viewport raster. Session-storage plans are per map and separate from shared room backups. Base planning
+  also allows 5/9/17 samples for its enemy views and no-defence fallback. `test_los_analysis.cjs` covers verdict
+  precedence, incomplete/error results, observer identity and map edges, and runs with the client suite.
 
 - **Mortar ballistics** live in **`3d/mortar.js` (`Mortar`)**, used by the field map, mortar page and 3D view.
   - `Mortar.field(env)` adapts the field map's point-array terrain callbacks, roof targeting, and range outlines.

@@ -1,0 +1,28 @@
+'use strict';
+const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm'), assert = require('node:assert/strict');
+module.exports = function () {
+  const ctx = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'static/los-analysis.js'),'utf8'),ctx);
+  const {verdict,around,sample} = ctx.LosAnalysis;
+  const result = value => ({cells:new Uint8Array([value]),W:1,H:1,minX:0,maxZ:2.5,cell:2.5});
+  const run = (value,label='P1') => ({xz:[1,1],label,result:value === null ? null : result(value)});
+  const at = [1,1];
+  assert.equal(verdict([run(1),run(null)],at,400).value,'pending','unfinished views must not mark dead ground');
+  assert.equal(verdict([run(3),run(null)],at,400).value,'pending','foliage is provisional while another observer is unfinished');
+  assert.equal(verdict([run(1),run(3)],at,400).value,3);
+  assert.equal(verdict([run(3),run(2)],at,400).value,2,'clear outranks foliage');
+  assert.equal(verdict([run(2),run(null)],at,400).value,2,'one clear observer proves visibility');
+  assert.equal(verdict([run(1),{...run(null),failed:true}],at,400).value,'error');
+  assert.equal(verdict([run(2),{...run(null),failed:true}],at,400).value,2);
+  assert.equal(verdict([run(1)],at,400).value,1);
+  assert.equal(verdict([run(1)],[900,900],400).value,'outside');
+  assert.equal(verdict([run(0)],at,400).value,'pending','uncomputed grid cells are unknown');
+  assert.equal(sample(result(2),[-1,1]),0);
+  const a = verdict([run(1,'P1'),run(2,'P2')],at,400);
+  assert.equal(a.positions[0].value,1); assert.equal(a.positions[1].value,2);
+  assert.equal(verdict([run(1)],at,400).value,1,'each base remains independent of overlapping clear bases');
+  for (const n of [5,9,17]) assert.equal(around([200,200],n,1000).length,n);
+  assert.ok(around([0,0],17,1000).every(p=>p.every(v=>v>=0&&v<1000)),'edge samples stay in world');
+  console.log('LOS workbench: pending, failed, overlapping ownership and sample positions passed');
+};
+if (require.main === module) module.exports();
